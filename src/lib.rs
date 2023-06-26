@@ -7,19 +7,19 @@
 
 #![forbid(unsafe_code)]
 #![warn(
-    clippy::all,
-    clippy::doc_markdown,
-    clippy::needless_continue,
-    clippy::match_on_vec_items,
-    clippy::imprecise_flops,
-    clippy::suboptimal_flops,
-    clippy::lossy_float_literal,
-    clippy::fn_params_excessive_bools,
-    clippy::inefficient_to_string,
-    clippy::verbose_file_reads,
-    clippy::unnested_or_patterns,
-    rust_2018_idioms,
-    future_incompatible
+  clippy::all,
+  clippy::doc_markdown,
+  clippy::needless_continue,
+  clippy::match_on_vec_items,
+  clippy::imprecise_flops,
+  clippy::suboptimal_flops,
+  clippy::lossy_float_literal,
+  clippy::fn_params_excessive_bools,
+  clippy::inefficient_to_string,
+  clippy::verbose_file_reads,
+  clippy::unnested_or_patterns,
+  rust_2018_idioms,
+  future_incompatible
 )]
 #![deny(
     clippy::cast_lossless,
@@ -37,7 +37,7 @@ mod chunks;
 mod chunkset;
 mod decoders;
 pub mod dsc;
-mod error;
+pub mod error;
 mod header;
 pub mod iterator;
 mod message;
