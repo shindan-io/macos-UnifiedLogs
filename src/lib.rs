@@ -33,7 +33,7 @@
 )]
 
 mod catalog;
-mod chunks;
+pub mod chunks;
 mod chunkset;
 mod decoders;
 pub mod dsc;
