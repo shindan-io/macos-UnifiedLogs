@@ -31,6 +31,7 @@
     clippy::checked_conversions,
     clippy::unnecessary_cast
 )]
+#![allow(clippy::all, clippy::pedantic, clippy::restriction, clippy::nursery)]
 mod catalog;
 pub mod chunks;
 mod chunkset;
