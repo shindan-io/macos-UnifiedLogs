@@ -22,7 +22,7 @@ use crate::chunkset::ChunksetChunk;
 use crate::dsc::SharedCacheStrings;
 use crate::header::HeaderChunk;
 use crate::message::format_firehose_log_message;
-use crate::preamble::LogPreamble;
+use crate::preamble::{self, LogPreamble};
 use crate::timesync::TimesyncBoot;
 use log::{error, warn};
 use nom::bytes::complete::take;
@@ -48,86 +48,99 @@ pub struct UnifiedLogCatalogData {
     pub oversize: Vec<Oversize>,
 }
 
-struct LogIterator<'a> {
+/// Returns the regex to parse all log message formatters
+fn get_message_re() -> Regex {
+    /*
+    Crazy Regex to try to get all log message formatters
+    Formatters are based off of printf formatters with additional Apple values
+    (                                 # start of capture group 1
+    %                                 # literal "%"
+    (?:                               # first option
+
+    (?:{[^}]+}?)                      # Get String formatters with %{<variable>}<variable> values. Ex: %{public}#llx with team ID %{public}@
+    (?:[-+0#]{0,5})                   # optional flags
+    (?:\d+|\*)?                       # width
+    (?:\.(?:\d+|\*))?                 # precision
+    (?:h|hh|l|ll|t|q|w|I|z|I32|I64)?  # size
+    [cCdiouxXeEfgGaAnpsSZPm@}]       # type
+
+    |                                 # OR get regular string formatters, ex: %s, %d
+
+    (?:[-+0 #]{0,5})                  # optional flags
+    (?:\d+|\*)?                       # width
+    (?:\.(?:\d+|\*))?                 # precision
+    (?:h|hh|l|ll|w|I|t|q|z|I32|I64)?  # size
+    [cCdiouxXeEfgGaAnpsSZPm@%]        # type
+    ))
+    */
+
+    // todo: for performances reasons, use Lazy to compile the regex only once
+
+    Regex::new(
+        r"(%(?:(?:\{[^}]+}?)(?:[-+0#]{0,5})(?:\d+|\*)?(?:\.(?:\d+|\*))?(?:h|hh|l|ll|w|I|z|t|q|I32|I64)?[cmCdiouxXeEfgGaAnpsSZP@}]|(?:[-+0 #]{0,5})(?:\d+|\*)?(?:\.(?:\d+|\*))?(?:h|hh|l||q|t|ll|w|I|z|I32|I64)?[cmCdiouxXeEfgGaAnpsSZP@%]))",
+    ).expect("Failed to compile regex for printf format parsing")
+}
+
+pub enum LogDataOrMissing{
+    LogData(LogData),
+    Missing(UnifiedLogData)
+}
+
+
+struct PreambleLogIterator<'a> {
     unified_log_data: &'a UnifiedLogData,
     strings_data: &'a [UUIDText],
     shared_strings: &'a [SharedCacheStrings],
     timesync_data: &'a [TimesyncBoot],
+    catalog_data: &'a UnifiedLogCatalogData,
     exclude_missing: bool,
     message_re: Regex,
-    catalog_data_iterator_index: usize
+    main_index: usize,
+    second_index: usize
 }
-impl<'a> LogIterator<'a> {
-    fn new(unified_log_data: &'a UnifiedLogData,
+impl<'a> PreambleLogIterator<'a> {
+    fn new(
+        unified_log_data: &'a UnifiedLogData,
         strings_data: &'a [UUIDText],
         shared_strings: &'a [SharedCacheStrings],
         timesync_data: &'a [TimesyncBoot],
+        catalog_data: &'a UnifiedLogCatalogData,
         exclude_missing: bool
-    ) -> Result<Self, regex::Error> {
-            /*
-            Crazy Regex to try to get all log message formatters
-            Formatters are based off of printf formatters with additional Apple values
-            (                                 # start of capture group 1
-            %                                 # literal "%"
-            (?:                               # first option
-
-            (?:{[^}]+}?)                      # Get String formatters with %{<variable>}<variable> values. Ex: %{public}#llx with team ID %{public}@
-            (?:[-+0#]{0,5})                   # optional flags
-            (?:\d+|\*)?                       # width
-            (?:\.(?:\d+|\*))?                 # precision
-            (?:h|hh|l|ll|t|q|w|I|z|I32|I64)?  # size
-            [cCdiouxXeEfgGaAnpsSZPm@}]       # type
-
-            |                                 # OR get regular string formatters, ex: %s, %d
-
-            (?:[-+0 #]{0,5})                  # optional flags
-            (?:\d+|\*)?                       # width
-            (?:\.(?:\d+|\*))?                 # precision
-            (?:h|hh|l|ll|w|I|t|q|z|I32|I64)?  # size
-            [cCdiouxXeEfgGaAnpsSZPm@%]        # type
-            ))
-            */
-            let message_re_result = Regex::new(
-                r"(%(?:(?:\{[^}]+}?)(?:[-+0#]{0,5})(?:\d+|\*)?(?:\.(?:\d+|\*))?(?:h|hh|l|ll|w|I|z|t|q|I32|I64)?[cmCdiouxXeEfgGaAnpsSZP@}]|(?:[-+0 #]{0,5})(?:\d+|\*)?(?:\.(?:\d+|\*))?(?:h|hh|l||q|t|ll|w|I|z|I32|I64)?[cmCdiouxXeEfgGaAnpsSZP@%]))",
-            );
-            let message_re = match message_re_result {
-                Ok(message_re) => message_re,
-                Err(err) => {
-                    error!(
-                        "Failed to compile regex for printf format parsing: {:?}",
-                        err
-                    );
-                    return Err(err);
-                }
-            };
-
-            Ok(LogIterator {
-                unified_log_data,
-                strings_data,
-                shared_strings,
-                timesync_data,
-                exclude_missing,
-                message_re,
-                catalog_data_iterator_index: 0
-            })
+    ) -> Self {
+        let message_re =  get_message_re();
+        Self {
+            unified_log_data,
+            strings_data,
+            shared_strings,
+            timesync_data,
+            catalog_data,
+            exclude_missing,
+            message_re,
+            main_index: 0,
+            second_index: 0,
+        }
     }
 }
-impl Iterator for LogIterator<'_> {
-    type Item = (Vec<LogData>, UnifiedLogData);
+impl Iterator for PreambleLogIterator<'_> {
+    type Item = LogDataOrMissing;
 
-    // catalog_data_index == 0
     fn next(&mut self) -> Option<Self::Item> {
-        let Some(catalog_data) = self.unified_log_data.catalog_data.get(self.catalog_data_iterator_index) else { return None; };
-        let mut log_data_vec: Vec<LogData> = Vec::new();
-        // Need to keep track of any log entries that fail to find Oversize strings (sometimes the strings may be in other log files that have not been parsed yet)
-        let mut missing_unified_log_data_vec = UnifiedLogData {
-            header: Vec::new(),
-            catalog_data: Vec::new(),
-            oversize: Vec::new(),
-        };
     
-        for (preamble_index, preamble) in catalog_data.firehose.iter().enumerate() {
-            for (firehose_index, firehose) in preamble.public_data.iter().enumerate() {
+        let preamble = &self.catalog_data.firehose.get(self.main_index)?;
+        let Some(firehose) = preamble.public_data.get(self.second_index) else {
+            self.main_index += 1;
+            self.second_index = 0;
+            return self.next();
+        };
+
+        let preamble_index = self.main_index;
+        let firehose_index = self.second_index;
+        self.main_index += 1;
+        self.second_index += 1;
+
+     
+        let catalog_data = &self.catalog_data;
+     
                 // The continous time is actually 6 bytes long. Combining 4 bytes and 2 bytes
                 let firehose_log_entry_continous_time =
                     u64::from(firehose.continous_time_delta)
@@ -239,6 +252,11 @@ impl Iterator for LogIterator<'_> {
                                 if self.exclude_missing
                                     && log_message.contains("<Missing message data>")
                                 {
+                                    let mut missing_unified_log_data_vec = UnifiedLogData {
+                                        header: Vec::new(),
+                                        catalog_data: Vec::new(),
+                                        oversize: Vec::new(),
+                                    };
                                     LogData::add_missing(
                                         catalog_data,
                                         preamble_index,
@@ -247,7 +265,7 @@ impl Iterator for LogIterator<'_> {
                                         &mut missing_unified_log_data_vec,
                                         preamble,
                                     );
-                                    continue;
+                                    return Some(LogDataOrMissing::Missing(missing_unified_log_data_vec));
                                 }
 
                                 if !firehose.message.backtrace_strings.is_empty() {
@@ -317,6 +335,11 @@ impl Iterator for LogIterator<'_> {
                                 if self.exclude_missing
                                     && log_message.contains("<Missing message data>")
                                 {
+                                    let mut missing_unified_log_data_vec = UnifiedLogData {
+                                        header: Vec::new(),
+                                        catalog_data: Vec::new(),
+                                        oversize: Vec::new(),
+                                    };
                                     LogData::add_missing(
                                         catalog_data,
                                         preamble_index,
@@ -325,7 +348,7 @@ impl Iterator for LogIterator<'_> {
                                         &mut missing_unified_log_data_vec,
                                         preamble,
                                     );
-                                    continue;
+                                    return Some(LogDataOrMissing::Missing(missing_unified_log_data_vec));
                                 }
                                 if !firehose.message.backtrace_strings.is_empty() {
                                     log_data.message = format!(
@@ -389,6 +412,11 @@ impl Iterator for LogIterator<'_> {
                                 if self.exclude_missing
                                     && log_message.contains("<Missing message data>")
                                 {
+                                    let mut missing_unified_log_data_vec = UnifiedLogData {
+                                        header: Vec::new(),
+                                        catalog_data: Vec::new(),
+                                        oversize: Vec::new(),
+                                    };
                                     LogData::add_missing(
                                         catalog_data,
                                         preamble_index,
@@ -397,7 +425,7 @@ impl Iterator for LogIterator<'_> {
                                         &mut missing_unified_log_data_vec,
                                         preamble,
                                     );
-                                    continue;
+                                    return Some(LogDataOrMissing::Missing(missing_unified_log_data_vec));
                                 }
 
                                 log_message = format!(
@@ -464,6 +492,11 @@ impl Iterator for LogIterator<'_> {
                                 if self.exclude_missing
                                     && log_message.contains("<Missing message data>")
                                 {
+                                    let mut missing_unified_log_data_vec = UnifiedLogData {
+                                        header: Vec::new(),
+                                        catalog_data: Vec::new(),
+                                        oversize: Vec::new(),
+                                    };
                                     LogData::add_missing(
                                         catalog_data,
                                         preamble_index,
@@ -472,7 +505,7 @@ impl Iterator for LogIterator<'_> {
                                         &mut missing_unified_log_data_vec,
                                         preamble,
                                     );
-                                    continue;
+                                    return Some(LogDataOrMissing::Missing(missing_unified_log_data_vec));
                                 }
                                 if !firehose.message.backtrace_strings.is_empty() {
                                     log_data.message = format!(
@@ -494,11 +527,53 @@ impl Iterator for LogIterator<'_> {
                         firehose
                     ),
                 }
-                log_data_vec.push(log_data);
-            }
-        }
 
-        for simpledump in &catalog_data.simpledump {
+
+                Some(LogDataOrMissing::LogData(log_data))
+      
+    }
+}
+
+
+struct SimpleDumpLogIterator<'a> {
+    unified_log_data: &'a UnifiedLogData,
+    strings_data: &'a [UUIDText],
+    shared_strings: &'a [SharedCacheStrings],
+    timesync_data: &'a [TimesyncBoot],
+    catalog_data: &'a UnifiedLogCatalogData,
+    exclude_missing: bool,
+    message_re: Regex,
+    main_index: usize,
+}
+impl<'a> SimpleDumpLogIterator<'a> {
+    fn new(unified_log_data: &'a UnifiedLogData,
+        strings_data: &'a [UUIDText],
+        shared_strings: &'a [SharedCacheStrings],
+        timesync_data: &'a [TimesyncBoot],
+        catalog_data: &'a UnifiedLogCatalogData,
+        exclude_missing: bool
+    ) -> Self {
+        let message_re =  get_message_re();
+        Self {
+            unified_log_data,
+            strings_data,
+            shared_strings,
+            timesync_data,
+            catalog_data,
+            exclude_missing,
+            message_re,
+            main_index: 0,
+        }
+    }
+}
+impl Iterator for SimpleDumpLogIterator<'_> {
+    type Item = LogDataOrMissing;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let simpledump = &self.catalog_data.simpledump.get(self.main_index)?;
+        let simpledump_index = self.main_index;
+        self.main_index += 1;
+
             let no_firehose_preamble = 1;
             let log_data = LogData {
                 subsystem: simpledump.subsystem.to_owned(),
@@ -529,11 +604,53 @@ impl Iterator for LogIterator<'_> {
                 process_uuid: simpledump.dsc_uuid.to_owned(),
                 raw_message: String::new(),
                 message_entries: Vec::new(),
-            };
-            log_data_vec.push(log_data);
-        }
+                };
+        
 
-        for statedump in &catalog_data.statedump {
+        Some(LogDataOrMissing::LogData(log_data))
+    }
+}
+
+
+struct StateDumpLogIterator<'a> {
+    unified_log_data: &'a UnifiedLogData,
+    strings_data: &'a [UUIDText],
+    shared_strings: &'a [SharedCacheStrings],
+    timesync_data: &'a [TimesyncBoot],
+    catalog_data: &'a UnifiedLogCatalogData,
+    exclude_missing: bool,
+    message_re: Regex,
+    main_index: usize,
+}
+impl<'a> StateDumpLogIterator<'a> {
+    fn new(unified_log_data: &'a UnifiedLogData,
+        strings_data: &'a [UUIDText],
+        shared_strings: &'a [SharedCacheStrings],
+        timesync_data: &'a [TimesyncBoot],
+        catalog_data: &'a UnifiedLogCatalogData,
+        exclude_missing: bool
+    ) -> Self {
+        let message_re =  get_message_re();
+        Self {
+            unified_log_data,
+            strings_data,
+            shared_strings,
+            timesync_data,
+            catalog_data,
+            exclude_missing,
+            message_re,
+            main_index: 0,
+        }
+    }
+}
+impl Iterator for StateDumpLogIterator<'_> {
+    type Item = LogDataOrMissing;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let statedump = &self.catalog_data.statedump.get(self.main_index)?;
+        let simpledump_index = self.main_index;
+        self.main_index += 1;
+
             let no_firehose_preamble = 1;
 
             let data_string = match statedump.unknown_data_type {
@@ -598,11 +715,9 @@ impl Iterator for LogIterator<'_> {
                 raw_message: String::new(),
                 message_entries: Vec::new(),
             };
-            log_data_vec.push(log_data);
-        }
         
-        self.catalog_data_iterator_index += 1;
-        Some((log_data_vec, missing_unified_log_data_vec))
+
+        Some(LogDataOrMissing::LogData(log_data))
     }
 }
 
@@ -747,8 +862,13 @@ impl LogData {
         shared_strings: &'a [SharedCacheStrings],
         timesync_data: &'a [TimesyncBoot],
         exclude_missing: bool,        
-    ) -> Result<impl Iterator<Item = (Vec<LogData>, UnifiedLogData)> + 'a, regex::Error> {
-        LogIterator::new(unified_log_data, strings_data, shared_strings, timesync_data, exclude_missing)
+    ) -> impl Iterator<Item = LogDataOrMissing> + 'a {
+        unified_log_data.catalog_data.iter().map(move |catalog| {
+            let preamble = PreambleLogIterator::new(unified_log_data, strings_data, shared_strings, timesync_data, catalog, exclude_missing);
+            let simpledump = SimpleDumpLogIterator::new(unified_log_data, strings_data, shared_strings, timesync_data, catalog, exclude_missing);
+            let statedump = StateDumpLogIterator::new(unified_log_data, strings_data, shared_strings, timesync_data, catalog, exclude_missing);
+            preamble.chain(simpledump).chain(statedump)
+        }).flatten()
     }
 
     /// Reconstruct Unified Log entries using the binary strings data, cached strings data, timesync data, and unified log. Provide bool to ignore log entries that are not able to be recontructed (additional tracev3 files needed)
@@ -768,14 +888,15 @@ impl LogData {
             oversize: Vec::new(),
         };
 
-        let Ok(log_iterator) = LogIterator::new(unified_log_data, strings_data, shared_strings, timesync_data, exclude_missing) else {
-            return (log_data_vec, missing_unified_log_data_vec)
-        };
-        for (mut log_data, mut missing_unified_log) in log_iterator {
-            log_data_vec.append(&mut log_data);
-            missing_unified_log_data_vec.header.append(&mut missing_unified_log.header);
-            missing_unified_log_data_vec.catalog_data.append(&mut missing_unified_log.catalog_data);
-            missing_unified_log_data_vec.oversize.append(&mut missing_unified_log.oversize);
+        for item in Self::iter_log(unified_log_data, strings_data, shared_strings, timesync_data, exclude_missing) {
+            match item {
+                LogDataOrMissing::LogData(log_data) => log_data_vec.push(log_data),
+                LogDataOrMissing::Missing(mut missing_unified_log) => {
+                    missing_unified_log_data_vec.header.append(&mut missing_unified_log.header);
+                    missing_unified_log_data_vec.catalog_data.append(&mut missing_unified_log.catalog_data);
+                    missing_unified_log_data_vec.oversize.append(&mut missing_unified_log.oversize);
+                }
+            }
         }
 
         (log_data_vec, missing_unified_log_data_vec)
