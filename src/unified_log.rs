@@ -613,6 +613,7 @@ impl Iterator for LogIterator<'_> {
                     }
                 }
             };
+
             let timestamp = TimesyncBoot::get_timestamp(
                 self.timesync_data,
                 &self.unified_log_data.header[0].boot_uuid,
