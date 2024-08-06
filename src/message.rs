@@ -79,8 +79,14 @@ pub fn format_firehose_log_message(
         };
     }
 
+    let hope_this_dummy_value_wont_be_used = FirehoseItemInfo {
+        item_type: 0,
+        item_size: 0,
+        message_strings: String::new(),
+    };
+
     update_index_or!(0, {
-        return String::new();
+        item_at_index = &hope_this_dummy_value_wont_be_used;
     });
 
     for formatter in results {
