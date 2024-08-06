@@ -265,11 +265,21 @@ fn parse_formatter<'a>(
 ) -> nom::IResult<&'a str, String> {
     let mut index = item_index;
 
+    if item_index >= message_value.len() {
+        error!("[macos-unifiedlogs] Index out of range");
+        return Ok(("", String::from("")));
+    }
+
     let precision_items = [0x10, 0x12];
     let mut precision_value = 0;
     if precision_items.contains(item_type) {
         precision_value = message_value[index].item_size as usize;
         index += 1;
+
+        if item_index >= message_value.len() {
+            error!("[macos-unifiedlogs] Index out of range");
+            return Ok(("", String::from("")));
+        }
     }
 
     let mut message = message_value[index].message_strings.to_owned();
