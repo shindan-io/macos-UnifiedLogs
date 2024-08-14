@@ -313,8 +313,8 @@ impl CatalogChunk {
             subsystem_entries += 1;
             catalog_process_entry.subsystem_entries.push(subsystem);
         }
-        let subsystem_size = 6;
-        let total_subsystem_size = catalog_process_entry.number_subsystems * subsystem_size;
+        const SUBSYSTEM_SIZE: u32 = 6;
+        let total_subsystem_size = catalog_process_entry.number_subsystems * SUBSYSTEM_SIZE;
 
         let padding = padding_size(total_subsystem_size.into());
         let (input, _) = take(padding)(input)?;

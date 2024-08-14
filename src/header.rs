@@ -98,8 +98,8 @@ impl HeaderChunk {
         let (input, unknown_3) = take(size_of::<u32>())(input)?;
         let (input, build_version_string) = take(size_of::<u128>())(input)?;
 
-        let hardware_model_size: u8 = 32;
-        let (input, hardware_model_string) = take(hardware_model_size)(input)?;
+        const HARDWARE_MODEL_SIZE: u8 = 32;
+        let (input, hardware_model_string) = take(HARDWARE_MODEL_SIZE)(input)?;
         let (input, sub_chunk_tag_3) = take(size_of::<u32>())(input)?;
         let (input, sub_chunk_tag_data_size_3) = take(size_of::<u32>())(input)?;
         let (input, boot_uuid) = take(size_of::<u128>())(input)?;
@@ -108,8 +108,8 @@ impl HeaderChunk {
         let (input, sub_chunk_tag_4) = take(size_of::<u32>())(input)?;
         let (input, sub_chunk_tag_data_size_4) = take(size_of::<u32>())(input)?;
 
-        let timezone_path_size: u8 = 48;
-        let (input, timezone_path) = take(timezone_path_size)(input)?;
+        const TIMEZONE_PATH_SIZE: u8 = 48;
+        let (input, timezone_path) = take(TIMEZONE_PATH_SIZE)(input)?;
 
         let (_, header_chunk_tag) = le_u32(chunk_tag)?;
         let (_, header_chunk_sub_tag) = le_u32(chunk_sub_tag)?;
