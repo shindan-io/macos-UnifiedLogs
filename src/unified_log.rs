@@ -583,7 +583,14 @@ impl Iterator for LogIterator<'_> {
         // }
 
         self.catalog_data_iterator_index += 1;
-        Some((log_data_vec, missing_unified_log_data_vec))
+        Some((
+            log_data_vec,
+            UnifiedLogData {
+                header: Vec::new(),
+                catalog_data: Vec::new(),
+                oversize: Vec::new(),
+            },
+        ))
     }
 }
 
