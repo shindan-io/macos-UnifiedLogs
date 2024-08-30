@@ -199,28 +199,31 @@ impl Iterator for LogIterator<'_> {
                                 log_data.process_uuid = results.process_uuid;
                                 log_data.raw_message = results.format_string.to_owned();
 
-                                // If the non-activity log entry has a data ref value then the message strings are stored in an oversize log entry
-                                let log_message = if firehose.firehose_non_activity.data_ref_value
-                                    != 0
-                                {
-                                    let oversize_strings = Oversize::get_oversize_strings(
-                                        u32::from(firehose.firehose_non_activity.data_ref_value),
-                                        preamble.first_number_proc_id,
-                                        preamble.second_number_proc_id,
-                                        &self.unified_log_data.oversize,
-                                    );
-                                    // Format and map the log strings with the message format string found UUIDText or shared string file
-                                    format_firehose_log_message(
-                                        results.format_string,
-                                        &oversize_strings,
-                                    )
-                                } else {
-                                    // Format and map the log strings with the message format string found UUIDText or shared string file
-                                    format_firehose_log_message(
-                                        results.format_string,
-                                        &firehose.message.item_info,
-                                    )
-                                };
+                                // // If the non-activity log entry has a data ref value then the message strings are stored in an oversize log entry
+                                // let log_message = if firehose.firehose_non_activity.data_ref_value
+                                //     != 0
+                                // {
+                                //     let oversize_strings = Oversize::get_oversize_strings(
+                                //         u32::from(firehose.firehose_non_activity.data_ref_value),
+                                //         preamble.first_number_proc_id,
+                                //         preamble.second_number_proc_id,
+                                //         &self.unified_log_data.oversize,
+                                //     );
+                                //     // Format and map the log strings with the message format string found UUIDText or shared string file
+                                //     format_firehose_log_message(
+                                //         results.format_string,
+                                //         &oversize_strings,
+                                //     )
+                                // } else {
+                                //     // Format and map the log strings with the message format string found UUIDText or shared string file
+                                //     format_firehose_log_message(
+                                //         results.format_string,
+                                //         &firehose.message.item_info,
+                                //     )
+                                // };
+
+                                let log_message = "".to_string();
+
                                 // // If we are tracking missing data (due to it being stored in another log file). Add missing data to vec to track and parse again once we got all data
                                 // if self.exclude_missing
                                 //     && log_message.contains("<Missing message data>")
