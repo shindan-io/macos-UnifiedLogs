@@ -221,20 +221,20 @@ impl Iterator for LogIterator<'_> {
                                         &firehose.message.item_info,
                                     )
                                 };
-                                // If we are tracking missing data (due to it being stored in another log file). Add missing data to vec to track and parse again once we got all data
-                                if self.exclude_missing
-                                    && log_message.contains("<Missing message data>")
-                                {
-                                    LogData::add_missing(
-                                        catalog_data,
-                                        preamble_index,
-                                        firehose_index,
-                                        &self.unified_log_data.header,
-                                        &mut missing_unified_log_data_vec,
-                                        preamble,
-                                    );
-                                    continue;
-                                }
+                                // // If we are tracking missing data (due to it being stored in another log file). Add missing data to vec to track and parse again once we got all data
+                                // if self.exclude_missing
+                                //     && log_message.contains("<Missing message data>")
+                                // {
+                                //     LogData::add_missing(
+                                //         catalog_data,
+                                //         preamble_index,
+                                //         firehose_index,
+                                //         &self.unified_log_data.header,
+                                //         &mut missing_unified_log_data_vec,
+                                //         preamble,
+                                //     );
+                                //     continue;
+                                // }
 
                                 if !firehose.message.backtrace_strings.is_empty() {
                                     log_data.message = format!(
@@ -251,23 +251,23 @@ impl Iterator for LogIterator<'_> {
                             }
                         }
 
-                        if firehose.firehose_non_activity.subsystem_value != 0 {
-                            let results = CatalogChunk::get_subsystem(
-                                &firehose.firehose_non_activity.subsystem_value,
-                                &preamble.first_number_proc_id,
-                                &preamble.second_number_proc_id,
-                                &catalog_data.catalog,
-                            );
-                            match results {
-                                Ok((_, subsystem)) => {
-                                    log_data.subsystem = subsystem.subsystem;
-                                    log_data.category = subsystem.category;
-                                }
-                                Err(err) => {
-                                    warn!("[macos-unifiedlogs] Failed to get subsystem: {:?}", err)
-                                }
-                            }
-                        }
+                        // if firehose.firehose_non_activity.subsystem_value != 0 {
+                        //     let results = CatalogChunk::get_subsystem(
+                        //         &firehose.firehose_non_activity.subsystem_value,
+                        //         &preamble.first_number_proc_id,
+                        //         &preamble.second_number_proc_id,
+                        //         &catalog_data.catalog,
+                        //     );
+                        //     match results {
+                        //         Ok((_, subsystem)) => {
+                        //             log_data.subsystem = subsystem.subsystem;
+                        //             log_data.category = subsystem.category;
+                        //         }
+                        //         Err(err) => {
+                        //             warn!("[macos-unifiedlogs] Failed to get subsystem: {:?}", err)
+                        //         }
+                        //     }
+                        // }
                     }
                     // 0x7 => {
                     //     // No message data in loss entries
