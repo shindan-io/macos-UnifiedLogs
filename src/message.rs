@@ -13,7 +13,6 @@ use log::{error, info, warn};
 use nom::branch::alt;
 use nom::bytes::complete::{is_a, is_not, take, take_until};
 use nom::character::complete::digit0;
-use regex::Regex;
 
 struct FormatAndMessage {
     formatter: String,
@@ -31,7 +30,6 @@ const STRING_TYPES: [&str; 6] = ["c", "s", "@", "S", "C", "P"];
 pub fn format_firehose_log_message(
     format_string: String,
     item_message: &Vec<FirehoseItemInfo>,
-    message_re: &Regex,
 ) -> String {
     let mut log_message = format_string;
     let mut format_and_message_vec: Vec<FormatAndMessage> = Vec::new();
@@ -85,192 +83,6 @@ pub fn format_firehose_log_message(
     update_index_or!(0, {
         item_at_index = &hope_this_dummy_value_wont_be_used;
     });
-
-    for formatter in message_re.clone().find_iter(&log_message) {
-        // Skip literal "% " values
-        if formatter.as_str().starts_with("% ") {
-            continue;
-        }
-
-        let mut format_and_message = FormatAndMessage {
-            formatter: String::new(),
-            message: String::new(),
-        };
-
-        // %% is literal %
-        if formatter.as_str() == "%%" {
-            format_and_message.formatter = formatter.as_str().to_string();
-            format_and_message.message = String::from("%");
-            format_and_message_vec.push(format_and_message);
-            continue;
-        }
-
-        // Sometimes the log message does not have all of the message strings
-        // Apple labels them: "<decode: missing data>"
-        if item_index >= item_message.len() {
-            format_and_message.formatter = formatter.as_str().to_string();
-            format_and_message.message = String::from("<Missing message data>");
-            format_and_message_vec.push(format_and_message);
-            continue;
-        }
-        let mut formatted_log_message = item_message[item_index].message_strings.to_owned();
-        let formatter_string = formatter.as_str();
-
-        // If the formatter does not have a type then the entry is the literal foramt
-        // Ex: RDAlarmNotificationConsumer {identifier: %{public}%@ currentSet: %@, count: %{public}%d}
-        //  -> RDAlarmNotificationConsumer {identifier: {public}<private> allowedSet: <private>, count {public}0}
-        if formatter_string.starts_with("%{") && formatter_string.ends_with('}') {
-            format_and_message.formatter = formatter_string.to_string();
-            formatter_string.to_string().remove(0);
-            format_and_message.message = formatter_string.to_string();
-            format_and_message_vec.push(format_and_message);
-            continue;
-        }
-
-        let private_strings = [0x1, 0x21, 0x31, 0x41];
-        let private_number = 0x1;
-        let private_message = 0x8000;
-
-        if formatter_string.starts_with("%{") {
-            // If item type is [0x1, 0x21, 0x31, 0x41] and the value is zero. Its appears to be a private string
-            /*
-               0x31 (object type) example below
-                tp 16 + 413:        log default (shared_cache, has_subsystem)
-                pubdata:
-                00000000: 04 00 04 02 50 f7 cf 2e ea ae 00 00 00 00 00 00 ....P...........
-                00000010: 00 00 00 00 10 00 85 01 1a 74 bf 2e 0d 00 03 20 .........t.....
-                00000020: 22 04 00 00 02 00 41 04 00 00 00 00 42 04 02 00 ".....A.....B...
-                00000030: 56 00 22 04 58 00 04 00 12 04 10 00 00 00 32 04 V.".X.........2.
-                00000040: 5c 00 10 00 01 04 00 00 00 00 02 04 4f c0 00 00 \...........O...
-                00000050: 12 04 10 00 00 00 31 04 00 00 00 00 42 04 6c 00 ......1.....B.l.
-                00000060: 39 00 02 04 01 00 00 00 02 04 43 03 00 00 02 04 9.........C.....
-                00000070: 00 00 00 00 02 04 00 00 00 00 02 04 00 00 00 00 ................
-                00000080: 02 04 12 00 00 00 22 04 a5 00 04 00 02 04 00 00 ......".........
-                00000090: 00 00 02 04 12 00 00 00 02 04 00 00 00 00 02 04 ................
-                000000a0: 0f 00 00 00 02 04 00 00 00 00 02 04 28 00 00 00 ............(...
-                000000b0: 02 08 2b 23 00 00 00 00 00 00 02 08 ad 03 00 00 ..+#............
-                000000c0: 00 00 00 00 02 08 08 00 00 00 00 00 00 00 02 08 ................
-                000000d0: 08 00 00 00 00 00 00 00 02 04 00 00 00 00 02 04 ................
-                000000e0: 0a 00 00 00 02 08 00 00 00 00 00 00 00 00 02 04 ................
-                000000f0: 00 00 00 00 39 00 73 74 72 65 61 6d 2c 20 62 75 ....9.stream, bu
-                00000100: 6e 64 6c 65 20 69 64 3a 20 74 72 75 73 74 64 2c ndle id: trustd,
-                00000110: 20 70 69 64 3a 20 31 35 38 2c 20 74 72 61 66 66  pid: 158, traff
-                00000120: 69 63 20 63 6c 61 73 73 3a 20 31 30 30 2c 20 74 ic class: 100, t
-                00000130: 6c 73 2c 20 69 6e 64 65 66 69 6e 69 74 65 2c 20 ls, indefinite,
-                00000140: 6e 6f 20 63 65 6c 6c 75 6c 61 72 00 39 2e 31 00 no cellular.9.1.
-                00000150: 11 5c 75 bd e7 7e 40 c2 ba cf 46 cc b6 32 da 2c .\u..~@...F..2.,
-                00000160: 73 61 74 69 73 66 69 65 64 20 28 50 61 74 68 20 satisfied (Path
-                00000170: 69 73 20 73 61 74 69 73 66 69 65 64 29 2c 20 69 is satisfied), i
-                00000180: 6e 74 65 72 66 61 63 65 3a 20 65 6e 30 2c 20 69 nterface: en0, i
-                00000190: 70 76 34 2c 20 64 6e 73 00 54 43 50 00          pv4, dns.TCP.       thread:         000000000000aeea
-                    time:           +68.719s
-                    walltime:       1640404673 - 2021-12-24 22:57:53 (Friday)
-                    location:       pc:0x2ebf741a fmt:0x2ecff750
-                    image uuid:     E185D902-AC7F-3044-87C0-AE2887C59CE7
-                    image path:     /usr/lib/libnetwork.dylib
-                    format:         [%{public}s %{private}@ %{public}@] cancelled
-                    [%s %{uuid_t}.16P %{private,network:in_addr}d.%d<->%{private,network:sockaddr}.*P]
-                    Connected Path: %@
-                    Duration: %u.%03us, DNS @%u.%03us took %u.%03us, %{public}s @%u.%03us took %u.%03us, TLS took %u.%03us
-                    bytes in/out: %llu/%llu, packets in/out: %llu/%llu, rtt: %u.%03us, retransmitted packets: %llu, out-of-order packets: %u
-                    subsystem:      13 com.apple.network.
-
-                    [9 <private> stream, bundle id: trustd, pid: 158, traffic class: 100, tls, indefinite, no cellular] cancelled
-                    [9.1 115C75BD-E77E-40C2-BACF-46CCB632DA2C <private>.49231<-><private>]
-                    Connected Path: satisfied (Path is satisfied), interface: en0, ipv4, dns
-                    Duration: 1.835s, DNS @0.000s took 0.018s, TCP @0.018s took 0.015s, TLS took 0.040s
-                    bytes in/out: 9003/941, packets in/out: 8/8, rtt: 0.010s, retransmitted packets: 0, out-of-order packets: 0
-            */
-
-            if private_strings.contains(&item_at_index.item_type)
-                && item_at_index.message_strings.is_empty()
-                && item_at_index.item_size == 0
-                || (item_at_index.item_type == private_number
-                    && item_at_index.item_size == private_message)
-            {
-                formatted_log_message = String::from("<private>");
-            } else {
-                let results = parse_type_formatter(
-                    formatter_string,
-                    item_message,
-                    &item_at_index.item_type,
-                    item_index,
-                );
-                match results {
-                    Ok((_, formatted_message)) => formatted_log_message = formatted_message,
-                    Err(err) => warn!(
-                        "Failed to format message type ex: public/private: {:?}",
-                        err
-                    ),
-                }
-            }
-        } else {
-            // If item type is [0x1, 0x21, 0x31, 0x41] and the size is zero (or 0x8000 for 0x1). Its appears to be a literal <private> striLanearchi!
-
-            /*
-                0x1 (number type) example below
-                tp 456 + 54:        log default (main_exe)
-                pubdata:
-                00000000: 04 00 02 00 d8 07 90 00 00 00 00 00 00 00 00 00 ................
-                00000010: 64 54 af 0a 00 00 1e 00 9c 00 89 00 01 04 01 04 dT..............
-                00000020: 00 00 00 00 01 04 00 00 00 00 01 04 00 00 00 00 ................
-                00000030: 01 04 00 00 00 00                               ......              thread:         0000000000000000
-                    time:           +0.179s
-                    walltime:       1642303789 - 2022-01-15 19:29:49 (Saturday)
-                    location:       pc:0x89009c fmt:0x9007d8
-                    image uuid:     ABC69550-60C2-34FE-B307-C24A8C39309C
-                    image path:     /kernel
-                    format:         kext submap [0x%lx - 0x%lx], kernel text [0x%lx - 0x%lx]
-                kext submap [0x<private> - 0x<private>], kernel text [0x<private> - 0x<private>]
-            */
-
-            if private_strings.contains(&item_at_index.item_type)
-                && item_at_index.message_strings.is_empty()
-                && item_at_index.item_size == 0
-                || (item_at_index.item_type == private_number
-                    && item_at_index.item_size == private_message)
-            {
-                formatted_log_message = String::from("<private>");
-            } else {
-                let results = parse_formatter(
-                    formatter_string,
-                    item_message,
-                    &item_at_index.item_type,
-                    item_index,
-                );
-                match results {
-                    Ok((_, formatted_message)) => formatted_log_message = formatted_message,
-                    Err(err) => warn!("[macos-unifiedlogs] Failed to format message: {:?}", err),
-                }
-            }
-        }
-
-        format_and_message.formatter = formatter.as_str().to_string();
-        format_and_message.message = formatted_log_message;
-        format_and_message_vec.push(format_and_message);
-
-        let precision_items = [0x10, 0x12]; // dynamic precision item types?
-                                            // If the item message was a precision type increment to actual value
-        if precision_items.contains(&item_at_index.item_type) {
-            update_index_or!(item_index + 1, {
-                continue;
-            });
-        }
-
-        // Also seen number type value 0 also used for dynamic width/precision value
-        let dynamic_precision_value = 0x0;
-        if (item_at_index.item_type == dynamic_precision_value && item_at_index.item_size == 0)
-            && formatter_string.contains("%*")
-        {
-            update_index_or!(item_index + 1, {
-                continue;
-            });
-        }
-
-        update_index_or!(item_index + 1, {
-            continue;
-        });
-    }
 
     let mut log_message_vec: Vec<String> = Vec::new();
     for values in format_and_message_vec {
@@ -1129,7 +941,6 @@ mod tests {
         format_alignment_right_space, format_firehose_log_message, format_left, format_right,
         parse_float, parse_formatter, parse_int, parse_signpost_format, parse_type_formatter,
     };
-    use regex::Regex;
 
     #[test]
     fn test_format_firehose_log_message() {
@@ -1140,9 +951,8 @@ mod tests {
             item_type: 34,
             item_size: 0,
         });
-        let message_re = Regex::new(r"(%(?:(?:\{[^}]+}?)(?:[-+0#]{0,5})(?:\d+|\*)?(?:\.(?:\d+|\*))?(?:h|hh|l|ll|w|I|z|t|q|I32|I64)?[cmCdiouxXeEfgGaAnpsSZP@%}]|(?:[-+0 #]{0,5})(?:\d+|\*)?(?:\.(?:\d+|\*))?(?:h|hh|l||q|t|ll|w|I|z|I32|I64)?[cmCdiouxXeEfgGaAnpsSZP@%]))").unwrap();
 
-        let log_string = format_firehose_log_message(test_data, &item_message, &message_re);
+        let log_string = format_firehose_log_message(test_data, &item_message);
         assert_eq!(log_string, "opendirectoryd (build 796.100) launched...")
     }
 

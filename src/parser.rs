@@ -67,7 +67,7 @@ pub fn iter_log<'a>(
     shared_strings: &'a [SharedCacheStrings],
     timesync_data: &'a [TimesyncBoot],
     exclude_missing: bool,
-) -> Result<impl Iterator<Item = (Vec<LogData>, UnifiedLogData)> + 'a, regex::Error> {
+) -> Result<impl Iterator<Item = (Vec<LogData>, UnifiedLogData)> + 'a, ()> {
     LogData::iter_log(
         unified_log_data,
         strings_data,
@@ -76,7 +76,6 @@ pub fn iter_log<'a>(
         exclude_missing,
     )
 }
-
 
 /// Reconstruct Unified Log entries using the strings data, cached strings data, timesync data, and unified log. Provide bool to ignore log entries that are not able to be recontructed (additional tracev3 files needed)
 /// Return a reconstructed log entries and any leftover Unified Log entries that could not be reconstructed (data may be stored in other tracev3 files)

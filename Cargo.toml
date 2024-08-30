@@ -13,7 +13,7 @@ log = "0.4.21"
 lz4_flex = "0.11.3"
 byteorder = "1.5.0"
 plist = "1.6.1"
-regex = "1.10.4"
+# regex = "1.10.4"
 base64 = "0.22.0"
 chrono = "0.4.38"
 
