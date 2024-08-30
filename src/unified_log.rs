@@ -172,308 +172,308 @@ impl Iterator for LogIterator<'_> {
                     message_entries: firehose.message.item_info.to_owned(),
                 };
 
-                // // 0x4 - Non-activity log entry. Ex: log default, log error, etc
-                // // 0x2 - Activity log entry. Ex: activity create
-                // // 0x7 - Loss log entry. Ex: loss
-                // // 0x6 - Signpost entry. Ex: process signpost, thread signpost, system signpost
-                // // 0x3 - Trace log entry. Ex: trace default
-                // match firehose.unknown_log_activity_type {
-                //     0x4 => {
-                //         log_data.activity_id =
-                //             u64::from(firehose.firehose_non_activity.unknown_activity_id);
-                //         let message_data = FirehoseNonActivity::get_firehose_nonactivity_strings(
-                //             &firehose.firehose_non_activity,
-                //             self.strings_data,
-                //             self.shared_strings,
-                //             u64::from(firehose.format_string_location),
-                //             &preamble.first_number_proc_id,
-                //             &preamble.second_number_proc_id,
-                //             &catalog_data.catalog,
-                //         );
+                // 0x4 - Non-activity log entry. Ex: log default, log error, etc
+                // 0x2 - Activity log entry. Ex: activity create
+                // 0x7 - Loss log entry. Ex: loss
+                // 0x6 - Signpost entry. Ex: process signpost, thread signpost, system signpost
+                // 0x3 - Trace log entry. Ex: trace default
+                match firehose.unknown_log_activity_type {
+                    0x4 => {
+                        log_data.activity_id =
+                            u64::from(firehose.firehose_non_activity.unknown_activity_id);
+                        let message_data = FirehoseNonActivity::get_firehose_nonactivity_strings(
+                            &firehose.firehose_non_activity,
+                            self.strings_data,
+                            self.shared_strings,
+                            u64::from(firehose.format_string_location),
+                            &preamble.first_number_proc_id,
+                            &preamble.second_number_proc_id,
+                            &catalog_data.catalog,
+                        );
 
-                //         match message_data {
-                //             Ok((_, results)) => {
-                //                 log_data.library = results.library;
-                //                 log_data.library_uuid = results.library_uuid;
-                //                 log_data.process = results.process;
-                //                 log_data.process_uuid = results.process_uuid;
-                //                 log_data.raw_message = results.format_string.to_owned();
+                        match message_data {
+                            Ok((_, results)) => {
+                                log_data.library = results.library;
+                                log_data.library_uuid = results.library_uuid;
+                                log_data.process = results.process;
+                                log_data.process_uuid = results.process_uuid;
+                                log_data.raw_message = results.format_string.to_owned();
 
-                //                 // If the non-activity log entry has a data ref value then the message strings are stored in an oversize log entry
-                //                 let log_message = if firehose.firehose_non_activity.data_ref_value
-                //                     != 0
-                //                 {
-                //                     let oversize_strings = Oversize::get_oversize_strings(
-                //                         u32::from(firehose.firehose_non_activity.data_ref_value),
-                //                         preamble.first_number_proc_id,
-                //                         preamble.second_number_proc_id,
-                //                         &self.unified_log_data.oversize,
-                //                     );
-                //                     // Format and map the log strings with the message format string found UUIDText or shared string file
-                //                     format_firehose_log_message(
-                //                         results.format_string,
-                //                         &oversize_strings,
-                //                     )
-                //                 } else {
-                //                     // Format and map the log strings with the message format string found UUIDText or shared string file
-                //                     format_firehose_log_message(
-                //                         results.format_string,
-                //                         &firehose.message.item_info,
-                //                     )
-                //                 };
-                //                 // If we are tracking missing data (due to it being stored in another log file). Add missing data to vec to track and parse again once we got all data
-                //                 if self.exclude_missing
-                //                     && log_message.contains("<Missing message data>")
-                //                 {
-                //                     LogData::add_missing(
-                //                         catalog_data,
-                //                         preamble_index,
-                //                         firehose_index,
-                //                         &self.unified_log_data.header,
-                //                         &mut missing_unified_log_data_vec,
-                //                         preamble,
-                //                     );
-                //                     continue;
-                //                 }
+                                // If the non-activity log entry has a data ref value then the message strings are stored in an oversize log entry
+                                let log_message = if firehose.firehose_non_activity.data_ref_value
+                                    != 0
+                                {
+                                    let oversize_strings = Oversize::get_oversize_strings(
+                                        u32::from(firehose.firehose_non_activity.data_ref_value),
+                                        preamble.first_number_proc_id,
+                                        preamble.second_number_proc_id,
+                                        &self.unified_log_data.oversize,
+                                    );
+                                    // Format and map the log strings with the message format string found UUIDText or shared string file
+                                    format_firehose_log_message(
+                                        results.format_string,
+                                        &oversize_strings,
+                                    )
+                                } else {
+                                    // Format and map the log strings with the message format string found UUIDText or shared string file
+                                    format_firehose_log_message(
+                                        results.format_string,
+                                        &firehose.message.item_info,
+                                    )
+                                };
+                                // If we are tracking missing data (due to it being stored in another log file). Add missing data to vec to track and parse again once we got all data
+                                if self.exclude_missing
+                                    && log_message.contains("<Missing message data>")
+                                {
+                                    LogData::add_missing(
+                                        catalog_data,
+                                        preamble_index,
+                                        firehose_index,
+                                        &self.unified_log_data.header,
+                                        &mut missing_unified_log_data_vec,
+                                        preamble,
+                                    );
+                                    continue;
+                                }
 
-                //                 if !firehose.message.backtrace_strings.is_empty() {
-                //                     log_data.message = format!(
-                //                         "Backtrace:\n{:}\n{:}",
-                //                         firehose.message.backtrace_strings.join("\n"),
-                //                         log_message
-                //                     );
-                //                 } else {
-                //                     log_data.message = log_message;
-                //                 }
-                //             }
-                //             Err(err) => {
-                //                 warn!("[macos-unifiedlogs] Failed to get message string data for firehose non-activity log entry: {:?}", err);
-                //             }
-                //         }
+                                if !firehose.message.backtrace_strings.is_empty() {
+                                    log_data.message = format!(
+                                        "Backtrace:\n{:}\n{:}",
+                                        firehose.message.backtrace_strings.join("\n"),
+                                        log_message
+                                    );
+                                } else {
+                                    log_data.message = log_message;
+                                }
+                            }
+                            Err(err) => {
+                                warn!("[macos-unifiedlogs] Failed to get message string data for firehose non-activity log entry: {:?}", err);
+                            }
+                        }
 
-                //         if firehose.firehose_non_activity.subsystem_value != 0 {
-                //             let results = CatalogChunk::get_subsystem(
-                //                 &firehose.firehose_non_activity.subsystem_value,
-                //                 &preamble.first_number_proc_id,
-                //                 &preamble.second_number_proc_id,
-                //                 &catalog_data.catalog,
-                //             );
-                //             match results {
-                //                 Ok((_, subsystem)) => {
-                //                     log_data.subsystem = subsystem.subsystem;
-                //                     log_data.category = subsystem.category;
-                //                 }
-                //                 Err(err) => {
-                //                     warn!("[macos-unifiedlogs] Failed to get subsystem: {:?}", err)
-                //                 }
-                //             }
-                //         }
-                //     }
-                //     0x7 => {
-                //         // No message data in loss entries
-                //         log_data.log_type = String::new();
-                //     }
-                //     0x2 => {
-                //         log_data.activity_id =
-                //             u64::from(firehose.firehose_activity.unknown_activity_id);
-                //         let message_data = FirehoseActivity::get_firehose_activity_strings(
-                //             &firehose.firehose_activity,
-                //             self.strings_data,
-                //             self.shared_strings,
-                //             u64::from(firehose.format_string_location),
-                //             &preamble.first_number_proc_id,
-                //             &preamble.second_number_proc_id,
-                //             &catalog_data.catalog,
-                //         );
-                //         match message_data {
-                //             Ok((_, results)) => {
-                //                 log_data.library = results.library;
-                //                 log_data.library_uuid = results.library_uuid;
-                //                 log_data.process = results.process;
-                //                 log_data.process_uuid = results.process_uuid;
-                //                 log_data.raw_message = results.format_string.to_owned();
+                        if firehose.firehose_non_activity.subsystem_value != 0 {
+                            let results = CatalogChunk::get_subsystem(
+                                &firehose.firehose_non_activity.subsystem_value,
+                                &preamble.first_number_proc_id,
+                                &preamble.second_number_proc_id,
+                                &catalog_data.catalog,
+                            );
+                            match results {
+                                Ok((_, subsystem)) => {
+                                    log_data.subsystem = subsystem.subsystem;
+                                    log_data.category = subsystem.category;
+                                }
+                                Err(err) => {
+                                    warn!("[macos-unifiedlogs] Failed to get subsystem: {:?}", err)
+                                }
+                            }
+                        }
+                    }
+                    // 0x7 => {
+                    //     // No message data in loss entries
+                    //     log_data.log_type = String::new();
+                    // }
+                    // 0x2 => {
+                    //     log_data.activity_id =
+                    //         u64::from(firehose.firehose_activity.unknown_activity_id);
+                    //     let message_data = FirehoseActivity::get_firehose_activity_strings(
+                    //         &firehose.firehose_activity,
+                    //         self.strings_data,
+                    //         self.shared_strings,
+                    //         u64::from(firehose.format_string_location),
+                    //         &preamble.first_number_proc_id,
+                    //         &preamble.second_number_proc_id,
+                    //         &catalog_data.catalog,
+                    //     );
+                    //     match message_data {
+                    //         Ok((_, results)) => {
+                    //             log_data.library = results.library;
+                    //             log_data.library_uuid = results.library_uuid;
+                    //             log_data.process = results.process;
+                    //             log_data.process_uuid = results.process_uuid;
+                    //             log_data.raw_message = results.format_string.to_owned();
 
-                //                 let log_message = format_firehose_log_message(
-                //                     results.format_string,
-                //                     &firehose.message.item_info,
-                //                 );
+                    //             let log_message = format_firehose_log_message(
+                    //                 results.format_string,
+                    //                 &firehose.message.item_info,
+                    //             );
 
-                //                 if self.exclude_missing
-                //                     && log_message.contains("<Missing message data>")
-                //                 {
-                //                     LogData::add_missing(
-                //                         catalog_data,
-                //                         preamble_index,
-                //                         firehose_index,
-                //                         &self.unified_log_data.header,
-                //                         &mut missing_unified_log_data_vec,
-                //                         preamble,
-                //                     );
-                //                     continue;
-                //                 }
-                //                 if !firehose.message.backtrace_strings.is_empty() {
-                //                     log_data.message = format!(
-                //                         "Backtrace:\n{:}\n{:}",
-                //                         firehose.message.backtrace_strings.join("\n"),
-                //                         log_message
-                //                     );
-                //                 } else {
-                //                     log_data.message = log_message;
-                //                 }
-                //             }
-                //             Err(err) => {
-                //                 warn!("[macos-unifiedlogs] Failed to get message string data for firehose activity log entry: {:?}", err);
-                //             }
-                //         }
-                //     }
-                //     0x6 => {
-                //         log_data.activity_id =
-                //             u64::from(firehose.firehose_signpost.unknown_activity_id);
-                //         let message_data = FirehoseSignpost::get_firehose_signpost(
-                //             &firehose.firehose_signpost,
-                //             self.strings_data,
-                //             self.shared_strings,
-                //             u64::from(firehose.format_string_location),
-                //             &preamble.first_number_proc_id,
-                //             &preamble.second_number_proc_id,
-                //             &catalog_data.catalog,
-                //         );
-                //         match message_data {
-                //             Ok((_, results)) => {
-                //                 log_data.library = results.library;
-                //                 log_data.library_uuid = results.library_uuid;
-                //                 log_data.process = results.process;
-                //                 log_data.process_uuid = results.process_uuid;
-                //                 log_data.raw_message = results.format_string.to_owned();
+                    //             if self.exclude_missing
+                    //                 && log_message.contains("<Missing message data>")
+                    //             {
+                    //                 LogData::add_missing(
+                    //                     catalog_data,
+                    //                     preamble_index,
+                    //                     firehose_index,
+                    //                     &self.unified_log_data.header,
+                    //                     &mut missing_unified_log_data_vec,
+                    //                     preamble,
+                    //                 );
+                    //                 continue;
+                    //             }
+                    //             if !firehose.message.backtrace_strings.is_empty() {
+                    //                 log_data.message = format!(
+                    //                     "Backtrace:\n{:}\n{:}",
+                    //                     firehose.message.backtrace_strings.join("\n"),
+                    //                     log_message
+                    //                 );
+                    //             } else {
+                    //                 log_data.message = log_message;
+                    //             }
+                    //         }
+                    //         Err(err) => {
+                    //             warn!("[macos-unifiedlogs] Failed to get message string data for firehose activity log entry: {:?}", err);
+                    //         }
+                    //     }
+                    // }
+                    // 0x6 => {
+                    //     log_data.activity_id =
+                    //         u64::from(firehose.firehose_signpost.unknown_activity_id);
+                    //     let message_data = FirehoseSignpost::get_firehose_signpost(
+                    //         &firehose.firehose_signpost,
+                    //         self.strings_data,
+                    //         self.shared_strings,
+                    //         u64::from(firehose.format_string_location),
+                    //         &preamble.first_number_proc_id,
+                    //         &preamble.second_number_proc_id,
+                    //         &catalog_data.catalog,
+                    //     );
+                    //     match message_data {
+                    //         Ok((_, results)) => {
+                    //             log_data.library = results.library;
+                    //             log_data.library_uuid = results.library_uuid;
+                    //             log_data.process = results.process;
+                    //             log_data.process_uuid = results.process_uuid;
+                    //             log_data.raw_message = results.format_string.to_owned();
 
-                //                 let mut log_message =
-                //                     if firehose.firehose_non_activity.data_ref_value != 0 {
-                //                         let oversize_strings = Oversize::get_oversize_strings(
-                //                             u32::from(
-                //                                 firehose.firehose_non_activity.data_ref_value,
-                //                             ),
-                //                             preamble.first_number_proc_id,
-                //                             preamble.second_number_proc_id,
-                //                             &self.unified_log_data.oversize,
-                //                         );
-                //                         // Format and map the log strings with the message format string found UUIDText or shared string file
-                //                         format_firehose_log_message(
-                //                             results.format_string,
-                //                             &oversize_strings,
-                //                         )
-                //                     } else {
-                //                         // Format and map the log strings with the message format string found UUIDText or shared string file
-                //                         format_firehose_log_message(
-                //                             results.format_string,
-                //                             &firehose.message.item_info,
-                //                         )
-                //                     };
-                //                 if self.exclude_missing
-                //                     && log_message.contains("<Missing message data>")
-                //                 {
-                //                     LogData::add_missing(
-                //                         catalog_data,
-                //                         preamble_index,
-                //                         firehose_index,
-                //                         &self.unified_log_data.header,
-                //                         &mut missing_unified_log_data_vec,
-                //                         preamble,
-                //                     );
-                //                     continue;
-                //                 }
+                    //             let mut log_message =
+                    //                 if firehose.firehose_non_activity.data_ref_value != 0 {
+                    //                     let oversize_strings = Oversize::get_oversize_strings(
+                    //                         u32::from(
+                    //                             firehose.firehose_non_activity.data_ref_value,
+                    //                         ),
+                    //                         preamble.first_number_proc_id,
+                    //                         preamble.second_number_proc_id,
+                    //                         &self.unified_log_data.oversize,
+                    //                     );
+                    //                     // Format and map the log strings with the message format string found UUIDText or shared string file
+                    //                     format_firehose_log_message(
+                    //                         results.format_string,
+                    //                         &oversize_strings,
+                    //                     )
+                    //                 } else {
+                    //                     // Format and map the log strings with the message format string found UUIDText or shared string file
+                    //                     format_firehose_log_message(
+                    //                         results.format_string,
+                    //                         &firehose.message.item_info,
+                    //                     )
+                    //                 };
+                    //             if self.exclude_missing
+                    //                 && log_message.contains("<Missing message data>")
+                    //             {
+                    //                 LogData::add_missing(
+                    //                     catalog_data,
+                    //                     preamble_index,
+                    //                     firehose_index,
+                    //                     &self.unified_log_data.header,
+                    //                     &mut missing_unified_log_data_vec,
+                    //                     preamble,
+                    //                 );
+                    //                 continue;
+                    //             }
 
-                //                 log_message = format!(
-                //                     "Signpost ID: {:X} - Signpost Name: {:X}\n {}",
-                //                     firehose.firehose_signpost.signpost_id,
-                //                     firehose.firehose_signpost.signpost_name,
-                //                     log_message
-                //                 );
+                    //             log_message = format!(
+                    //                 "Signpost ID: {:X} - Signpost Name: {:X}\n {}",
+                    //                 firehose.firehose_signpost.signpost_id,
+                    //                 firehose.firehose_signpost.signpost_name,
+                    //                 log_message
+                    //             );
 
-                //                 if !firehose.message.backtrace_strings.is_empty() {
-                //                     log_data.message = format!(
-                //                         "Backtrace:\n{:}\n{:}",
-                //                         firehose.message.backtrace_strings.join("\n"),
-                //                         log_message
-                //                     );
-                //                 } else {
-                //                     log_data.message = log_message;
-                //                 }
-                //             }
-                //             Err(err) => {
-                //                 warn!("[macos-unifiedlogs] Failed to get message string data for firehose signpost log entry: {:?}", err);
-                //             }
-                //         }
-                //         if firehose.firehose_signpost.subsystem != 0 {
-                //             let results = CatalogChunk::get_subsystem(
-                //                 &firehose.firehose_signpost.subsystem,
-                //                 &preamble.first_number_proc_id,
-                //                 &preamble.second_number_proc_id,
-                //                 &catalog_data.catalog,
-                //             );
-                //             match results {
-                //                 Ok((_, subsystem)) => {
-                //                     log_data.subsystem = subsystem.subsystem;
-                //                     log_data.category = subsystem.category;
-                //                 }
-                //                 Err(err) => {
-                //                     warn!("[macos-unifiedlogs] Failed to get subsystem: {:?}", err)
-                //                 }
-                //             }
-                //         }
-                //     }
-                //     0x3 => {
-                //         let message_data = FirehoseTrace::get_firehose_trace_strings(
-                //             self.strings_data,
-                //             u64::from(firehose.format_string_location),
-                //             &preamble.first_number_proc_id,
-                //             &preamble.second_number_proc_id,
-                //             &catalog_data.catalog,
-                //         );
-                //         match message_data {
-                //             Ok((_, results)) => {
-                //                 log_data.library = results.library;
-                //                 log_data.library_uuid = results.library_uuid;
-                //                 log_data.process = results.process;
-                //                 log_data.process_uuid = results.process_uuid;
+                    //             if !firehose.message.backtrace_strings.is_empty() {
+                    //                 log_data.message = format!(
+                    //                     "Backtrace:\n{:}\n{:}",
+                    //                     firehose.message.backtrace_strings.join("\n"),
+                    //                     log_message
+                    //                 );
+                    //             } else {
+                    //                 log_data.message = log_message;
+                    //             }
+                    //         }
+                    //         Err(err) => {
+                    //             warn!("[macos-unifiedlogs] Failed to get message string data for firehose signpost log entry: {:?}", err);
+                    //         }
+                    //     }
+                    //     if firehose.firehose_signpost.subsystem != 0 {
+                    //         let results = CatalogChunk::get_subsystem(
+                    //             &firehose.firehose_signpost.subsystem,
+                    //             &preamble.first_number_proc_id,
+                    //             &preamble.second_number_proc_id,
+                    //             &catalog_data.catalog,
+                    //         );
+                    //         match results {
+                    //             Ok((_, subsystem)) => {
+                    //                 log_data.subsystem = subsystem.subsystem;
+                    //                 log_data.category = subsystem.category;
+                    //             }
+                    //             Err(err) => {
+                    //                 warn!("[macos-unifiedlogs] Failed to get subsystem: {:?}", err)
+                    //             }
+                    //         }
+                    //     }
+                    // }
+                    // 0x3 => {
+                    //     let message_data = FirehoseTrace::get_firehose_trace_strings(
+                    //         self.strings_data,
+                    //         u64::from(firehose.format_string_location),
+                    //         &preamble.first_number_proc_id,
+                    //         &preamble.second_number_proc_id,
+                    //         &catalog_data.catalog,
+                    //     );
+                    //     match message_data {
+                    //         Ok((_, results)) => {
+                    //             log_data.library = results.library;
+                    //             log_data.library_uuid = results.library_uuid;
+                    //             log_data.process = results.process;
+                    //             log_data.process_uuid = results.process_uuid;
 
-                //                 let log_message = format_firehose_log_message(
-                //                     results.format_string,
-                //                     &firehose.message.item_info,
-                //                 );
+                    //             let log_message = format_firehose_log_message(
+                    //                 results.format_string,
+                    //                 &firehose.message.item_info,
+                    //             );
 
-                //                 if self.exclude_missing
-                //                     && log_message.contains("<Missing message data>")
-                //                 {
-                //                     LogData::add_missing(
-                //                         catalog_data,
-                //                         preamble_index,
-                //                         firehose_index,
-                //                         &self.unified_log_data.header,
-                //                         &mut missing_unified_log_data_vec,
-                //                         preamble,
-                //                     );
-                //                     continue;
-                //                 }
-                //                 if !firehose.message.backtrace_strings.is_empty() {
-                //                     log_data.message = format!(
-                //                         "Backtrace:\n{:}\n{:}",
-                //                         firehose.message.backtrace_strings.join("\n"),
-                //                         log_message
-                //                     );
-                //                 } else {
-                //                     log_data.message = log_message;
-                //                 }
-                //             }
-                //             Err(err) => {
-                //                 warn!("[macos-unifiedlogs] Failed to get message string data for firehose activity log entry: {:?}", err);
-                //             }
-                //         }
-                //     }
-                //     _ => error!(
-                //         "[macos-unifiedlogs] Parsed unknown log firehose data: {:?}",
-                //         firehose
-                //     ),
-                // }
+                    //             if self.exclude_missing
+                    //                 && log_message.contains("<Missing message data>")
+                    //             {
+                    //                 LogData::add_missing(
+                    //                     catalog_data,
+                    //                     preamble_index,
+                    //                     firehose_index,
+                    //                     &self.unified_log_data.header,
+                    //                     &mut missing_unified_log_data_vec,
+                    //                     preamble,
+                    //                 );
+                    //                 continue;
+                    //             }
+                    //             if !firehose.message.backtrace_strings.is_empty() {
+                    //                 log_data.message = format!(
+                    //                     "Backtrace:\n{:}\n{:}",
+                    //                     firehose.message.backtrace_strings.join("\n"),
+                    //                     log_message
+                    //                 );
+                    //             } else {
+                    //                 log_data.message = log_message;
+                    //             }
+                    //         }
+                    //         Err(err) => {
+                    //             warn!("[macos-unifiedlogs] Failed to get message string data for firehose activity log entry: {:?}", err);
+                    //         }
+                    //     }
+                    // }
+                    _ => error!(
+                        "[macos-unifiedlogs] Parsed unknown log firehose data: {:?}",
+                        firehose
+                    ),
+                }
 
                 log_data_vec.push(log_data);
             }
