@@ -57,8 +57,6 @@ pub fn format_firehose_log_message(
         return item_message[0].message_strings.to_owned();
     }
 
-    let results = message_re.find_iter(&log_message);
-
     let mut item_index: usize;
     let mut item_at_index: &FirehoseItemInfo;
 
@@ -88,7 +86,7 @@ pub fn format_firehose_log_message(
         item_at_index = &hope_this_dummy_value_wont_be_used;
     });
 
-    for formatter in results {
+    for formatter in message_re.clone().find_iter(&log_message) {
         // Skip literal "% " values
         if formatter.as_str().starts_with("% ") {
             continue;
