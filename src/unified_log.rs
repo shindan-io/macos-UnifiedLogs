@@ -24,13 +24,12 @@ use crate::header::HeaderChunk;
 use crate::message::format_firehose_log_message;
 use crate::preamble::LogPreamble;
 use crate::timesync::TimesyncBoot;
+use crate::util::{extract_string, padding_size, unixepoch_to_iso};
+use crate::uuidtext::UUIDText;
 use log::{error, warn};
 use nom::bytes::complete::take;
 use regex::Regex;
 use serde::Serialize;
-
-use crate::util::{extract_string, padding_size};
-use crate::uuidtext::UUIDText;
 
 #[derive(Debug, Clone)]
 pub struct UnifiedLogData {
@@ -117,7 +116,10 @@ impl Iterator for LogIterator<'_> {
 
     // catalog_data_index == 0
     fn next(&mut self) -> Option<Self::Item> {
-        let Some(catalog_data) = self.unified_log_data.catalog_data.get(self.catalog_data_iterator_index) else { return None; };
+        let catalog_data = self
+            .unified_log_data
+            .catalog_data
+            .get(self.catalog_data_iterator_index)?;
         let mut log_data_vec: Vec<LogData> = Vec::new();
         // Need to keep track of any log entries that fail to find Oversize strings (sometimes the strings may be in other log files that have not been parsed yet)
         let mut missing_unified_log_data_vec = UnifiedLogData {
@@ -125,13 +127,12 @@ impl Iterator for LogIterator<'_> {
             catalog_data: Vec::new(),
             oversize: Vec::new(),
         };
-    
+
         for (preamble_index, preamble) in catalog_data.firehose.iter().enumerate() {
             for (firehose_index, firehose) in preamble.public_data.iter().enumerate() {
                 // The continous time is actually 6 bytes long. Combining 4 bytes and 2 bytes
-                let firehose_log_entry_continous_time =
-                    u64::from(firehose.continous_time_delta)
-                        | ((u64::from(firehose.continous_time_delta_upper)) << 32);
+                let firehose_log_entry_continous_time = u64::from(firehose.continous_time_delta)
+                    | ((u64::from(firehose.continous_time_delta_upper)) << 32);
 
                 let continous_time =
                     preamble.base_continous_time + firehose_log_entry_continous_time;
@@ -156,6 +157,7 @@ impl Iterator for LogIterator<'_> {
                     library: String::new(),
                     activity_id: 0,
                     time: timestamp,
+                    timestamp: unixepoch_to_iso(&(timestamp as i64)),
                     category: String::new(),
                     log_type: LogData::get_log_type(
                         &firehose.unknown_log_type,
@@ -191,16 +193,15 @@ impl Iterator for LogIterator<'_> {
                     0x4 => {
                         log_data.activity_id =
                             u64::from(firehose.firehose_non_activity.unknown_activity_id);
-                        let message_data =
-                            FirehoseNonActivity::get_firehose_nonactivity_strings(
-                                &firehose.firehose_non_activity,
-                                self.strings_data,
-                                self.shared_strings,
-                                u64::from(firehose.format_string_location),
-                                &preamble.first_number_proc_id,
-                                &preamble.second_number_proc_id,
-                                &catalog_data.catalog,
-                            );
+                        let message_data = FirehoseNonActivity::get_firehose_nonactivity_strings(
+                            &firehose.firehose_non_activity,
+                            self.strings_data,
+                            self.shared_strings,
+                            u64::from(firehose.format_string_location),
+                            &preamble.first_number_proc_id,
+                            &preamble.second_number_proc_id,
+                            &catalog_data.catalog,
+                        );
 
                         match message_data {
                             Ok((_, results)) => {
@@ -208,15 +209,13 @@ impl Iterator for LogIterator<'_> {
                                 log_data.library_uuid = results.library_uuid;
                                 log_data.process = results.process;
                                 log_data.process_uuid = results.process_uuid;
-                                log_data.raw_message = results.format_string.to_owned();
+                                results.format_string.clone_into(&mut log_data.raw_message);
 
                                 // If the non-activity log entry has a data ref value then the message strings are stored in an oversize log entry
                                 let log_message =
                                     if firehose.firehose_non_activity.data_ref_value != 0 {
                                         let oversize_strings = Oversize::get_oversize_strings(
-                                            u32::from(
-                                                firehose.firehose_non_activity.data_ref_value,
-                                            ),
+                                            firehose.firehose_non_activity.data_ref_value,
                                             preamble.first_number_proc_id,
                                             preamble.second_number_proc_id,
                                             &self.unified_log_data.oversize,
@@ -277,10 +276,9 @@ impl Iterator for LogIterator<'_> {
                                     log_data.subsystem = subsystem.subsystem;
                                     log_data.category = subsystem.category;
                                 }
-                                Err(err) => warn!(
-                                    "[macos-unifiedlogs] Failed to get subsystem: {:?}",
-                                    err
-                                ),
+                                Err(err) => {
+                                    warn!("[macos-unifiedlogs] Failed to get subsystem: {:?}", err)
+                                }
                             }
                         }
                     }
@@ -306,7 +304,7 @@ impl Iterator for LogIterator<'_> {
                                 log_data.library_uuid = results.library_uuid;
                                 log_data.process = results.process;
                                 log_data.process_uuid = results.process_uuid;
-                                log_data.raw_message = results.format_string.to_owned();
+                                results.format_string.clone_into(&mut log_data.raw_message);
 
                                 let log_message = format_firehose_log_message(
                                     results.format_string,
@@ -360,14 +358,12 @@ impl Iterator for LogIterator<'_> {
                                 log_data.library_uuid = results.library_uuid;
                                 log_data.process = results.process;
                                 log_data.process_uuid = results.process_uuid;
-                                log_data.raw_message = results.format_string.to_owned();
+                                results.format_string.clone_into(&mut log_data.raw_message);
 
                                 let mut log_message =
                                     if firehose.firehose_non_activity.data_ref_value != 0 {
                                         let oversize_strings = Oversize::get_oversize_strings(
-                                            u32::from(
-                                                firehose.firehose_non_activity.data_ref_value,
-                                            ),
+                                            firehose.firehose_non_activity.data_ref_value,
                                             preamble.first_number_proc_id,
                                             preamble.second_number_proc_id,
                                             &self.unified_log_data.oversize,
@@ -433,10 +429,9 @@ impl Iterator for LogIterator<'_> {
                                     log_data.subsystem = subsystem.subsystem;
                                     log_data.category = subsystem.category;
                                 }
-                                Err(err) => warn!(
-                                    "[macos-unifiedlogs] Failed to get subsystem: {:?}",
-                                    err
-                                ),
+                                Err(err) => {
+                                    warn!("[macos-unifiedlogs] Failed to get subsystem: {:?}", err)
+                                }
                             }
                         }
                     }
@@ -500,18 +495,20 @@ impl Iterator for LogIterator<'_> {
 
         for simpledump in &catalog_data.simpledump {
             let no_firehose_preamble = 1;
+            let timestamp = TimesyncBoot::get_timestamp(
+                self.timesync_data,
+                &self.unified_log_data.header[0].boot_uuid,
+                simpledump.continous_time,
+                no_firehose_preamble,
+            );
             let log_data = LogData {
                 subsystem: simpledump.subsystem.to_owned(),
                 thread_id: simpledump.thread_id,
                 pid: simpledump.first_proc_id,
                 library: String::new(),
                 activity_id: 0,
-                time: TimesyncBoot::get_timestamp(
-                    self.timesync_data,
-                    &self.unified_log_data.header[0].boot_uuid,
-                    simpledump.continous_time,
-                    no_firehose_preamble,
-                ),
+                time: timestamp,
+                timestamp: unixepoch_to_iso(&(timestamp as i64)),
                 category: String::new(),
                 log_type: String::new(),
                 process: String::new(),
@@ -553,27 +550,29 @@ impl Iterator for LogIterator<'_> {
                         Ok((_, string_data)) => string_data,
                         Err(err) => {
                             error!(
-                            "[macos-unifiedlogs] Failed to extract string from statedump: {:?}",
-                            err
-                        );
+                                "[macos-unifiedlogs] Failed to extract string from statedump: {:?}",
+                                err
+                            );
                             String::from("Failed to extract string from statedump")
                         }
                     }
                 }
             };
 
+            let timestamp = TimesyncBoot::get_timestamp(
+                self.timesync_data,
+                &self.unified_log_data.header[0].boot_uuid,
+                statedump.continuous_time,
+                no_firehose_preamble,
+            );
             let log_data = LogData {
                 subsystem: String::new(),
                 thread_id: 0,
                 pid: statedump.first_proc_id,
                 library: String::new(),
                 activity_id: statedump.activity_id,
-                time: TimesyncBoot::get_timestamp(
-                    self.timesync_data,
-                    &self.unified_log_data.header[0].boot_uuid,
-                    statedump.continuous_time,
-                    no_firehose_preamble,
-                ),
+                time: timestamp,
+                timestamp: unixepoch_to_iso(&(timestamp as i64)),
                 category: String::new(),
                 event_type: String::from("Statedump"),
                 process: String::new(),
@@ -600,7 +599,6 @@ impl Iterator for LogIterator<'_> {
             };
             log_data_vec.push(log_data);
         }
-        
         self.catalog_data_iterator_index += 1;
         Some((log_data_vec, missing_unified_log_data_vec))
     }
@@ -626,6 +624,7 @@ pub struct LogData {
     pub boot_uuid: String,
     pub timezone_name: String,
     pub message_entries: Vec<FirehoseItemInfo>,
+    pub timestamp: String,
 }
 
 impl LogData {
@@ -741,14 +740,21 @@ impl LogData {
         Ok((input, unified_log_data_true))
     }
 
+    /// Parse the Unified log data and return an iterator
     pub fn iter_log<'a>(
         unified_log_data: &'a UnifiedLogData,
         strings_data: &'a [UUIDText],
         shared_strings: &'a [SharedCacheStrings],
         timesync_data: &'a [TimesyncBoot],
-        exclude_missing: bool,        
+        exclude_missing: bool,
     ) -> Result<impl Iterator<Item = (Vec<LogData>, UnifiedLogData)> + 'a, regex::Error> {
-        LogIterator::new(unified_log_data, strings_data, shared_strings, timesync_data, exclude_missing)
+        LogIterator::new(
+            unified_log_data,
+            strings_data,
+            shared_strings,
+            timesync_data,
+            exclude_missing,
+        )
     }
 
     /// Reconstruct Unified Log entries using the binary strings data, cached strings data, timesync data, and unified log. Provide bool to ignore log entries that are not able to be recontructed (additional tracev3 files needed)
@@ -768,14 +774,26 @@ impl LogData {
             oversize: Vec::new(),
         };
 
-        let Ok(log_iterator) = LogIterator::new(unified_log_data, strings_data, shared_strings, timesync_data, exclude_missing) else {
-            return (log_data_vec, missing_unified_log_data_vec)
+        let Ok(log_iterator) = LogIterator::new(
+            unified_log_data,
+            strings_data,
+            shared_strings,
+            timesync_data,
+            exclude_missing,
+        ) else {
+            return (log_data_vec, missing_unified_log_data_vec);
         };
         for (mut log_data, mut missing_unified_log) in log_iterator {
             log_data_vec.append(&mut log_data);
-            missing_unified_log_data_vec.header.append(&mut missing_unified_log.header);
-            missing_unified_log_data_vec.catalog_data.append(&mut missing_unified_log.catalog_data);
-            missing_unified_log_data_vec.oversize.append(&mut missing_unified_log.oversize);
+            missing_unified_log_data_vec
+                .header
+                .append(&mut missing_unified_log.header);
+            missing_unified_log_data_vec
+                .catalog_data
+                .append(&mut missing_unified_log.catalog_data);
+            missing_unified_log_data_vec
+                .oversize
+                .append(&mut missing_unified_log.oversize);
         }
 
         (log_data_vec, missing_unified_log_data_vec)
@@ -915,7 +933,7 @@ impl LogData {
         };
 
         missing_unified_log_data.firehose.push(missing_firehose);
-        missing_unified_log_data_vec.header = header.to_owned();
+        header.clone_into(&mut missing_unified_log_data_vec.header);
 
         missing_unified_log_data_vec
             .catalog_data
@@ -925,22 +943,22 @@ impl LogData {
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, path::PathBuf};
-
+    use super::{LogData, UnifiedLogData};
     use crate::{
         catalog::CatalogChunk,
-        chunks::firehose::activity::FirehoseActivity,
-        chunks::firehose::firehose_log::{Firehose, FirehoseItemData},
-        chunks::firehose::flags::FirehoseFormatters,
-        chunks::firehose::loss::FirehoseLoss,
-        chunks::firehose::nonactivity::FirehoseNonActivity,
-        chunks::firehose::signpost::FirehoseSignpost,
-        chunks::firehose::trace::FirehoseTrace,
-        parser::{collect_shared_strings, collect_strings, collect_timesync, parse_log},
+        chunks::firehose::{
+            activity::FirehoseActivity,
+            firehose_log::{Firehose, FirehoseItemData},
+            flags::FirehoseFormatters,
+            loss::FirehoseLoss,
+            nonactivity::FirehoseNonActivity,
+            signpost::FirehoseSignpost,
+            trace::FirehoseTrace,
+        },
+        parser::{collect_shared_strings, collect_strings, collect_timesync, iter_log, parse_log},
         unified_log::UnifiedLogCatalogData,
     };
-
-    use super::{LogData, UnifiedLogData};
+    use std::{fs, path::PathBuf};
 
     #[test]
     fn test_parse_unified_log() {
@@ -955,6 +973,25 @@ mod tests {
         assert_eq!(results.catalog_data.len(), 56);
         assert_eq!(results.header.len(), 1);
         assert_eq!(results.oversize.len(), 12);
+    }
+
+    #[test]
+    fn test_iter_log() {
+        let mut test_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        test_path.push(
+            "tests/test_data/system_logs_big_sur.logarchive/Persist/0000000000000002.tracev3",
+        );
+
+        let buffer = fs::read(test_path).unwrap();
+
+        let (_, results) = LogData::parse_unified_log(&buffer).unwrap();
+        let iter = iter_log(&results, &[], &[], &[], false).unwrap();
+        for (entry, remaining) in iter {
+            assert!(entry.len() > 1000);
+            assert!(remaining.catalog_data.is_empty());
+            assert!(remaining.header.is_empty());
+            assert!(remaining.oversize.is_empty());
+        }
     }
 
     #[test]
@@ -1034,6 +1071,7 @@ mod tests {
         assert_eq!(results[0].boot_uuid, "80D194AF56A34C54867449D2130D41BB");
         assert_eq!(results[0].timezone_name, "Pacific");
         assert_eq!(results[0].raw_message, "LOMD Start");
+        assert_eq!(results[0].timestamp, "2022-01-16T03:05:26.434850816Z")
     }
 
     #[test]

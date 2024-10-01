@@ -259,6 +259,13 @@ pub fn format_firehose_log_message(
             });
         }
 
+        if item_index >= item_message.len() {
+            format_and_message.formatter = formatter.as_str().to_string();
+            format_and_message.message = String::from("<Missing message data>");
+            format_and_message_vec.push(format_and_message);
+            continue;
+        }
+
         // Also seen number type value 0 also used for dynamic width/precision value
         let dynamic_precision_value = 0x0;
         if (item_at_index.item_type == dynamic_precision_value && item_at_index.item_size == 0)
