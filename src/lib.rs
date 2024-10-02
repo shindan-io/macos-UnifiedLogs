@@ -39,6 +39,7 @@ mod decoders;
 pub mod dsc;
 pub mod error;
 mod header;
+pub mod iterator;
 mod message;
 pub mod parser;
 mod preamble;
