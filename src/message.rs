@@ -56,38 +56,9 @@ pub fn format_firehose_log_message(
     if log_message.is_empty() {
         return item_message[0].message_strings.to_owned();
     }
-
     let results = message_re.find_iter(&log_message);
 
-    let mut item_index: usize;
-    let mut item_at_index: &FirehoseItemInfo;
-
-    // auto update index & dependent stuff at the same time
-    // assert that the index is valid & return if not
-    macro_rules! update_index_or {
-        ( $i:expr, $or:block ) => {
-            item_index = $i;
-            if let Some(msg) = item_message.get(item_index) {
-                #[allow(unused_assignments)]
-                {
-                    item_at_index = msg
-                }
-            } else {
-                $or
-            }
-        };
-    }
-
-    let hope_this_dummy_value_wont_be_used = FirehoseItemInfo {
-        item_type: 0,
-        item_size: 0,
-        message_strings: String::new(),
-    };
-
-    update_index_or!(0, {
-        item_at_index = &hope_this_dummy_value_wont_be_used;
-    });
-
+    let mut item_index = 0;
     for formatter in results {
         // Skip literal "% " values
         if formatter.as_str().starts_with("% ") {
@@ -132,7 +103,6 @@ pub fn format_firehose_log_message(
         let private_strings = [0x1, 0x21, 0x31, 0x41];
         let private_number = 0x1;
         let private_message = 0x8000;
-
         if formatter_string.starts_with("%{") {
             // If item type is [0x1, 0x21, 0x31, 0x41] and the value is zero. Its appears to be a private string
             /*
@@ -183,12 +153,11 @@ pub fn format_firehose_log_message(
                     Duration: 1.835s, DNS @0.000s took 0.018s, TCP @0.018s took 0.015s, TLS took 0.040s
                     bytes in/out: 9003/941, packets in/out: 8/8, rtt: 0.010s, retransmitted packets: 0, out-of-order packets: 0
             */
-
-            if private_strings.contains(&item_at_index.item_type)
-                && item_at_index.message_strings.is_empty()
-                && item_at_index.item_size == 0
-                || (item_at_index.item_type == private_number
-                    && item_at_index.item_size == private_message)
+            if private_strings.contains(&item_message[item_index].item_type)
+                && item_message[item_index].message_strings.is_empty()
+                && item_message[item_index].item_size == 0
+                || (item_message[item_index].item_type == private_number
+                    && item_message[item_index].item_size == private_message)
             {
                 formatted_log_message = String::from("<private>");
             } else {
@@ -207,8 +176,7 @@ pub fn format_firehose_log_message(
                 }
             }
         } else {
-            // If item type is [0x1, 0x21, 0x31, 0x41] and the size is zero (or 0x8000 for 0x1). Its appears to be a literal <private> striLanearchi!
-
+            // If item type is [0x1, 0x21, 0x31, 0x41] and the size is zero (or 0x8000 for 0x1). Its appears to be a literal <private> string
             /*
                 0x1 (number type) example below
                 tp 456 + 54:        log default (main_exe)
@@ -225,12 +193,11 @@ pub fn format_firehose_log_message(
                     format:         kext submap [0x%lx - 0x%lx], kernel text [0x%lx - 0x%lx]
                 kext submap [0x<private> - 0x<private>], kernel text [0x<private> - 0x<private>]
             */
-
-            if private_strings.contains(&item_at_index.item_type)
-                && item_at_index.message_strings.is_empty()
-                && item_at_index.item_size == 0
-                || (item_at_index.item_type == private_number
-                    && item_at_index.item_size == private_message)
+            if private_strings.contains(&item_message[item_index].item_type)
+                && item_message[item_index].message_strings.is_empty()
+                && item_message[item_index].item_size == 0
+                || (item_message[item_index].item_type == private_number
+                    && item_message[item_index].item_size == private_message)
             {
                 formatted_log_message = String::from("<private>");
             } else {
@@ -262,17 +229,17 @@ pub fn format_firehose_log_message(
 
         // Also seen number type value 0 also used for dynamic width/precision value
         let dynamic_precision_value = 0x0;
-        if (item_at_index.item_type == dynamic_precision_value && item_at_index.item_size == 0)
+        if (item_message[item_index].item_type == dynamic_precision_value
+            && item_message[item_index].item_size == 0)
             && formatter_string.contains("%*")
         {
-            update_index_or!(item_index + 1, {
-                continue;
-            });
+            item_index += 1;
         }
 
-        update_index_or!(item_index + 1, {
-            continue;
-        });
+        item_index += 1;
+        format_and_message.formatter = formatter.as_str().to_string();
+        format_and_message.message = formatted_log_message;
+        format_and_message_vec.push(format_and_message);
     }
 
     let mut log_message_vec: Vec<String> = Vec::new();
@@ -303,22 +270,7 @@ fn parse_formatter<'a>(
     item_type: u8,
     item_index: usize,
 ) -> nom::IResult<&'a str, String> {
-    let mut index: usize;
-    let mut message_at_index: &FirehoseItemInfo;
-
-    // auto update index & dependent stuff at the same time
-    // assert that the index is valid & return if not
-    macro_rules! update_index {
-        ( $i:expr ) => {
-            index = $i;
-            if let Some(msg) = message_value.get(index) {
-                message_at_index = msg
-            } else {
-                return Ok(("", String::from("UNABLE TO PARSE MESSAGE")));
-            }
-        };
-    }
-    update_index!(item_index);
+    let mut index = item_index;
 
     const PRECISION_ITEMS: [u8; 2] = [0x10, 0x12];
     let mut precision_value = 0;
@@ -332,16 +284,16 @@ fn parse_formatter<'a>(
         }
     }
 
-    let mut message = message_at_index.message_strings.to_owned();
+    let mut message = message_value[index].message_strings.to_owned();
 
     let number_item_type: Vec<u8> = vec![0x0, 0x1, 0x2];
 
     // If the message formatter is expects a string/character and the message string is a number type
     // Try to convert to a character/string
     if formatter.to_lowercase().ends_with('c')
-        && number_item_type.contains(&message_at_index.item_type)
+        && number_item_type.contains(&message_value[index].item_type)
     {
-        let char_results = message_at_index.message_strings.parse::<u32>();
+        let char_results = message_value[index].message_strings.parse::<u32>();
         match char_results {
             Ok(char_message) => message = (char_message as u8 as char).to_string(),
             Err(err) => {
