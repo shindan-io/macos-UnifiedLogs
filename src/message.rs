@@ -247,10 +247,6 @@ pub fn format_firehose_log_message(
             }
         }
 
-        format_and_message.formatter = formatter.as_str().to_string();
-        format_and_message.message = formatted_log_message;
-        format_and_message_vec.push(format_and_message);
-
         let precision_items = [0x10, 0x12]; // dynamic precision item types?
                                             // If the item message was a precision type increment to actual value
         if precision_items.contains(&item_at_index.item_type) {
