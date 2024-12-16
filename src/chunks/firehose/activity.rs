@@ -18,7 +18,7 @@ use nom::{
 };
 use std::mem::size_of;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct FirehoseActivity {
     pub unknown_activity_id: u32,
     pub unknown_sentinal: u32,      // always 0x80000000?
@@ -40,28 +40,7 @@ impl FirehoseActivity {
         firehose_flags: &u16,
         firehose_log_type: &u8,
     ) -> nom::IResult<&'a [u8], FirehoseActivity> {
-        let mut activity = FirehoseActivity {
-            unknown_activity_id: 0,
-            unknown_sentinal: 0,
-            pid: 0,
-            unknown_activity_id_2: 0,
-            unknown_sentinal_2: 0,
-            unknown_activity_id_3: 0,
-            unknown_sentinal_3: 0,
-            unknown_message_string_ref: 0,
-            unknown_pc_id: 0,
-            firehose_formatters: FirehoseFormatters {
-                main_exe: false,
-                shared_cache: false,
-                has_large_offset: 0,
-                large_shared_cache: 0,
-                absolute: false,
-                uuid_relative: String::new(),
-                main_plugin: false,
-                pc_style: false,
-                main_exe_alt_index: 0,
-            },
-        };
+        let mut activity = FirehoseActivity::default();
         let mut input = data;
 
         // Useraction activity type does not have first Activity ID or sentinel
@@ -265,11 +244,11 @@ mod tests {
         assert_eq!(results.unknown_activity_id_3, 64435);
         assert_eq!(results.unknown_sentinal_3, 2147483648);
         assert_eq!(results.unknown_message_string_ref, 0);
-        assert_eq!(results.firehose_formatters.main_exe, false);
-        assert_eq!(results.firehose_formatters.absolute, false);
-        assert_eq!(results.firehose_formatters.shared_cache, false);
-        assert_eq!(results.firehose_formatters.main_plugin, false);
-        assert_eq!(results.firehose_formatters.pc_style, false);
+        assert!(!results.firehose_formatters.main_exe);
+        assert!(!results.firehose_formatters.absolute);
+        assert!(!results.firehose_formatters.shared_cache);
+        assert!(!results.firehose_formatters.main_plugin);
+        assert!(!results.firehose_formatters.pc_style);
         assert_eq!(results.firehose_formatters.main_exe_alt_index, 0);
         assert_eq!(results.firehose_formatters.uuid_relative, "");
         assert_eq!(results.unknown_pc_id, 303578944);

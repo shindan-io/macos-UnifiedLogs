@@ -2,6 +2,10 @@
 name = "macos-unifiedlogs"
 version = "0.1.0"
 edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/mandiant/macos-unifiedlogs"
+description = "A library to help parse macOS UnifiedLogs"
+keywords = ["forensics", "macOS", "unifiedlog"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -22,6 +26,7 @@ simplelog = "0.12.2"
 csv = { workspace = true }
 chrono = { workspace = true }
 criterion = { workspace = true }
+anyhow = { workspace = true }
 
 [[bench]]
 name = "high_sierra_benchmark"
