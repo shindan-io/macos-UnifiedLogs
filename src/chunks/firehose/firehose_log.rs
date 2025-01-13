@@ -56,11 +56,12 @@ pub struct Firehose {
     pub continous_time_delta: u32,
     pub continous_time_delta_upper: u16,
     pub data_size: u16,
-    pub firehose_activity: FirehoseActivity,
-    pub firehose_non_activity: FirehoseNonActivity,
-    pub firehose_loss: FirehoseLoss,
-    pub firehose_signpost: FirehoseSignpost,
-    pub firehose_trace: FirehoseTrace,
+    // pub firehose_activity: FirehoseActivity,
+    // pub firehose_non_activity: FirehoseNonActivity,
+    // pub firehose_loss: FirehoseLoss,
+    // pub firehose_signpost: FirehoseSignpost,
+    // pub firehose_trace: FirehoseTrace,
+    pub item: FirehoseItem,
     pub unknown_item: u8,
     pub number_items: u8,
     /// Log values extracted
@@ -74,6 +75,17 @@ pub struct FirehoseItemType {
     offset: u16,
     message_string_size: u16,
     pub message_strings: String,
+}
+
+#[derive(Debug, Clone, Default)]
+pub enum FirehoseItem {
+    Acticity(FirehoseActivity),
+    NonActivity(FirehoseNonActivity),
+    Loss(FirehoseLoss),
+    Signpost(FirehoseSignpost),
+    Trace(FirehoseTrace),
+    #[default]
+    Unknown,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -129,8 +141,8 @@ impl FirehosePreamble {
         firehose_data.chunk_data_size = chunk_data_size;
         firehose_data.first_number_proc_id = first_proc_id;
         firehose_data.second_number_proc_id = second_proc_id;
-        firehose_data.collapsed = collapsed;
         firehose_data.ttl = ttl;
+        firehose_data.collapsed = collapsed;
 
         firehose_data.unknown = unknown.to_vec();
 
@@ -216,15 +228,20 @@ impl FirehosePreamble {
 
             for data in &mut firehose_data.public_data {
                 // Only non-activity firehose entries appears to have private strings
-                if data.firehose_non_activity.private_strings_size == 0 {
-                    continue;
+                if let FirehoseItem::NonActivity(non_activity) = &data.item {
+                    if non_activity.private_strings_size == 0 {
+                        continue;
+                    }
+
+                    // Get the start of private string data
+                    let string_offset =
+                        non_activity.private_strings_offset - private_data_virtual_offset;
+                    let (private_string_start, _) = take(string_offset)(private_input)?;
+                    let _ = FirehosePreamble::parse_private_data(
+                        private_string_start,
+                        &mut data.message,
+                    );
                 }
-                // Get the start of private string data
-                let string_offset =
-                    data.firehose_non_activity.private_strings_offset - private_data_virtual_offset;
-                let (private_string_start, _) = take(string_offset)(private_input)?;
-                let _ =
-                    FirehosePreamble::parse_private_data(private_string_start, &mut data.message);
             }
             input = private_input;
         }
@@ -442,47 +459,47 @@ impl FirehosePreamble {
         firehose_results.flags = flags;
         firehose_results.format_string_location = format_string_location;
         firehose_results.thread_id = thread_id;
-        firehose_results.continous_time_delta_upper = continous_delta_upper;
         firehose_results.continous_time_delta = continous_delta;
+        firehose_results.continous_time_delta_upper = continous_delta_upper;
         firehose_results.data_size = data_size;
 
         let (mut input, mut firehose_input) = take(data_size)(input)?;
 
         // Log activity type (unknown_log_activity_type)
-        let activity: u8 = 0x2;
-        let signpost: u8 = 0x6;
-        let nonactivity: u8 = 0x4;
-        let loss: u8 = 0x7;
-        let trace: u8 = 0x3;
+        const ACTIVITY: u8 = 0x2;
+        const SIGNPOST: u8 = 0x6;
+        const NONACTIVITY: u8 = 0x4;
+        const LOSS: u8 = 0x7;
+        const TRACE: u8 = 0x3;
 
         // Unknown types
         let unknown_remnant_data = 0x0; // 0x0 appears to be remnant data or garbage data (log command does not parse it either)
 
-        if unknown_log_activity_type == activity {
+        if unknown_log_activity_type == ACTIVITY {
             let (activity_data, activity) =
                 FirehoseActivity::parse_activity(firehose_input, flags, unknown_log_type)?;
             firehose_input = activity_data;
-            firehose_results.firehose_activity = activity;
-        } else if unknown_log_activity_type == nonactivity {
+            firehose_results.item = FirehoseItem::Acticity(activity);
+        } else if unknown_log_activity_type == NONACTIVITY {
             let (non_activity_data, non_activity) =
                 FirehoseNonActivity::parse_non_activity(firehose_input, flags)?;
             firehose_input = non_activity_data;
-            firehose_results.firehose_non_activity = non_activity;
-        } else if unknown_log_activity_type == signpost {
+            firehose_results.item = FirehoseItem::NonActivity(non_activity);
+        } else if unknown_log_activity_type == SIGNPOST {
             let (process_data, firehose_signpost) =
                 FirehoseSignpost::parse_signpost(firehose_input, flags)?;
             firehose_input = process_data;
-            firehose_results.firehose_signpost = firehose_signpost;
-        } else if unknown_log_activity_type == loss {
+            firehose_results.item = FirehoseItem::Signpost(firehose_signpost);
+        } else if unknown_log_activity_type == LOSS {
             let (loss_data, firehose_loss) = FirehoseLoss::parse_firehose_loss(firehose_input)?;
-            firehose_results.firehose_loss = firehose_loss;
+            firehose_results.item = FirehoseItem::Loss(firehose_loss);
             firehose_input = loss_data;
-        } else if unknown_log_activity_type == trace {
+        } else if unknown_log_activity_type == TRACE {
             let (trace_data, firehose_trace) = FirehoseTrace::parse_firehose_trace(firehose_input)?;
-            firehose_results.firehose_trace = firehose_trace;
+            // TODO: why this was here ?
+            firehose_results.message = firehose_trace.message_data.clone();
+            firehose_results.item = FirehoseItem::Trace(firehose_trace);
             firehose_input = trace_data;
-
-            firehose_results.message = firehose_results.firehose_trace.message_data.clone();
         } else if unknown_log_activity_type == unknown_remnant_data {
             return Ok((input, firehose_results));
         } else {
@@ -660,9 +677,8 @@ impl FirehosePreamble {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use std::{fs::File, io::Read, path::PathBuf};
-
-    use super::{FirehoseItemData, FirehoseItemInfo, FirehosePreamble};
 
     #[test]
     fn test_parse_firehose_preamble() {
@@ -2790,31 +2806,24 @@ mod tests {
         assert_eq!(firehose.continous_time_delta, 589618615);
         assert_eq!(firehose.continous_time_delta_upper, 16);
         assert_eq!(firehose.data_size, 99);
-        assert_eq!(firehose.firehose_non_activity.unknown_activity_id, 64444);
-        assert_eq!(firehose.firehose_non_activity.unknown_sentinal, 2147483648);
-        assert_eq!(firehose.firehose_non_activity.private_strings_offset, 0);
-        assert_eq!(firehose.firehose_non_activity.private_strings_size, 0);
-        assert_eq!(firehose.firehose_non_activity.unknown_message_string_ref, 0);
-        assert!(!firehose.firehose_non_activity.firehose_formatters.main_exe);
 
-        assert_eq!(firehose.firehose_non_activity.subsystem_value, 14);
-        assert_eq!(firehose.firehose_non_activity.ttl_value, 0);
-        assert_eq!(firehose.firehose_non_activity.data_ref_value, 0);
-        assert_eq!(
-            firehose
-                .firehose_non_activity
-                .firehose_formatters
-                .large_shared_cache,
-            2
-        );
-        assert_eq!(
-            firehose
-                .firehose_non_activity
-                .firehose_formatters
-                .has_large_offset,
-            1
-        );
-        assert_eq!(firehose.firehose_non_activity.unknown_pc_id, 303680198);
+        let FirehoseItem::NonActivity(non_activity) = firehose.item else {
+            panic!("Expected NonActivity item");
+        };
+
+        assert_eq!(non_activity.unknown_activity_id, 64444);
+        assert_eq!(non_activity.unknown_sentinal, 2147483648);
+        assert_eq!(non_activity.private_strings_offset, 0);
+        assert_eq!(non_activity.private_strings_size, 0);
+        assert_eq!(non_activity.unknown_message_string_ref, 0);
+        assert!(!non_activity.firehose_formatters.main_exe);
+
+        assert_eq!(non_activity.subsystem_value, 14);
+        assert_eq!(non_activity.ttl_value, 0);
+        assert_eq!(non_activity.data_ref_value, 0);
+        assert_eq!(non_activity.firehose_formatters.large_shared_cache, 2);
+        assert_eq!(non_activity.firehose_formatters.has_large_offset, 1);
+        assert_eq!(non_activity.unknown_pc_id, 303680198);
         assert_eq!(firehose.unknown_item, 34);
         assert_eq!(firehose.number_items, 1);
         assert_eq!(
@@ -2939,110 +2948,32 @@ mod tests {
         assert_eq!(firehose.public_data[0].continous_time_delta, 478486415);
         assert_eq!(firehose.public_data[0].data_size, 16);
 
-        assert_eq!(
-            firehose.public_data[0]
-                .firehose_non_activity
-                .unknown_activity_id,
-            0
-        );
-        assert_eq!(
-            firehose.public_data[0]
-                .firehose_non_activity
-                .unknown_sentinal,
-            0
-        );
-        assert_eq!(
-            firehose.public_data[0]
-                .firehose_non_activity
-                .private_strings_offset,
-            4005
-        );
-        assert_eq!(
-            firehose.public_data[0]
-                .firehose_non_activity
-                .private_strings_size,
-            91
-        );
-        assert_eq!(
-            firehose.public_data[0]
-                .firehose_non_activity
-                .unknown_message_string_ref,
-            0
-        );
-        assert_eq!(
-            firehose.public_data[0]
-                .firehose_non_activity
-                .subsystem_value,
-            0
-        );
-        assert_eq!(firehose.public_data[0].firehose_non_activity.ttl_value, 0);
-        assert_eq!(
-            firehose.public_data[0].firehose_non_activity.data_ref_value,
-            0
-        );
-        assert_eq!(
-            firehose.public_data[0].firehose_non_activity.unknown_pc_id,
-            14968
-        );
+        let FirehoseItem::NonActivity(non_activity) = &firehose.public_data[0].item else {
+            panic!("Expected NonActivity item");
+        };
 
-        assert!(
-            firehose.public_data[0]
-                .firehose_non_activity
-                .firehose_formatters
-                .main_exe
-        );
-        assert!(
-            !firehose.public_data[0]
-                .firehose_non_activity
-                .firehose_formatters
-                .shared_cache
-        );
+        assert_eq!(non_activity.unknown_activity_id, 0);
+        assert_eq!(non_activity.unknown_sentinal, 0);
+        assert_eq!(non_activity.private_strings_offset, 4005);
+        assert_eq!(non_activity.private_strings_size, 91);
+        assert_eq!(non_activity.unknown_message_string_ref, 0);
+        assert_eq!(non_activity.subsystem_value, 0);
+        assert_eq!(non_activity.ttl_value, 0);
+        assert_eq!(non_activity.data_ref_value, 0);
+        assert_eq!(non_activity.unknown_pc_id, 14968);
+
+        assert!(non_activity.firehose_formatters.main_exe);
+        assert!(!non_activity.firehose_formatters.shared_cache);
+        assert_eq!(non_activity.firehose_formatters.has_large_offset, 0);
+        assert_eq!(non_activity.firehose_formatters.large_shared_cache, 0);
+        assert!(!non_activity.firehose_formatters.absolute);
         assert_eq!(
-            firehose.public_data[0]
-                .firehose_non_activity
-                .firehose_formatters
-                .has_large_offset,
-            0
-        );
-        assert_eq!(
-            firehose.public_data[0]
-                .firehose_non_activity
-                .firehose_formatters
-                .large_shared_cache,
-            0
-        );
-        assert!(
-            !firehose.public_data[0]
-                .firehose_non_activity
-                .firehose_formatters
-                .absolute
-        );
-        assert_eq!(
-            firehose.public_data[0]
-                .firehose_non_activity
-                .firehose_formatters
-                .uuid_relative,
+            non_activity.firehose_formatters.uuid_relative,
             String::new()
         );
-        assert!(
-            !firehose.public_data[0]
-                .firehose_non_activity
-                .firehose_formatters
-                .main_plugin
-        );
-        assert!(
-            !firehose.public_data[0]
-                .firehose_non_activity
-                .firehose_formatters
-                .pc_style
-        );
-        assert_eq!(
-            firehose.public_data[0]
-                .firehose_non_activity
-                .firehose_formatters
-                .main_exe_alt_index,
-            0
-        );
+        assert!(!non_activity.firehose_formatters.main_plugin);
+        assert!(!non_activity.firehose_formatters.pc_style);
+        assert_eq!(non_activity.firehose_formatters.main_exe_alt_index, 0);
     }
 
     #[test]

@@ -250,6 +250,7 @@ impl FirehoseSignpost {
 
 #[cfg(test)]
 mod tests {
+    use crate::chunks::firehose::firehose_log::FirehoseItem;
     use crate::chunks::firehose::signpost::FirehoseSignpost;
     use crate::filesystem::LogarchiveProvider;
     use crate::parser::{collect_shared_strings, collect_strings, parse_log};
@@ -296,14 +297,13 @@ mod tests {
         let handle = std::fs::File::open(&test_path).unwrap();
         let log_data = parse_log(handle).unwrap();
 
-        let activity_type = 0x6;
-
         for catalog_data in log_data.catalog_data {
             for preamble in catalog_data.firehose {
                 for firehose in preamble.public_data {
-                    if firehose.unknown_log_activity_type == activity_type {
+                    if let FirehoseItem::Signpost(signpost) = firehose.item {
+                    // if firehose.unknown_log_activity_type == activity_type {
                         let (_, message_data) = FirehoseSignpost::get_firehose_signpost(
-                            &firehose.firehose_signpost,
+                            &signpost,
                             &string_results,
                             &shared_strings_results,
                             u64::from(firehose.format_string_location),
