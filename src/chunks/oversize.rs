@@ -73,7 +73,7 @@ impl Oversize {
         const EMPTY_FLAGS: u16 = 0;
         // Grab all message items from oversize data
         let (private_data, mut firehose_item_data) =
-            FirehosePreamble::collect_items(pub_data, &item_count, &EMPTY_FLAGS)?;
+            FirehosePreamble::collect_items(pub_data, item_count, EMPTY_FLAGS)?;
 
         let (_, _) = FirehosePreamble::parse_private_data(
             private_data,
