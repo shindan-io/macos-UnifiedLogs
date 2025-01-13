@@ -16,11 +16,13 @@ use nom::bytes::complete::take_while;
 use nom::combinator::map;
 use nom::multi::many_m_n;
 use nom::number::complete::{be_u128, le_i16, le_i32, le_i64, le_i8};
+use nom::sequence::tuple;
 use nom::{
     bytes::complete::take,
     number::complete::{le_u16, le_u32, le_u64, le_u8},
 };
 use serde::Serialize;
+use std::cmp::min;
 use std::mem::size_of;
 
 #[derive(Debug, Clone, Default)]
@@ -132,7 +134,7 @@ impl FirehosePreamble {
 
         let (input, public_data_size) = le_u16(input)?;
         let (input, private_data_virtual_offset) = le_u16(input)?;
-        let (input, unknown2) = le_u16(input)?;
+        let (input, unkonwn2) = le_u16(input)?;
         let (input, unknown3) = le_u16(input)?;
         let (log_data, base_continous_time) = le_u64(input)?;
 
@@ -148,7 +150,7 @@ impl FirehosePreamble {
 
         firehose_data.public_data_size = public_data_size;
         firehose_data.private_data_virtual_offset = private_data_virtual_offset;
-        firehose_data.unkonwn2 = unknown2;
+        firehose_data.unkonwn2 = unkonwn2;
         firehose_data.unknown3 = unknown3;
         firehose_data.base_continous_time = base_continous_time;
 
@@ -239,7 +241,7 @@ impl FirehosePreamble {
                     let (private_string_start, _) = take(string_offset)(private_input)?;
                     let _ = FirehosePreamble::parse_private_data(
                         private_string_start,
-                        &mut data.message,
+                        &mut data.message.item_info,
                     );
                 }
             }
@@ -392,51 +394,40 @@ impl FirehosePreamble {
 
     /// Parse any private firehose data and update any firehose items that use private data
     pub fn parse_private_data<'a>(
-        data: &'a [u8],
-        firehose_item_data: &mut FirehoseItemData,
+        mut data: &'a [u8],
+        firehose_item_infos: &mut Vec<FirehoseItemInfo>,
     ) -> nom::IResult<&'a [u8], ()> {
-        let private_strings: Vec<u8> = vec![0x21, 0x25, 0x41, 0x35, 0x31, 0x81, 0xf1];
-        let private_number = 0x1;
+        const PRIVATE_STRINGS: &[u8] = &[0x21, 0x25, 0x41, 0x35, 0x31, 0x81, 0xf1];
+        const PRIVATE_NUMBER: u8 = 0x1;
 
-        let mut private_string_start = data;
         // Go through all firehose items, for each private item entry get the private value
-        for firehose_info in &mut firehose_item_data.item_info {
-            if private_strings.contains(&firehose_info.item_type) {
-                // Base64 encode arbitrary data. Need to further parse them based on base string formatters
-                if firehose_info.item_type == private_strings[3]
-                    || firehose_info.item_type == private_strings[4]
-                {
-                    if private_string_start.len() < firehose_info.item_size.into() {
-                        let (private_data, pointer_object) =
-                            take(private_string_start.len())(private_string_start)?;
-                        private_string_start = private_data;
-                        firehose_info.message_strings = encode_standard(pointer_object);
+        for firehose_info in firehose_item_infos {
+            let item_type = firehose_info.item_type;
 
-                        continue;
-                    }
+            let is_string = PRIVATE_STRINGS.contains(&item_type);
+            let is_base64 = item_type == PRIVATE_STRINGS[3] || item_type == PRIVATE_STRINGS[4];
+            let is_number = item_type == PRIVATE_NUMBER;
 
-                    let (private_data, pointer_object) =
-                        take(firehose_info.item_size)(private_string_start)?;
-                    private_string_start = private_data;
-                    firehose_info.message_strings = encode_standard(pointer_object);
-                    continue;
-                }
-
+            let (priv_data, message) = if is_base64 {
+                let len_to_take = min(data.len(), firehose_info.item_size.into());
+                let (private_data, pointer_object) = take(len_to_take)(data)?;
+                (private_data, encode_standard(pointer_object))
+            } else if is_string {
                 let (private_data, private_string) =
-                    extract_string_size(private_string_start, u64::from(firehose_info.item_size))?;
+                    extract_string_size(data, u64::from(firehose_info.item_size))?;
+                (private_data, private_string)
+            } else if is_number {
+                let (private_data, private_string) =
+                    FirehosePreamble::parse_item_number(data, firehose_info.item_size)?;
+                (private_data, format!("{private_string}"))
+            } else {
+                continue;
+            };
 
-                private_string_start = private_data;
-                firehose_info.message_strings = private_string;
-            } else if firehose_info.item_type == private_number {
-                let (private_data, private_string) = FirehosePreamble::parse_item_number(
-                    private_string_start,
-                    firehose_info.item_size,
-                )?;
-                private_string_start = private_data;
-                firehose_info.message_strings = format!("{}", private_string);
-            }
+            data = priv_data;
+            firehose_info.message_strings = message;
         }
-        Ok((private_string_start, ()))
+        Ok((data, ()))
     }
 
     /// Parse all the different types of Firehose data (activity, non-activity, loss, trace, signpost)
@@ -497,7 +488,7 @@ impl FirehosePreamble {
         } else if unknown_log_activity_type == TRACE {
             let (trace_data, firehose_trace) = FirehoseTrace::parse_firehose_trace(firehose_input)?;
             // TODO: why this was here ?
-            firehose_results.message = firehose_trace.message_data.clone();
+            // firehose_results.message = firehose_trace.message_data.clone();
             firehose_results.item = FirehoseItem::Trace(firehose_trace);
             firehose_input = trace_data;
         } else if unknown_log_activity_type == unknown_remnant_data {
@@ -512,8 +503,8 @@ impl FirehosePreamble {
             return Ok((input, firehose_results));
         }
 
-        let minimum_item_size = 6;
-        if firehose_input.len() < minimum_item_size {
+        const MINIMUM_ITEM_SIZE: usize = 6;
+        if firehose_input.len() < MINIMUM_ITEM_SIZE {
             // Nom any zero padding
             let (remaining_data, _) = take_while(|b: u8| b == 0)(input)?;
 
@@ -521,8 +512,7 @@ impl FirehosePreamble {
             return Ok((input, firehose_results));
         }
 
-        let (firehose_input, unknown_item) = le_u8(firehose_input)?;
-        let (firehose_input, number_items) = le_u8(firehose_input)?;
+        let (firehose_input, (unknown_item, number_items)) = tuple((le_u8, le_u8))(firehose_input)?;
 
         firehose_results.unknown_item = unknown_item;
         firehose_results.number_items = number_items;
@@ -3098,7 +3088,7 @@ mod tests {
             item_size: 161,
         };
         results.item_info.push(firehose_item);
-        let (_, _) = FirehosePreamble::parse_private_data(&test_data, &mut results).unwrap();
+        let (_, _) = FirehosePreamble::parse_private_data(&test_data, &mut results.item_info).unwrap();
 
         assert_eq!(results.item_info[0].message_strings, "<SZExtractor<0x15780ee60> prepared:Y valid:Y pathEnding:com.apple.nsurlsessiond/CFNetworkDownload_yWh5k8.tmp error:(null)>: Supply bytes with length 65536 began")
     }
@@ -3116,7 +3106,7 @@ mod tests {
             item_size: 8,
         };
         results.item_info.push(firehose_item);
-        let (_, _) = FirehosePreamble::parse_private_data(&test_data, &mut results).unwrap();
+        let (_, _) = FirehosePreamble::parse_private_data(&test_data, &mut results.item_info).unwrap();
 
         assert_eq!(results.item_info[0].message_strings, "7021802828932469564")
     }
