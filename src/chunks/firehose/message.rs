@@ -31,8 +31,8 @@ impl MessageData {
         shared_strings: &'a [SharedCacheStrings],
         strings_data: &'a [UUIDText],
         string_offset: u64,
-        first_proc_id: &u64,
-        second_proc_id: &u32,
+        first_proc_id: u64,
+        second_proc_id: u32,
         catalogs: &CatalogChunk,
         original_offset: u64,
     ) -> nom::IResult<&'a [u8], MessageData> {
@@ -172,8 +172,8 @@ impl MessageData {
     pub fn extract_format_strings<'a>(
         strings_data: &'a [UUIDText],
         string_offset: u64,
-        first_proc_id: &u64,
-        second_proc_id: &u32,
+        first_proc_id: u64,
+        second_proc_id: u32,
         catalogs: &CatalogChunk,
         original_offset: u64,
     ) -> nom::IResult<&'a [u8], MessageData> {
@@ -284,8 +284,8 @@ impl MessageData {
         strings_data: &'a [UUIDText],
         absolute_offset: u64,
         string_offset: u64,
-        first_proc_id: &u64,
-        second_proc_id: &u32,
+        first_proc_id: u64,
+        second_proc_id: u32,
         catalogs: &CatalogChunk,
         original_offset: u64,
     ) -> nom::IResult<&'a [u8], MessageData> {
@@ -293,8 +293,8 @@ impl MessageData {
         let mut uuid = String::new();
         // Go through Catalog associated with log entry and find UUID entry associated with log message (first_proc_id@second_proc_id)
         for process_info in &catalogs.catalog_process_info_entries {
-            if first_proc_id == &process_info.first_number_proc_id
-                && second_proc_id == &process_info.second_number_proc_id
+            if first_proc_id == process_info.first_number_proc_id
+                && second_proc_id == process_info.second_number_proc_id
             {
                 // In addition to first_proc_id and second_proc_id, we need to go through UUID entries in the catalog
                 // Entries with the Absolute flag have the UUID stored in an Vec of UUIDs and offsets/load_address
@@ -432,8 +432,8 @@ impl MessageData {
         strings_data: &'a [UUIDText],
         string_offset: u64,
         uuid: &str,
-        first_proc_id: &u64,
-        second_proc_id: &u32,
+        first_proc_id: u64,
+        second_proc_id: u32,
         catalogs: &CatalogChunk,
         original_offset: u64,
     ) -> nom::IResult<&'a [u8], MessageData> {
@@ -597,15 +597,15 @@ impl MessageData {
     // Grab dsc file name from the Catalog data based on first and second proc ids from the Firehose log
     fn get_catalog_dsc(
         catalogs: &CatalogChunk,
-        first_proc_id: &u64,
-        second_proc_id: &u32,
+        first_proc_id: u64,
+        second_proc_id: u32,
     ) -> (String, String) {
         let mut dsc_uuid = String::new();
         let mut main_uuid = String::new();
 
         for process_info in &catalogs.catalog_process_info_entries {
-            if first_proc_id == &process_info.first_number_proc_id
-                && second_proc_id == &process_info.second_number_proc_id
+            if first_proc_id == process_info.first_number_proc_id
+                && second_proc_id == process_info.second_number_proc_id
             {
                 process_info.dsc_uuid.clone_into(&mut dsc_uuid);
                 process_info.main_uuid.clone_into(&mut main_uuid);
@@ -641,16 +641,16 @@ mod tests {
         let handle = std::fs::File::open(test_path).unwrap();
         let log_data = parse_log(handle).unwrap();
 
-        let test_offset = 1331408102;
-        let test_first_proc_id = 45;
-        let test_second_proc_id = 188;
+        const TEST_OFFSET: u64 = 1331408102;
+        const TEST_FIRST_PROC_ID: u64 = 45;
+        const TEST_SECOND_PROC_ID: u32 = 188;
 
         let (_, results) = MessageData::extract_shared_strings(
             &shared_strings_results,
             &strings,
-            test_offset,
-            &test_first_proc_id,
-            &test_second_proc_id,
+            TEST_OFFSET,
+            TEST_FIRST_PROC_ID,
+            TEST_SECOND_PROC_ID,
             &log_data.catalog_data[0].catalog,
             0,
         )
@@ -682,16 +682,16 @@ mod tests {
         let handle = std::fs::File::open(test_path).unwrap();
         let log_data = parse_log(handle).unwrap();
 
-        let bad_offset = 7;
-        let test_first_proc_id = 45;
-        let test_second_proc_id = 188;
+        const BAD_OFFSET: u64 = 7;
+        const TEST_FIRST_PROC_ID: u64 = 45;
+        const TEST_SECOND_PROC_ID: u32 = 188;
 
         let (_, results) = MessageData::extract_shared_strings(
             &shared_strings_results,
             &strings,
-            bad_offset,
-            &test_first_proc_id,
-            &test_second_proc_id,
+            BAD_OFFSET,
+            TEST_FIRST_PROC_ID,
+            TEST_SECOND_PROC_ID,
             &log_data.catalog_data[0].catalog,
             0,
         )
@@ -718,17 +718,18 @@ mod tests {
         let handle = std::fs::File::open(test_path).unwrap();
         let log_data = parse_log(handle).unwrap();
 
-        let test_offset = 2420246585;
-        let test_first_proc_id = 32;
-        let test_second_proc_id = 424;
+        const TEST_OFFSET: u64 = 2420246585;
+        const TEST_FIRST_PROC_ID: u64 = 32;
+        const TEST_SECOND_PROC_ID: u32 = 424;
+        
         let (_, results) = MessageData::extract_shared_strings(
             &shared_strings_results,
             &strings,
-            test_offset,
-            &test_first_proc_id,
-            &test_second_proc_id,
+            TEST_OFFSET,
+            TEST_FIRST_PROC_ID,
+            TEST_SECOND_PROC_ID,
             &log_data.catalog_data[2].catalog,
-            test_offset,
+            TEST_OFFSET,
         )
         .unwrap();
 
@@ -755,16 +756,17 @@ mod tests {
         let handle = std::fs::File::open(test_path).unwrap();
         let log_data = parse_log(handle).unwrap();
 
-        let test_offset = 14960;
-        let test_first_proc_id = 45;
-        let test_second_proc_id = 188;
+        const TEST_OFFSET: u64 = 14960;
+        const TEST_FIRST_PROC_ID: u64 = 45;
+        const TEST_SECOND_PROC_ID: u32 = 188;
+        
         let (_, results) = MessageData::extract_format_strings(
             &strings,
-            test_offset,
-            &test_first_proc_id,
-            &test_second_proc_id,
+            TEST_OFFSET,
+            TEST_FIRST_PROC_ID,
+            TEST_SECOND_PROC_ID,
             &log_data.catalog_data[0].catalog,
-            test_offset,
+            TEST_OFFSET,
         )
         .unwrap();
 
@@ -789,14 +791,14 @@ mod tests {
         let handle = std::fs::File::open(test_path).unwrap();
         let log_data = parse_log(handle).unwrap();
 
-        let bad_offset = 1;
-        let test_first_proc_id = 45;
-        let test_second_proc_id = 188;
+        const  BAD_OFFSET: u64 = 1;
+        const  TEST_FIRST_PROC_ID: u64 = 45;
+        const  TEST_SECOND_PROC_ID: u32 = 188;
         let (_, results) = MessageData::extract_format_strings(
             &strings,
-            bad_offset,
-            &test_first_proc_id,
-            &test_second_proc_id,
+            BAD_OFFSET,
+            TEST_FIRST_PROC_ID,
+            TEST_SECOND_PROC_ID,
             &log_data.catalog_data[0].catalog,
             0,
         )
@@ -821,16 +823,17 @@ mod tests {
         let handle = std::fs::File::open(test_path).unwrap();
         let log_data = parse_log(handle).unwrap();
 
-        let test_offset = 2147519968;
-        let test_first_proc_id = 38;
-        let test_second_proc_id = 317;
+        const TEST_OFFSET: u64 = 2147519968;
+        const TEST_FIRST_PROC_ID: u64 = 38;
+        const TEST_SECOND_PROC_ID: u32 = 317;
+        
         let (_, results) = MessageData::extract_format_strings(
             &strings,
-            test_offset,
-            &test_first_proc_id,
-            &test_second_proc_id,
+            TEST_OFFSET,
+            TEST_FIRST_PROC_ID,
+            TEST_SECOND_PROC_ID,
             &log_data.catalog_data[4].catalog,
-            test_offset,
+            TEST_OFFSET,
         )
         .unwrap();
 
@@ -855,16 +858,17 @@ mod tests {
         let handle = std::fs::File::open(test_path).unwrap();
         let log_data = parse_log(handle).unwrap();
 
-        let bad_offset = 55;
-        let test_first_proc_id = 38;
-        let test_second_proc_id = 317;
+        const BAD_OFFSET: u64 = 55;
+        const TEST_FIRST_PROC_ID: u64 = 38;
+        const TEST_SECOND_PROC_ID: u32 = 317;
+
         let (_, results) = MessageData::extract_format_strings(
             &strings,
-            bad_offset,
-            &test_first_proc_id,
-            &test_second_proc_id,
+            BAD_OFFSET,
+            TEST_FIRST_PROC_ID,
+            TEST_SECOND_PROC_ID,
             &log_data.catalog_data[4].catalog,
-            bad_offset,
+            BAD_OFFSET,
         )
         .unwrap();
 
@@ -888,16 +892,17 @@ mod tests {
         let handle = std::fs::File::open(test_path).unwrap();
         let log_data = parse_log(handle).unwrap();
 
-        let test_offset = 396912;
-        let test_absolute_offset = 280925241119206;
-        let test_first_proc_id = 0;
-        let test_second_proc_id = 0;
+        const TEST_OFFSET: u64 = 396912;
+        const TEST_ABSOLUTE_OFFSET: u64 = 280925241119206;
+        const TEST_FIRST_PROC_ID: u64 = 0;
+        const TEST_SECOND_PROC_ID: u32 = 0;
+
         let (_, results) = MessageData::extract_absolute_strings(
             &strings,
-            test_absolute_offset,
-            test_offset,
-            &test_first_proc_id,
-            &test_second_proc_id,
+            TEST_ABSOLUTE_OFFSET,
+            TEST_OFFSET,
+            TEST_FIRST_PROC_ID,
+            TEST_SECOND_PROC_ID,
             &log_data.catalog_data[0].catalog,
             0,
         )
@@ -921,16 +926,17 @@ mod tests {
         let handle = std::fs::File::open(test_path).unwrap();
         let log_data = parse_log(handle).unwrap();
 
-        let test_offset = 396912;
-        let bad_offset = 12;
-        let test_first_proc_id = 0;
-        let test_second_proc_id = 0;
+        const TEST_OFFSET: u64 = 396912;
+        const BAD_OFFSET: u64 = 12;
+        const TEST_FIRST_PROC_ID: u64 = 0;
+        const TEST_SECOND_PROC_ID: u32 = 0;
+
         let (_, results) = MessageData::extract_absolute_strings(
             &strings,
-            bad_offset,
-            test_offset,
-            &test_first_proc_id,
-            &test_second_proc_id,
+            BAD_OFFSET,
+            TEST_OFFSET,
+            TEST_FIRST_PROC_ID,
+            TEST_SECOND_PROC_ID,
             &log_data.catalog_data[0].catalog,
             0,
         )
@@ -958,14 +964,15 @@ mod tests {
         let test_absolute_offset = 102;
         assert_eq!(log_data.catalog_data.len(), 56);
 
-        let test_first_proc_id = 0;
-        let test_second_proc_id = 0;
+        const TEST_FIRST_PROC_ID: u64 = 0;
+        const TEST_SECOND_PROC_ID: u32 = 0;
+
         let (_, results) = MessageData::extract_absolute_strings(
             &strings,
             test_absolute_offset,
             test_offset,
-            &test_first_proc_id,
-            &test_second_proc_id,
+            TEST_FIRST_PROC_ID,
+            TEST_SECOND_PROC_ID,
             &log_data.catalog_data[1].catalog,
             test_offset,
         )
@@ -994,14 +1001,15 @@ mod tests {
         let test_absolute_offset = 102;
         assert_eq!(log_data.catalog_data.len(), 56);
 
-        let test_first_proc_id = 0;
-        let test_second_proc_id = 0;
+        const TEST_FIRST_PROC_ID: u64 = 0;
+        const TEST_SECOND_PROC_ID: u32 = 0;
+
         let (_, results) = MessageData::extract_absolute_strings(
             &strings,
             test_absolute_offset,
             bad_offset,
-            &test_first_proc_id,
-            &test_second_proc_id,
+            TEST_FIRST_PROC_ID,
+            TEST_SECOND_PROC_ID,
             &log_data.catalog_data[1].catalog,
             bad_offset,
         )
@@ -1032,14 +1040,15 @@ mod tests {
         let first_proc_id = 105;
         let second_proc_id = 240;
 
-        let test_offset = 221408;
-        let test_uuid = "C275D5EEBAD43A86B74F16F3E62BF57D";
+        const TEST_OFFSET: u64 = 221408;
+        const TEST_UUID: &str = "C275D5EEBAD43A86B74F16F3E62BF57D";
+        
         let (_, results) = MessageData::extract_alt_uuid_strings(
             &strings,
-            test_offset,
-            test_uuid,
-            &first_proc_id,
-            &second_proc_id,
+            TEST_OFFSET,
+            TEST_UUID,
+            first_proc_id,
+            second_proc_id,
             &log_data.catalog_data[0].catalog,
             0,
         )
@@ -1063,12 +1072,13 @@ mod tests {
         let handle = std::fs::File::open(test_path).unwrap();
         let log_data = parse_log(handle).unwrap();
 
-        let test_first_proc_id = 136;
-        let test_second_proc_id = 342;
+        const TEST_FIRST_PROC_ID: u64 = 136;
+        const TEST_SECOND_PROC_ID: u32 = 342;
+
         let (dsc_uuid, main_uuid) = MessageData::get_catalog_dsc(
             &log_data.catalog_data[0].catalog,
-            &test_first_proc_id,
-            &test_second_proc_id,
+            TEST_FIRST_PROC_ID,
+            TEST_SECOND_PROC_ID,
         );
 
         assert_eq!(dsc_uuid, "80896B329EB13A10A7C5449B15305DE2");

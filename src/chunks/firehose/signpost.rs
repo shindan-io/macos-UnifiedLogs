@@ -36,7 +36,7 @@ impl FirehoseSignpost {
     // Ex: tp 2368 + 92: process signpost event (shared_cache, has_name, has_subsystem)
     pub fn parse_signpost<'a>(
         data: &'a [u8],
-        firehose_flags: &u16,
+        firehose_flags: u16,
     ) -> nom::IResult<&'a [u8], FirehoseSignpost> {
         let mut firehose_signpost = FirehoseSignpost::default();
 
@@ -133,8 +133,8 @@ impl FirehoseSignpost {
         strings_data: &'a [UUIDText],
         shared_strings: &'a [SharedCacheStrings],
         string_offset: u64,
-        first_proc_id: &u64,
-        second_proc_id: &u32,
+        first_proc_id: u64,
+        second_proc_id: u32,
         catalogs: &CatalogChunk,
     ) -> nom::IResult<&'a [u8], MessageData> {
         if firehose.firehose_formatters.shared_cache
@@ -261,7 +261,7 @@ mod tests {
             225, 244, 2, 0, 1, 0, 238, 238, 178, 178, 181, 176, 238, 238, 176, 63, 27, 0, 0, 0,
         ];
         let test_flags = 33282;
-        let (_, results) = FirehoseSignpost::parse_signpost(&test_data, &test_flags).unwrap();
+        let (_, results) = FirehoseSignpost::parse_signpost(&test_data, test_flags).unwrap();
         assert_eq!(results.unknown_pc_id, 193761);
         assert_eq!(results.unknown_activity_id, 0);
         assert_eq!(results.unknown_sentinel, 0);
@@ -307,8 +307,8 @@ mod tests {
                             &string_results,
                             &shared_strings_results,
                             u64::from(firehose.format_string_location),
-                            &preamble.first_number_proc_id,
-                            &preamble.second_number_proc_id,
+                            preamble.first_number_proc_id,
+                            preamble.second_number_proc_id,
                             &catalog_data.catalog,
                         )
                         .unwrap();

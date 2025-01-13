@@ -199,8 +199,8 @@ impl Iterator for LogIterator<'_> {
                             self.strings_data,
                             self.shared_strings,
                             u64::from(firehose.format_string_location),
-                            &preamble.first_number_proc_id,
-                            &preamble.second_number_proc_id,
+                            preamble.first_number_proc_id,
+                            preamble.second_number_proc_id,
                             &catalog_data.catalog,
                         );
 
@@ -294,8 +294,8 @@ impl Iterator for LogIterator<'_> {
                             self.strings_data,
                             self.shared_strings,
                             u64::from(firehose.format_string_location),
-                            &preamble.first_number_proc_id,
-                            &preamble.second_number_proc_id,
+                            preamble.first_number_proc_id,
+                            preamble.second_number_proc_id,
                             &catalog_data.catalog,
                         );
                         match message_data {
@@ -348,8 +348,8 @@ impl Iterator for LogIterator<'_> {
                             self.strings_data,
                             self.shared_strings,
                             u64::from(firehose.format_string_location),
-                            &preamble.first_number_proc_id,
-                            &preamble.second_number_proc_id,
+                            preamble.first_number_proc_id,
+                            preamble.second_number_proc_id,
                             &catalog_data.catalog,
                         );
                         match message_data {
@@ -438,8 +438,8 @@ impl Iterator for LogIterator<'_> {
                         let message_data = FirehoseTrace::get_firehose_trace_strings(
                             self.strings_data,
                             u64::from(firehose.format_string_location),
-                            &preamble.first_number_proc_id,
-                            &preamble.second_number_proc_id,
+                            preamble.first_number_proc_id,
+                            preamble.second_number_proc_id,
                             &catalog_data.catalog,
                         );
                         match message_data {

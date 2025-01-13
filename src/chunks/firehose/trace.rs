@@ -136,8 +136,8 @@ impl FirehoseTrace {
     pub fn get_firehose_trace_strings<'a>(
         strings_data: &'a [UUIDText],
         string_offset: u64,
-        first_proc_id: &u64,
-        second_proc_id: &u32,
+        first_proc_id: u64,
+        second_proc_id: u32,
         catalogs: &CatalogChunk,
     ) -> nom::IResult<&'a [u8], MessageData> {
         // Only main_exe flag has been seen for format strings
@@ -223,8 +223,8 @@ mod tests {
                         let (_, message_data) = FirehoseTrace::get_firehose_trace_strings(
                             &string_results,
                             u64::from(firehose.format_string_location),
-                            &preamble.first_number_proc_id,
-                            &preamble.second_number_proc_id,
+                            preamble.first_number_proc_id,
+                            preamble.second_number_proc_id,
                             &catalog_data.catalog,
                         )
                         .unwrap();
