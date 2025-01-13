@@ -9,7 +9,7 @@ use crate::chunks::firehose::firehose_log::{FirehoseItemData, FirehoseItemInfo, 
 use log::{info, warn};
 use nom::bytes::complete::take;
 use nom::number::complete::{le_u16, le_u32, le_u64, le_u8};
-use std::mem::size_of;
+use nom::sequence::tuple;
 
 #[derive(Debug, Clone, Default)]
 pub struct Oversize {
@@ -29,67 +29,57 @@ pub struct Oversize {
 
 impl Oversize {
     /// Parse the oversize log entry. Oversize entries contain strings that are too large to fit in a normal Firehose log entry
-    pub fn parse_oversize(data: &[u8]) -> nom::IResult<&[u8], Oversize> {
+    pub fn parse_oversize(input: &[u8]) -> nom::IResult<&[u8], Oversize> {
         let mut oversize_results = Oversize::default();
 
-        let (input, chunk_tag) = take(size_of::<u32>())(data)?;
-        let (input, chunk_sub_tag) = take(size_of::<u32>())(input)?;
-        let (input, chunk_data_size) = take(size_of::<u64>())(input)?;
-        let (input, first_number_proc_id) = take(size_of::<u64>())(input)?;
-        let (input, second_number_proc_id) = take(size_of::<u32>())(input)?;
+        let (input, chunk_tag) = le_u32(input)?;
+        let (input, chunk_subtag) = le_u32(input)?;
+        let (input, chunk_data_size) = le_u64(input)?;
+        let (input, first_proc_id) = le_u64(input)?;
+        let (input, second_proc_id) = le_u32(input)?;
 
-        let (input, ttl) = take(size_of::<u8>())(input)?;
-        let unknown_reserved_size: u8 = 3;
-        let (input, unknown_reserved) = take(unknown_reserved_size)(input)?;
-        let (input, continuous_time) = take(size_of::<u64>())(input)?;
-        let (input, data_ref_index) = take(size_of::<u32>())(input)?;
-        let (input, public_data_size) = take(size_of::<u16>())(input)?;
-        let (input, private_data_size) = take(size_of::<u16>())(input)?;
+        let (input, ttl) = le_u8(input)?;
+        const UNKNOWN_RESERVED_SIZE: u8 = 3;
+        let (input, unknown_reserved) = take(UNKNOWN_RESERVED_SIZE)(input)?;
 
-        let (_, oversize_chunk_tag) = le_u32(chunk_tag)?;
-        let (_, oversize_chunk_sub_tag) = le_u32(chunk_sub_tag)?;
-        let (_, oversize_chunk_data_size) = le_u64(chunk_data_size)?;
-        let (_, oversize_first_proc_id) = le_u64(first_number_proc_id)?;
-        let (_, oversize_second_proc_id) = le_u32(second_number_proc_id)?;
+        let (input, continuous_time) = le_u64(input)?;
+        let (input, data_ref_index) = le_u32(input)?;
+        let (input, public_data_size) = le_u16(input)?;
+        let (input, private_data_size) = le_u16(input)?;
 
-        let (_, oversize_ttl) = le_u8(ttl)?;
-        let (_, oversize_continous_time) = le_u64(continuous_time)?;
-        let (_, oversize_data_ref_index) = le_u32(data_ref_index)?;
-        let (_, oversize_public_data_size) = le_u16(public_data_size)?;
-        let (_, oversize_private_data_size) = le_u16(private_data_size)?;
-
-        oversize_results.chunk_tag = oversize_chunk_tag;
-        oversize_results.chunk_subtag = oversize_chunk_sub_tag;
-        oversize_results.chunk_data_size = oversize_chunk_data_size;
-        oversize_results.first_proc_id = oversize_first_proc_id;
-        oversize_results.second_proc_id = oversize_second_proc_id;
-        oversize_results.ttl = oversize_ttl;
-        oversize_results.continuous_time = oversize_continous_time;
-        oversize_results.data_ref_index = oversize_data_ref_index;
-        oversize_results.public_data_size = oversize_public_data_size;
-        oversize_results.private_data_size = oversize_private_data_size;
+        oversize_results.chunk_tag = chunk_tag;
+        oversize_results.chunk_subtag = chunk_subtag;
+        oversize_results.chunk_data_size = chunk_data_size;
+        oversize_results.first_proc_id = first_proc_id;
+        oversize_results.second_proc_id = second_proc_id;
+        oversize_results.ttl = ttl;
+        oversize_results.continuous_time = continuous_time;
+        oversize_results.data_ref_index = data_ref_index;
+        oversize_results.public_data_size = public_data_size;
+        oversize_results.private_data_size = private_data_size;
         oversize_results.unknown_reserved = unknown_reserved.to_vec();
 
-        let mut oversize_data_size =
-            (oversize_results.public_data_size + oversize_results.private_data_size) as usize;
+        let mut oversize_data_size = (public_data_size + private_data_size) as usize;
 
         // Contains item data like firehose (ex: 0x42)
         if oversize_data_size > input.len() {
             warn!("[macos-unifiedlogs] Oversize data size greater than Oversize remaining string size. Using remaining string size");
             oversize_data_size = input.len();
         }
-        let (input, pub_data) = take(oversize_data_size)(input)?;
+        let (input, oversize_data) = take(oversize_data_size)(input)?;
 
-        let (message_data, _) = take(size_of::<u8>())(pub_data)?;
-        let (message_data, item_count) = take(size_of::<u8>())(message_data)?;
-        let (_, oversize_item_count) = le_u8(item_count)?;
+        let (pub_data, (_, item_count)) = tuple((take(1_usize), le_u8))(oversize_data)?;
 
-        let empty_flags = 0;
+        const EMPTY_FLAGS: u16 = 0;
         // Grab all message items from oversize data
-        let (oversize_private_data, mut firehose_item_data) =
-            FirehosePreamble::collect_items(message_data, &oversize_item_count, &empty_flags)?;
-        let (_, _) =
-            FirehosePreamble::parse_private_data(oversize_private_data, &mut firehose_item_data.item_info)?;
+        let (private_data, mut firehose_item_data) =
+            FirehosePreamble::collect_items(pub_data, &item_count, &EMPTY_FLAGS)?;
+
+        let (_, _) = FirehosePreamble::parse_private_data(
+            private_data,
+            &mut firehose_item_data.item_info,
+        )?;
+
         oversize_results.message_items = firehose_item_data;
         Ok((input, oversize_results))
     }
