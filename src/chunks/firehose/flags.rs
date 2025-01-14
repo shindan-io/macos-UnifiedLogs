@@ -36,10 +36,7 @@ impl FirehoseFormatters {
     ) -> nom::IResult<&'a [u8], FirehoseFormatters> {
         let mut formatter_flags = FirehoseFormatters::default();
 
-        const MESSAGE_STRINGS_UUID: u16 = 0x2; // main_exe flag
-        const LARGE_SHARED_CACHE: u16 = 0xc; // large_shared_cache flag
         const LARGE_OFFSET: u16 = 0x20; // has_large_offset flag
-        const FLAG_CHECK: u16 = 0xe;
 
         /*
         0x20 - has_large_offset flag. Offset to format string is larger than normal
@@ -50,13 +47,13 @@ impl FirehoseFormatters {
         0xa - uuid_relative flag. The UUID file name is in the log data (instead of the Catalog)
          */
 
-        if flags.has_large_offset() {
+        if flags.is_large_offset() {
             debug!("[macos-unifiedlogs] Firehose flag: has_large_offset");
             let (firehose_input, has_large_offset) = le_u16(input)?;
             formatter_flags.has_large_offset = has_large_offset;
             input = firehose_input;
 
-            if (firehose_flags & LARGE_SHARED_CACHE) != 0 {
+            if flags.has_large_shared_cache(){
                 debug!(
                     "[macos-unifiedlogs] Firehose flag: large_shared_cache and has_large_offset"
                 );
@@ -64,9 +61,9 @@ impl FirehoseFormatters {
                 formatter_flags.large_shared_cache = large_shared_cache;
                 input = firehose_input;
             }
-        } else if flags.has_large_shared_cache() {
+        } else if flags.is_large_shared_cache() {
             debug!("[macos-unifiedlogs] Firehose flag: large_shared_cache");
-            if (firehose_flags & LARGE_OFFSET) != 0 {
+            if flags.has_large_offset() {
                 let (firehose_input, has_large_offset) = le_u16(input)?;
                 formatter_flags.has_large_offset = has_large_offset;
                 input = firehose_input;
@@ -75,27 +72,27 @@ impl FirehoseFormatters {
             let (firehose_input, large_shared_cache) = le_u16(input)?;
             formatter_flags.large_shared_cache = large_shared_cache;
             input = firehose_input;
-        } else if flags.has_absolute() {
+        } else if flags.is_absolute() {
             debug!("[macos-unifiedlogs] Firehose flag: absolute");
             formatter_flags.absolute = true;
-            if (firehose_flags & MESSAGE_STRINGS_UUID) == 0 {
+            if !flags.has_message_strings_uuid() {
                 debug!("[macos-unifiedlogs] Firehose flag: alt index absolute flag");
                 let (firehose_input, main_exe_alt_index) = le_u16(input)?;
                 formatter_flags.main_exe_alt_index = main_exe_alt_index;
                 input = firehose_input;
             }
-        } else if flags.has_main_exe() {
+        } else if flags.is_main_exe() {
             debug!("[macos-unifiedlogs] Firehose flag: main_exe");
             formatter_flags.main_exe = true
-        } else if flags.has_shared_cache() {
+        } else if flags.is_shared_cache() {
             debug!("[macos-unifiedlogs] Firehose flag: shared_cache");
             formatter_flags.shared_cache = true;
-            if (firehose_flags & LARGE_OFFSET) != 0 {
+            if flags.has_large_offset() {
                 let (firehose_input, has_large_offset) = le_u16(input)?;
                 formatter_flags.has_large_offset = has_large_offset;
                 input = firehose_input;
             }
-        } else if flags.has_uuid_relative() {
+        } else if flags.is_uuid_relative() {
             debug!("[macos-unifiedlogs] Firehose flag: uuid_relative");
             let (firehose_input, uuid_relative) = be_u128(input)?;
             formatter_flags.uuid_relative = format!("{:X}", uuid_relative);

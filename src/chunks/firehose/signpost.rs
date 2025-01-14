@@ -83,7 +83,6 @@ impl FirehoseFlags {
         (self.0 & flag_mask) != 0
     }
 
-
     /// Get only sub flags
     const FLAGS_CHECK: u16 = 0xe;
 
@@ -100,25 +99,42 @@ impl FirehoseFlags {
     /// uuid_relative flag. The UUID file name is in the log data (instead of the Catalog)
     const UUID_RELATIVE: u16 = 0xa;
 
-    pub fn has_large_offset(&self) -> bool {
+    pub fn is_large_offset(&self) -> bool {
         self.flags() == Self::LARGE_OFFSET
     }
-    pub fn has_large_shared_cache(&self) -> bool {
+    pub fn has_large_offset(&self) -> bool {
+        self.has_flag(Self::LARGE_OFFSET)
+    }
+    pub fn is_large_shared_cache(&self) -> bool {
         self.flags() == Self::LARGE_SHARED_CACHE
     }
-    pub fn has_absolute(&self) -> bool {
+    pub fn has_large_shared_cache(&self) -> bool {
+        self.has_flag(Self::LARGE_SHARED_CACHE)
+    }
+    pub fn is_absolute(&self) -> bool {
         self.flags() == Self::ABSOLUTE
     }
-    pub fn has_main_exe(&self) -> bool {
+    pub fn has_absolute(&self) -> bool {
+        self.has_flag(Self::ABSOLUTE)
+    }
+    pub fn is_main_exe(&self) -> bool {
         self.flags() == Self::MAIN_EXE
     }
-    pub fn has_shared_cache(&self) -> bool {
+    pub fn has_main_exe(&self) -> bool {
+        self.has_flag(Self::MAIN_EXE)
+    }
+    pub fn is_shared_cache(&self) -> bool {
         self.flags() == Self::SHARED_CACHE
     }
-    pub fn has_uuid_relative(&self) -> bool {
+    pub fn has_shared_cache(&self) -> bool {
+        self.has_flag(Self::SHARED_CACHE)
+    }
+    pub fn is_uuid_relative(&self) -> bool {
         self.flags() == Self::UUID_RELATIVE
     }
-
+    pub fn has_uuid_relative(&self) -> bool {
+        self.has_flag(Self::UUID_RELATIVE)
+    }
 
     pub fn flags(&self) -> u16 {
         self.0 & Self::FLAGS_CHECK
