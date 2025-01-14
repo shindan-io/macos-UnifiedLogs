@@ -70,9 +70,8 @@ impl FirehoseNonActivity {
             input = firehose_input;
         }
 
-        let (input, unknown_pc_id) = take(size_of::<u32>())(input)?;
-        let (_, firehose_unknown_pc_id) = le_u32(unknown_pc_id)?;
-        non_activity.unknown_pc_id = firehose_unknown_pc_id;
+        let (input, unknown_pc_id) = le_u32(input)?;
+        non_activity.unknown_pc_id = unknown_pc_id;
 
         // Check for flags related to base string format location (shared string file (dsc) or UUID file)
         let (mut input, formatters) =
