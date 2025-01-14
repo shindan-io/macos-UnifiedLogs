@@ -80,17 +80,17 @@ impl FirehoseTrace {
             let mut item_info = FirehoseItemInfo::default();
 
             // So far all entries appears to be numbers. Using Big Endian because we reversed the data above
-            let (entry_input, message) = match entry_size {
-                1 => map(be_u8, |x| x.to_string())(input)?,
-                2 => map(be_u16, |x| x.to_string())(input)?,
-                4 => map(be_u32, |x| x.to_string())(input)?,
-                8 => map(be_u64, |x| x.to_string())(input)?,
+            let (entry_input, value) = match entry_size {
+                1 => map(be_u8, |x| x as u64)(input)?,
+                2 => map(be_u16, |x| x as _)(input)?,
+                4 => map(be_u32, |x| x as _)(input)?,
+                8 => map(be_u64, |x| x as _)(input)?,
                 _ => {
                     warn!("[macos-unifiedlogs] Unhandled size of trace data: {entry_size}. Defaulting to size of one");
-                    map(le_u8, |x| x.to_string())(input)?
+                    map(le_u8, |x| x as _)(input)?
                 }
             };
-            item_info.message_strings = message;
+            item_info.message_strings = value.to_string();
             infos.push(item_info);
             input = entry_input;
         }
