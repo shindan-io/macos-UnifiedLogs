@@ -74,6 +74,7 @@ pub(crate) fn extract_string_size(data: &[u8], message_size: u64) -> nom::IResul
             err
         ),
     }
+    
     Ok((input, String::from("Could not find path string")))
 }
 

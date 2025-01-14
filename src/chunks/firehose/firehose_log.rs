@@ -164,7 +164,7 @@ impl std::fmt::Display for FirehoseItemValue {
             FirehoseItemValue::Sensitive { .. } => write!(f, "<sensitive>"),
             FirehoseItemValue::Private { .. } => write!(f, "<private>"),
             FirehoseItemValue::Object { .. } => write!(f, "(null)"),
-            FirehoseItemValue::Unknown => write!(f, "<unknown>"),
+            FirehoseItemValue::Unknown => write!(f, ""),
         }
     }
 }
@@ -393,7 +393,6 @@ impl FirehosePreamble {
            Firehose Items are message types related to the log entry (chunk). There appear to be four (4) types:
            strings, numbers, objects, precision
         */
-        let mut item_count: u8 = 0;
         let mut items_data: Vec<FirehoseItemValue> = Vec::new();
 
         let mut firehose_item_data = FirehoseItemData::default();
@@ -409,7 +408,7 @@ impl FirehosePreamble {
         let firehose_number_items = firehose_number_items as usize;
         while items_data.len() < firehose_number_items {
             // Get non-number values first since the values are at the end of the of the log (chunk) entry data
-            let (item_value_input, mut item) = FirehosePreamble::get_firehose_items(input)?;
+            let (item_value_input,  item) = FirehosePreamble::get_firehose_items(input)?;
             input = item_value_input;
 
             let item_value = match item {
@@ -761,7 +760,6 @@ impl FirehosePreamble {
 
         if OBJECT_ITEMS.contains(&item_type) {
             let (input, size) = le_u16(input)?;
-            todo!("find out what object items are");
             return Ok((
                 input,
                 FirehoseItemType::Object {
