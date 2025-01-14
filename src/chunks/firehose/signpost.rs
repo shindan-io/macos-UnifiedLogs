@@ -5,147 +5,40 @@
 // is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and limitations under the License.
 
-use crate::catalog::CatalogChunk;
-use crate::chunks::firehose::flags::FirehoseFormatters;
-use crate::chunks::firehose::message::MessageData;
-use crate::dsc::SharedCacheStrings;
-use crate::uuidtext::UUIDText;
+use crate::{
+    catalog::CatalogChunk,
+    chunks::firehose::{
+        flags::{FirehoseFlags, FirehoseFormatters},
+        message::MessageData,
+    },
+    dsc::SharedCacheStrings,
+    uuidtext::UUIDText,
+};
 use log::{debug, error};
-use nom::bytes::complete::take;
-use nom::number::complete::{le_u16, le_u32, le_u64, le_u8};
-use nom::Needed;
+use nom::{
+    bytes::complete::take,
+    number::complete::{le_u16, le_u32, le_u64, le_u8},
+    Needed,
+};
 use std::mem::size_of;
 
 #[derive(Debug, Clone, Default)]
 pub struct FirehoseSignpost {
-    pub unknown_pc_id: u32, // Appears to be used to calculate string offset for firehose events with Absolute flag
+    /// Appears to be used to calculate string offset for firehose events with Absolute flag
+    pub unknown_pc_id: u32,
     pub unknown_activity_id: u32,
     pub unknown_sentinel: u32,
     pub subsystem: u16,
     pub signpost_id: u64,
     pub signpost_name: u32,
-    pub private_strings_offset: u16, // if flag 0x0100
-    pub private_strings_size: u16,   // if flag 0x0100
+    /// if flag 0x0100
+    pub private_strings_offset: u16,
+    /// if flag 0x0100
+    pub private_strings_size: u16,
     pub ttl_value: u8,
-    pub data_ref_value: u32, // if flag 0x0800, has_oversize
+    /// if flag 0x0800, has_oversize
+    pub data_ref_value: u32,
     pub firehose_formatters: FirehoseFormatters,
-}
-
-#[derive(Clone, Copy)]
-pub struct FirehoseFlags(u16);
-
-impl std::fmt::Debug for FirehoseFlags {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:X}", self.0)
-    }
-}
-
-impl From<u16> for FirehoseFlags {
-    fn from(value: u16) -> Self {
-        FirehoseFlags(value)
-    }
-}
-
-impl FirehoseFlags {
-    // has_current_aid flag
-    const ACTIVITY_ID_CURRENT: u16 = 0x1;
-    // has_private_data flag
-    const PRIVATE_STRING_RANGE: u16 = 0x100;
-    // has_subsystem flag. In Signpost log entries this is the subsystem flag
-
-    /// message strings UUID flag
-    const MESSAGE_STRINGS_UUID: u16 = 0x2;
-
-    const SUBSYSTEM: u16 = 0x200;
-    /// has_rules flag
-    const HAS_RULES: u16 = 0x400;
-    /// has_oversize flag
-    const DATA_REF: u16 = 0x800;
-    const HAS_NAME: u16 = 0x8000;
-
-    pub fn has_current_aid(&self) -> bool {
-        self.has_flag(Self::ACTIVITY_ID_CURRENT)
-    }
-    pub fn has_private_string(&self) -> bool {
-        self.has_flag(Self::PRIVATE_STRING_RANGE)
-    }
-    pub fn has_message_strings_uuid(&self) -> bool {
-        self.has_flag(Self::MESSAGE_STRINGS_UUID)
-    }
-    pub fn has_subsystem(&self) -> bool {
-        self.has_flag(Self::SUBSYSTEM)
-    }
-    pub fn has_rules(&self) -> bool {
-        self.has_flag(Self::HAS_RULES)
-    }
-    pub fn has_data_ref(&self) -> bool {
-        self.has_flag(Self::DATA_REF)
-    }
-    pub fn has_name(&self) -> bool {
-        self.has_flag(Self::HAS_NAME)
-    }
-
-
-    pub fn has_flag(&self, flag_mask: u16) -> bool {
-        (self.0 & flag_mask) != 0
-    }
-
-    /// Get only sub flags
-    const FLAGS_CHECK: u16 = 0xe;
-
-    /// large_shared_cache flag - Offset to format string is larger than normal
-    const LARGE_SHARED_CACHE: u16 = 0xc;
-    /// has_large_offset flag - Offset to format string is larger than normal
-    const LARGE_OFFSET: u16 = 0x20;
-    ///  absolute flag - The log uses an alterantive index number that points to the UUID file name in the Catalog which contains the format string
-    const ABSOLUTE: u16 = 0x8;
-    /// main_exe flag. A UUID file contains the format string
-    const MAIN_EXE: u16 = 0x2;
-    /// shared_cache flag. DSC file contains the format string
-    const SHARED_CACHE: u16 = 0x4;
-    /// uuid_relative flag. The UUID file name is in the log data (instead of the Catalog)
-    const UUID_RELATIVE: u16 = 0xa;
-
-    pub fn is_large_offset(&self) -> bool {
-        self.flags() == Self::LARGE_OFFSET
-    }
-    pub fn has_large_offset(&self) -> bool {
-        self.has_flag(Self::LARGE_OFFSET)
-    }
-    pub fn is_large_shared_cache(&self) -> bool {
-        self.flags() == Self::LARGE_SHARED_CACHE
-    }
-    pub fn has_large_shared_cache(&self) -> bool {
-        self.has_flag(Self::LARGE_SHARED_CACHE)
-    }
-    pub fn is_absolute(&self) -> bool {
-        self.flags() == Self::ABSOLUTE
-    }
-    pub fn has_absolute(&self) -> bool {
-        self.has_flag(Self::ABSOLUTE)
-    }
-    pub fn is_main_exe(&self) -> bool {
-        self.flags() == Self::MAIN_EXE
-    }
-    pub fn has_main_exe(&self) -> bool {
-        self.has_flag(Self::MAIN_EXE)
-    }
-    pub fn is_shared_cache(&self) -> bool {
-        self.flags() == Self::SHARED_CACHE
-    }
-    pub fn has_shared_cache(&self) -> bool {
-        self.has_flag(Self::SHARED_CACHE)
-    }
-    pub fn is_uuid_relative(&self) -> bool {
-        self.flags() == Self::UUID_RELATIVE
-    }
-    pub fn has_uuid_relative(&self) -> bool {
-        self.has_flag(Self::UUID_RELATIVE)
-    }
-
-    pub fn flags(&self) -> u16 {
-        self.0 & Self::FLAGS_CHECK
-    }
 }
 
 impl FirehoseSignpost {
