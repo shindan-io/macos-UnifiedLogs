@@ -123,12 +123,12 @@ impl FirehoseTrace {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
     use super::*;
     use crate::{
         filesystem::LogarchiveProvider,
         parser::{collect_strings, parse_log},
     };
+    use std::path::PathBuf;
 
     #[test]
     fn test_parse_firehose_trace() {

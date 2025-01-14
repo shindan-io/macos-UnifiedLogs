@@ -75,10 +75,8 @@ impl Oversize {
         let (private_data, mut firehose_item_data) =
             FirehosePreamble::collect_items(pub_data, item_count, EMPTY_FLAGS)?;
 
-        let (_, _) = FirehosePreamble::parse_private_data(
-            private_data,
-            &mut firehose_item_data.item_info,
-        )?;
+        let (_, _) =
+            FirehosePreamble::parse_private_data(private_data, &mut firehose_item_data.item_info)?;
 
         oversize_results.message_items = firehose_item_data;
         Ok((input, oversize_results))

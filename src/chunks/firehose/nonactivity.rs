@@ -234,7 +234,9 @@ impl FirehoseNonActivity {
 mod tests {
     use super::FirehoseNonActivity;
     use crate::{
-        chunks::firehose::firehose_log::FirehoseItem, filesystem::LogarchiveProvider, parser::{collect_shared_strings, collect_strings, parse_log}
+        chunks::firehose::firehose_log::FirehoseItem,
+        filesystem::LogarchiveProvider,
+        parser::{collect_shared_strings, collect_strings, parse_log},
     };
     use std::path::PathBuf;
 

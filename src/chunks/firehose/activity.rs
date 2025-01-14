@@ -303,8 +303,6 @@ mod tests {
                         );
                         return;
                     }
-
-                   
                 }
             }
         }

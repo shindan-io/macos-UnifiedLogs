@@ -301,7 +301,6 @@ mod tests {
             for preamble in catalog_data.firehose {
                 for firehose in preamble.public_data {
                     if let FirehoseItem::Signpost(signpost) = firehose.item {
-                    // if firehose.unknown_log_activity_type == activity_type {
                         let (_, message_data) = FirehoseSignpost::get_firehose_signpost(
                             &signpost,
                             &string_results,

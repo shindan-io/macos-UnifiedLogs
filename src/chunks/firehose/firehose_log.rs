@@ -3088,7 +3088,8 @@ mod tests {
             item_size: 161,
         };
         results.item_info.push(firehose_item);
-        let (_, _) = FirehosePreamble::parse_private_data(&test_data, &mut results.item_info).unwrap();
+        let (_, _) =
+            FirehosePreamble::parse_private_data(&test_data, &mut results.item_info).unwrap();
 
         assert_eq!(results.item_info[0].message_strings, "<SZExtractor<0x15780ee60> prepared:Y valid:Y pathEnding:com.apple.nsurlsessiond/CFNetworkDownload_yWh5k8.tmp error:(null)>: Supply bytes with length 65536 began")
     }
@@ -3106,7 +3107,8 @@ mod tests {
             item_size: 8,
         };
         results.item_info.push(firehose_item);
-        let (_, _) = FirehosePreamble::parse_private_data(&test_data, &mut results.item_info).unwrap();
+        let (_, _) =
+            FirehosePreamble::parse_private_data(&test_data, &mut results.item_info).unwrap();
 
         assert_eq!(results.item_info[0].message_strings, "7021802828932469564")
     }

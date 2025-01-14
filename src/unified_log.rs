@@ -335,7 +335,7 @@ impl Iterator for LogIterator<'_> {
                             }
                         }
                     }
-                   
+
                     FirehoseItem::Signpost(item) => {
                         log_data.activity_id = u64::from(item.unknown_activity_id);
                         let message_data: Result<
@@ -358,28 +358,27 @@ impl Iterator for LogIterator<'_> {
                                 log_data.process_uuid = results.process_uuid;
                                 results.format_string.clone_into(&mut log_data.raw_message);
 
-                                let mut log_message =
-                                    if item.data_ref_value != 0 {
-                                        let oversize_strings = Oversize::get_oversize_strings(
-                                            item.data_ref_value,
-                                            preamble.first_number_proc_id,
-                                            preamble.second_number_proc_id,
-                                            &self.unified_log_data.oversize,
-                                        );
-                                        // Format and map the log strings with the message format string found UUIDText or shared string file
-                                        format_firehose_log_message(
-                                            results.format_string,
-                                            &oversize_strings,
-                                            &self.message_re,
-                                        )
-                                    } else {
-                                        // Format and map the log strings with the message format string found UUIDText or shared string file
-                                        format_firehose_log_message(
-                                            results.format_string,
-                                            &firehose.message.item_info,
-                                            &self.message_re,
-                                        )
-                                    };
+                                let mut log_message = if item.data_ref_value != 0 {
+                                    let oversize_strings = Oversize::get_oversize_strings(
+                                        item.data_ref_value,
+                                        preamble.first_number_proc_id,
+                                        preamble.second_number_proc_id,
+                                        &self.unified_log_data.oversize,
+                                    );
+                                    // Format and map the log strings with the message format string found UUIDText or shared string file
+                                    format_firehose_log_message(
+                                        results.format_string,
+                                        &oversize_strings,
+                                        &self.message_re,
+                                    )
+                                } else {
+                                    // Format and map the log strings with the message format string found UUIDText or shared string file
+                                    format_firehose_log_message(
+                                        results.format_string,
+                                        &firehose.message.item_info,
+                                        &self.message_re,
+                                    )
+                                };
                                 if self.exclude_missing
                                     && log_message.contains("<Missing message data>")
                                 {
@@ -396,9 +395,7 @@ impl Iterator for LogIterator<'_> {
 
                                 log_message = format!(
                                     "Signpost ID: {:X} - Signpost Name: {:X}\n {}",
-                                    item.signpost_id,
-                                    item.signpost_name,
-                                    log_message
+                                    item.signpost_id, item.signpost_name, log_message
                                 );
 
                                 if !firehose.message.backtrace_strings.is_empty() {
@@ -480,19 +477,17 @@ impl Iterator for LogIterator<'_> {
                                 warn!("[macos-unifiedlogs] Failed to get message string data for firehose activity log entry: {:?}", err);
                             }
                         }
-
                     }
                     FirehoseItem::Loss(_item) => {
-                          // No message data in loss entries
-                          log_data.log_type = String::new();
+                        // No message data in loss entries
+                        log_data.log_type = String::new();
                     }
-                    FirehoseItem::Unknown =>  error!(
+                    FirehoseItem::Unknown => error!(
                         "[macos-unifiedlogs] Parsed unknown log firehose data: {:?}",
                         firehose
-                    )
+                    ),
                 }
 
-             
                 log_data_vec.push(log_data);
             }
         }

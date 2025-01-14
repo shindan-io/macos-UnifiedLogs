@@ -721,7 +721,7 @@ mod tests {
         const TEST_OFFSET: u64 = 2420246585;
         const TEST_FIRST_PROC_ID: u64 = 32;
         const TEST_SECOND_PROC_ID: u32 = 424;
-        
+
         let (_, results) = MessageData::extract_shared_strings(
             &shared_strings_results,
             &strings,
@@ -759,7 +759,7 @@ mod tests {
         const TEST_OFFSET: u64 = 14960;
         const TEST_FIRST_PROC_ID: u64 = 45;
         const TEST_SECOND_PROC_ID: u32 = 188;
-        
+
         let (_, results) = MessageData::extract_format_strings(
             &strings,
             TEST_OFFSET,
@@ -791,9 +791,9 @@ mod tests {
         let handle = std::fs::File::open(test_path).unwrap();
         let log_data = parse_log(handle).unwrap();
 
-        const  BAD_OFFSET: u64 = 1;
-        const  TEST_FIRST_PROC_ID: u64 = 45;
-        const  TEST_SECOND_PROC_ID: u32 = 188;
+        const BAD_OFFSET: u64 = 1;
+        const TEST_FIRST_PROC_ID: u64 = 45;
+        const TEST_SECOND_PROC_ID: u32 = 188;
         let (_, results) = MessageData::extract_format_strings(
             &strings,
             BAD_OFFSET,
@@ -826,7 +826,7 @@ mod tests {
         const TEST_OFFSET: u64 = 2147519968;
         const TEST_FIRST_PROC_ID: u64 = 38;
         const TEST_SECOND_PROC_ID: u32 = 317;
-        
+
         let (_, results) = MessageData::extract_format_strings(
             &strings,
             TEST_OFFSET,
@@ -1042,7 +1042,7 @@ mod tests {
 
         const TEST_OFFSET: u64 = 221408;
         const TEST_UUID: &str = "C275D5EEBAD43A86B74F16F3E62BF57D";
-        
+
         let (_, results) = MessageData::extract_alt_uuid_strings(
             &strings,
             TEST_OFFSET,
