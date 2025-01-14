@@ -22,30 +22,37 @@ use nom::{
 
 #[derive(Debug, Clone, Default)]
 pub struct FirehoseNonActivity {
-    pub unknown_activity_id: u32,        // if flag 0x0001
-    pub unknown_sentinal: u32,           // always 0x80000000? if flag 0x0001
-    pub private_strings_offset: u16,     // if flag 0x0100
-    pub private_strings_size: u16,       // if flag 0x0100
-    pub unknown_message_string_ref: u32, // if flag 0x0008
-    pub subsystem_value: u16,            // if flag 0x200, has_subsystem
-    pub ttl_value: u8,                   // if flag 0x0400, has_rules
-    pub data_ref_value: u32,             // if flag 0x0800, has_oversize
-    pub unknown_pc_id: u32, // Appears to be used to calculate string offset for firehose events with Absolute flag
+    /// if flag 0x0001
+    pub unknown_activity_id: u32,
+    /// always 0x80000000? if flag 0x0001
+    pub unknown_sentinal: u32,
+    /// if flag 0x0100
+    pub private_strings_offset: u16,
+    /// if flag 0x0100
+    pub private_strings_size: u16,
+    /// if flag 0x0008
+    pub unknown_message_string_ref: u32,
+    /// if flag 0x200, has_subsystem
+    pub subsystem_value: u16,
+    /// if flag 0x0400, has_rules
+    pub ttl_value: u8,
+    /// if flag 0x0800, has_oversize
+    pub data_ref_value: u32,
+    /// Appears to be used to calculate string offset for firehose events with Absolute flag             
+    pub unknown_pc_id: u32,
     pub firehose_formatters: FirehoseFormatters,
 }
 
 impl FirehoseNonActivity {
     /// Parse Non-Activity Type Firehose log entry.
-    // Ex: tp 728 + 202: log debug (has_current_aid, main_exe, has_subsystem, has_rules)
+    /// Ex: tp 728 + 202: log debug (has_current_aid, main_exe, has_subsystem, has_rules)
     pub fn parse_non_activity<'a>(
-        data: &'a [u8],
+        mut input: &'a [u8],
         firehose_flags: impl Into<FirehoseFlags>,
     ) -> nom::IResult<&'a [u8], FirehoseNonActivity> {
         let mut non_activity = FirehoseNonActivity::default();
 
         let flags = firehose_flags.into();
-
-        let mut input = data;
 
         if flags.has_current_aid() {
             debug!("[macos-unifiedlogs] Non-Activity Firehose log chunk has has_current_aid flag");
@@ -110,58 +117,55 @@ impl FirehoseNonActivity {
         if firehose.firehose_formatters.shared_cache
             || (firehose.firehose_formatters.large_shared_cache != 0)
         {
-            if firehose.firehose_formatters.has_large_offset != 0 {
-                let mut large_offset = firehose.firehose_formatters.has_large_offset;
-                let extra_offset_value;
-                // large_shared_cache should be double the value of has_large_offset
-                // Ex: has_large_offset = 1, large_shared_cache = 2
-                // If the value do not match then there is an issue with shared string offset
-                // Can recover by using large_shared_cache
-                // Apple/log records this as an error: "error: ~~> <Invalid shared cache code pointer offset>"
-                // But is still able to get string formatter
-                if large_offset != firehose.firehose_formatters.large_shared_cache / 2
-                    && !firehose.firehose_formatters.shared_cache
-                {
-                    large_offset = firehose.firehose_formatters.large_shared_cache / 2;
-                    // Combine large offset value with current string offset to get the true offset
-                    extra_offset_value = format!("{:X}{:08X}", large_offset, string_offset);
-                } else if firehose.firehose_formatters.shared_cache {
-                    // Large offset is 8 if shared_cache flag is set
-                    large_offset = 8;
-                    let add_offset = 0x10000000 * u64::from(large_offset);
-                    extra_offset_value = format!("{:X}", add_offset + string_offset);
-                } else {
-                    extra_offset_value = format!("{:X}{:08X}", large_offset, string_offset);
-                }
+            if firehose.firehose_formatters.has_large_offset == 0 {
+                return MessageData::extract_shared_strings(
+                    shared_strings,
+                    strings_data,
+                    string_offset,
+                    first_proc_id,
+                    second_proc_id,
+                    catalogs,
+                    string_offset,
+                );
+            }
 
-                let extra_offset_value_result = u64::from_str_radix(&extra_offset_value, 16);
+            let mut large_offset = firehose.firehose_formatters.has_large_offset;
+            let extra_offset_value;
+            // large_shared_cache should be double the value of has_large_offset
+            // Ex: has_large_offset = 1, large_shared_cache = 2
+            // If the value do not match then there is an issue with shared string offset
+            // Can recover by using large_shared_cache
+            // Apple/log records this as an error: "error: ~~> <Invalid shared cache code pointer offset>"
+            // But is still able to get string formatter
+            if large_offset != firehose.firehose_formatters.large_shared_cache / 2
+                && !firehose.firehose_formatters.shared_cache
+            {
+                large_offset = firehose.firehose_formatters.large_shared_cache / 2;
+                // Combine large offset value with current string offset to get the true offset
+                extra_offset_value = format!("{:X}{:08X}", large_offset, string_offset);
+            } else if firehose.firehose_formatters.shared_cache {
+                // Large offset is 8 if shared_cache flag is set
+                large_offset = 8;
+                let add_offset = 0x10000000 * u64::from(large_offset);
+                extra_offset_value = format!("{:X}", add_offset + string_offset);
+            } else {
+                extra_offset_value = format!("{:X}{:08X}", large_offset, string_offset);
+            }
 
-                match extra_offset_value_result {
-                    Ok(offset) => {
-                        return MessageData::extract_shared_strings(
-                            shared_strings,
-                            strings_data,
-                            offset,
-                            first_proc_id,
-                            second_proc_id,
-                            catalogs,
-                            string_offset,
-                        );
-                    }
-                    Err(err) => {
+            let offset = u64::from_str_radix(&extra_offset_value, 16)
+                    .map_err(|err| {
                         // We should not get errors since we are combining two numbers to create the offset
                         error!(
-                            "Failed to get shared string offset to format string for non-activity firehose entry: {:?}",
-                            err
+                            "Failed to get shared string offset to format string for non-activity firehose entry: {err:?}"  
                         );
-                        return Err(nom::Err::Incomplete(Needed::Unknown));
+                        nom::Err::Incomplete(Needed::Unknown)
                     }
-                }
-            }
+                )?;
+
             MessageData::extract_shared_strings(
                 shared_strings,
                 strings_data,
-                string_offset,
+                offset,
                 first_proc_id,
                 second_proc_id,
                 catalogs,
