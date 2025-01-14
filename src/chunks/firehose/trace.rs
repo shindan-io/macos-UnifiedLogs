@@ -124,9 +124,8 @@ impl FirehoseTrace {
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
-
+    use super::*;
     use crate::{
-        chunks::firehose::trace::FirehoseTrace,
         filesystem::LogarchiveProvider,
         parser::{collect_strings, parse_log},
     };
