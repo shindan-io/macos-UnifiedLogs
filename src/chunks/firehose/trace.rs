@@ -6,9 +6,9 @@
 // See the License for the specific language governing permissions and limitations under the License.
 
 use log::{error, warn};
-use nom::bytes::complete::take;
+use nom::combinator::map;
+use nom::multi::many_m_n;
 use nom::number::complete::{be_u16, be_u32, be_u64, be_u8, le_u32, le_u8};
-use std::mem::size_of;
 
 use crate::catalog::CatalogChunk;
 use crate::chunks::firehose::firehose_log::{FirehoseItemData, FirehoseItemInfo};
@@ -17,119 +17,88 @@ use crate::uuidtext::UUIDText;
 
 #[derive(Debug, Clone, Default)]
 pub struct FirehoseTrace {
-    pub unknown_pc_id: u32, // Appears to be used to calculate string offset for firehose events with Absolute flag
+    /// Appears to be used to calculate string offset for firehose events with Absolute flag
+    pub unknown_pc_id: u32,
     pub message_data: FirehoseItemData,
 }
 
 impl FirehoseTrace {
     /// Parse Trace Firehose log entry.
     //  Ex: tp 504 + 34: trace default (main_exe)
-    pub fn parse_firehose_trace(data: &[u8]) -> nom::IResult<&[u8], FirehoseTrace> {
+    pub fn parse_firehose_trace(input: &[u8]) -> nom::IResult<&[u8], FirehoseTrace> {
         let mut firehose_trace = FirehoseTrace::default();
 
-        let (input, unknown_pc_id) = take(size_of::<u32>())(data)?;
-        let (_, firehose_unknown_pc_id) = le_u32(unknown_pc_id)?;
+        let (input, firehose_unknown_pc_id) = le_u32(input)?;
+
+        firehose_trace.unknown_pc_id = firehose_unknown_pc_id;
 
         // Trace logs only have message values if more than 4 bytes remaining in log entry
-        let minimum_message_size = 4;
-        if input.len() < minimum_message_size {
-            let (_, firehose_unknown_pc_id) = le_u32(unknown_pc_id)?;
-            firehose_trace.unknown_pc_id = firehose_unknown_pc_id;
-            let (input, _unknown_data) = take(input.len())(input)?;
-
-            return Ok((input, firehose_trace));
+        const MINIMUM_MESSAGE_SIZE: usize = 4;
+        if input.len() < MINIMUM_MESSAGE_SIZE {
+            return Ok((&[], firehose_trace));
         }
 
-        let mut message_data = input.to_vec();
-        // The rest of the trace log entry appears to be related to log message values
-        // But the data is stored differently from other log entries
-        // The data appears to be stored backwards? Ex: Data value, Data size, number of data entries, instead normal: number of data entries, data size, data value
-        message_data.reverse();
-        let message = FirehoseTrace::get_message(&message_data);
-        firehose_trace.message_data = message;
-        firehose_trace.unknown_pc_id = firehose_unknown_pc_id;
+        let message_data = FirehoseTrace::get_message(&input);
+        firehose_trace.message_data = message_data;
 
         Ok((&[], firehose_trace))
     }
 
     /// Get the Trace message
     fn get_message(data: &[u8]) -> FirehoseItemData {
-        let message_result = FirehoseTrace::parse_trace_message(data);
-        match message_result {
-            Ok((_, result)) => result,
-            Err(err) => {
-                error!("[macos-unifiedlogs] Could not get Trace message data: {err:?}");
-                FirehoseItemData {
-                    item_info: Vec::new(),
-                    backtrace_strings: Vec::new(),
-                }
-            }
+        let mut data = data.to_vec();
+        // The rest of the trace log entry appears to be related to log message values
+        // But the data is stored differently from other log entries
+        // The data appears to be stored backwards? Ex: Data value, Data size, number of data entries, instead normal: number of data entries, data size, data value
+        data.reverse();
+
+        let (_, item_data) = FirehoseTrace::parse_trace_message(&data).unwrap_or_else(|err| {
+            error!("[macos-unifiedlogs] Could not get Trace message data: {err:?}");
+            Default::default()
+        });
+
+        FirehoseItemData {
+            item_info: item_data,
+            ..Default::default()
         }
     }
 
     /// Parse the data associated with the trace message
-    fn parse_trace_message(data: &[u8]) -> nom::IResult<&[u8], FirehoseItemData> {
-        let mut item_data = FirehoseItemData {
-            item_info: Vec::new(),
-            backtrace_strings: Vec::new(),
-        };
-        let minimum_message_size = 4;
-        if data.len() < minimum_message_size {
-            return Ok((data, item_data));
+    fn parse_trace_message(input: &[u8]) -> nom::IResult<&[u8], Vec<FirehoseItemInfo>> {
+        const MINIMUM_MESSAGE_SIZE: usize = 4;
+        if input.len() < MINIMUM_MESSAGE_SIZE {
+            return Ok((input, Default::default()));
         }
 
-        let (mut remaining_input, entries_data) = take(size_of::<u8>())(data)?;
-        let (_, entries) = le_u8(entries_data)?;
+        let (input, entries_count) = map(le_u8, |e| e as usize)(input)?;
+        let (mut input, sizes) =
+            many_m_n(entries_count as usize, entries_count as usize, le_u8)(input)?;
 
-        let mut count = 0;
-        let mut sizes_count = Vec::new();
-        // based on number of entries get the size for each entry
-        while count < entries {
-            let (input, size_data) = take(size_of::<u8>())(remaining_input)?;
-            let (_, size) = le_u8(size_data)?;
-            sizes_count.push(size);
-            count += 1;
-            remaining_input = input;
-        }
+        let mut infos: Vec<FirehoseItemInfo> = Vec::with_capacity(entries_count);
 
-        for entry_size in sizes_count {
-            let mut item_info = FirehoseItemInfo {
-                message_strings: String::new(),
-                item_type: 0,
-                item_size: 0,
-            };
+        for entry_size in sizes {
+            let mut item_info = FirehoseItemInfo::default();
+
             // So far all entries appears to be numbers. Using Big Endian because we reversed the data above
-            let (input, message_data) = take(entry_size as usize)(remaining_input)?;
-            match entry_size {
-                1 => {
-                    let (_, value) = be_u8(message_data)?;
-                    item_info.message_strings = format!("{value}")
-                }
-                2 => {
-                    let (_, value) = be_u16(message_data)?;
-                    item_info.message_strings = format!("{value}")
-                }
-                4 => {
-                    let (_, value) = be_u32(message_data)?;
-                    item_info.message_strings = format!("{value}")
-                }
-                8 => {
-                    let (_, value) = be_u64(message_data)?;
-                    item_info.message_strings = format!("{value}")
-                }
+            let (entry_input, message) = match entry_size {
+                1 => map(be_u8, |x| x.to_string())(input)?,
+                2 => map(be_u16, |x| x.to_string())(input)?,
+                4 => map(be_u32, |x| x.to_string())(input)?,
+                8 => map(be_u64, |x| x.to_string())(input)?,
                 _ => {
                     warn!("[macos-unifiedlogs] Unhandled size of trace data: {entry_size}. Defaulting to size of one");
-                    let (_, unknown_size) = le_u8(message_data)?;
-                    item_info.message_strings = format!("{unknown_size}")
+                    map(le_u8, |x| x.to_string())(input)?
                 }
-            }
-            remaining_input = input;
-            item_data.item_info.push(item_info)
+            };
+            item_info.message_strings = message;
+            infos.push(item_info);
+            input = entry_input;
         }
-        // Reverse the data back to expected format
-        item_data.item_info.reverse();
 
-        Ok((remaining_input, item_data))
+        // Reverse the data back to expected format
+        infos.reverse();
+
+        Ok((input, infos))
     }
 
     /// Get base log message string formatter from shared cache strings (dsc) or UUID text file for firehose trace log entries (chunks)
@@ -179,25 +148,24 @@ mod tests {
         let mut test_message = vec![200, 0, 0, 0, 0, 0, 0, 0, 8, 1];
         test_message.reverse();
         let (_, results) = FirehoseTrace::parse_trace_message(&test_message).unwrap();
-        assert_eq!(results.item_info[0].message_strings, "200");
+        assert_eq!(results[0].message_strings, "200");
     }
 
     #[test]
     fn test_parse_trace_message_multiple() {
-        let test_message = [
+        let test_message = &[
             2, 8, 8, 0, 0, 0, 0, 0, 0, 0, 200, 0, 0, 127, 251, 75, 225, 96, 176,
         ];
-        let (_, results) = FirehoseTrace::parse_trace_message(&test_message).unwrap();
+        let (_, results) = FirehoseTrace::parse_trace_message(test_message).unwrap();
 
-        assert_eq!(results.item_info[0].message_strings, "140717286580400");
-        assert_eq!(results.item_info[1].message_strings, "200");
+        assert_eq!(results[0].message_strings, "140717286580400");
+        assert_eq!(results[1].message_strings, "200");
     }
 
     #[test]
     fn test_get_message() {
-        let mut test_message = vec![200, 0, 0, 0, 0, 0, 0, 0, 8, 1];
-        test_message.reverse();
-        let results = FirehoseTrace::get_message(&test_message);
+        let test_message = &[200, 0, 0, 0, 0, 0, 0, 0, 8, 1];
+        let results = FirehoseTrace::get_message(test_message);
         assert_eq!(results.item_info[0].message_strings, "200");
     }
 
