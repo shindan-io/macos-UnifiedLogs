@@ -26,17 +26,17 @@ impl From<u16> for FirehoseFlags {
 }
 
 impl FirehoseFlags {
-    // has_current_aid flag
+    /// has_current_aid flag
     const ACTIVITY_ID_CURRENT: u16 = 0x1;
-    // has_private_data flag
+    /// has_private_data flag
+    /// Entry has private string data. 
+    /// The private data is found after parsing all the public data first
     const PRIVATE_STRING_RANGE: u16 = 0x100;
-    // has_subsystem flag. In Signpost log entries this is the subsystem flag
-
     /// message strings UUID flag
     const MESSAGE_STRINGS_UUID: u16 = 0x2;
-
+    /// has_subsystem flag. In Signpost log entries this is the subsystem flag
     const SUBSYSTEM: u16 = 0x200;
-    /// has_rules flag
+    /// has_rules flag / also TTL
     const HAS_RULES: u16 = 0x400;
     /// has_oversize flag
     const DATA_REF: u16 = 0x800;
