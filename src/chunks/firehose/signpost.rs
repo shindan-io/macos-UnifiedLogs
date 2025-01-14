@@ -34,12 +34,19 @@ pub struct FirehoseSignpost {
 #[derive(Clone, Copy)]
 pub struct FirehoseFlags(u16);
 
+impl std::fmt::Debug for FirehoseFlags {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:X}", self.0)
+    }
+}
 
-impl FirehoseFlags {
-    pub fn from_u16(value: u16) -> Self {
+impl From<u16> for FirehoseFlags {
+    fn from(value: u16) -> Self {
         FirehoseFlags(value)
     }
+}
 
+impl FirehoseFlags {
     // has_current_aid flag
     const ACTIVITY_ID_CURRENT: u16 = 0x1;
     // has_private_data flag
@@ -146,9 +153,9 @@ impl FirehoseSignpost {
     /// Ex: tp 2368 + 92: process signpost event (shared_cache, has_name, has_subsystem)
     pub fn parse_signpost<'a>(
         data: &'a [u8],
-        firehose_flags: u16,
+        firehose_flags: impl Into<FirehoseFlags>,
     ) -> nom::IResult<&'a [u8], FirehoseSignpost> {
-        let flags = FirehoseFlags(firehose_flags);
+        let flags = firehose_flags.into();
 
         let mut firehose_signpost = FirehoseSignpost::default();
 
@@ -179,7 +186,7 @@ impl FirehoseSignpost {
 
         // Check for flags related to base string format location (shared string file (dsc) or UUID file)
         let (mut input, firehose_formatters) =
-            FirehoseFormatters::firehose_formatter_flags(input, firehose_flags, flags)?;
+            FirehoseFormatters::firehose_formatter_flags(input, flags)?;
         firehose_signpost.firehose_formatters = firehose_formatters;
 
         if flags.has_subsystem() {

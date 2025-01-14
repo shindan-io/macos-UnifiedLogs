@@ -7,7 +7,7 @@
 
 use crate::{
     catalog::CatalogChunk,
-    chunks::firehose::{flags::FirehoseFormatters, message::MessageData, signpost::FirehoseFlags},
+    chunks::firehose::{flags::FirehoseFormatters, message::MessageData},
     dsc::SharedCacheStrings,
     uuidtext::UUIDText,
 };
@@ -96,7 +96,7 @@ impl FirehoseActivity {
 
         // Check for flags related to base string format location (shared string file (dsc) or UUID file)
         let (input, formatters) =
-            FirehoseFormatters::firehose_formatter_flags(input, firehose_flags,  FirehoseFlags::from_u16(firehose_flags))?;
+            FirehoseFormatters::firehose_formatter_flags(input, firehose_flags)?;
         activity.firehose_formatters = formatters;
         Ok((input, activity))
     }
