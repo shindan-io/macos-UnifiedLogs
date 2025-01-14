@@ -253,8 +253,8 @@ impl FirehosePreamble {
     /// Collect all the Firehose items (log message entries) in the log entry (chunk)
     pub fn collect_items<'a>(
         data: &'a [u8],
-        firehose_number_items: &u8,
-        firehose_flags: &u16,
+        firehose_number_items: u8,
+        firehose_flags: u16,
     ) -> nom::IResult<&'a [u8], FirehoseItemData> {
         /*
            Firehose Items are message types related to the log entry (chunk). There appear to be four (4) types:
@@ -275,7 +275,7 @@ impl FirehosePreamble {
         let sensitive_items = [0x5, 0x45, 0x85];
         let object_items = [0x40, 0x42];
 
-        while &item_count < firehose_number_items {
+        while item_count < firehose_number_items {
             // Get non-number values first since the values are at the end of the of the log (chunk) entry data
             let (item_value_input, mut item) =
                 FirehosePreamble::get_firehose_items(firehose_input)?;
@@ -518,7 +518,7 @@ impl FirehosePreamble {
         firehose_results.number_items = number_items;
 
         let (_, firehose_item_data) =
-            FirehosePreamble::collect_items(firehose_input, &number_items, &flags)?;
+            FirehosePreamble::collect_items(firehose_input, number_items, flags)?;
 
         firehose_results.message = firehose_item_data;
 
@@ -3017,7 +3017,7 @@ mod tests {
         let firehose_number_items = 1;
         let firehose_flags = 513;
         let (_, results) =
-            FirehosePreamble::collect_items(&test_data, &firehose_number_items, &firehose_flags)
+            FirehosePreamble::collect_items(&test_data, firehose_number_items, firehose_flags)
                 .unwrap();
         assert_eq!(results.item_info[0].message_strings, "<private>");
         assert_eq!(results.item_info[0].item_type, 65);
@@ -3061,7 +3061,7 @@ mod tests {
         let firehose_number_items = 1;
         let firehose_flags = 513;
         let (_, _) =
-            FirehosePreamble::collect_items(&test_data, &firehose_number_items, &firehose_flags)
+            FirehosePreamble::collect_items(&test_data, firehose_number_items, firehose_flags)
                 .unwrap();
     }
 
@@ -3119,7 +3119,7 @@ mod tests {
         let firehose_number_items = 1;
         let firehose_flags = 513;
         let (_, results) =
-            FirehosePreamble::collect_items(&test_data, &firehose_number_items, &firehose_flags)
+            FirehosePreamble::collect_items(&test_data, firehose_number_items, firehose_flags)
                 .unwrap();
         assert_eq!(results.item_info[0].message_strings, "");
         assert_eq!(results.item_info[0].item_type, 99);
