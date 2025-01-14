@@ -15,12 +15,10 @@ use crate::{
     uuidtext::UUIDText,
 };
 use log::{debug, error};
-use nom::Needed;
 use nom::{
-    bytes::complete::take,
     number::complete::{le_u16, le_u32, le_u8},
+    Needed,
 };
-use std::mem::size_of;
 
 #[derive(Debug, Clone, Default)]
 pub struct FirehoseNonActivity {
@@ -58,8 +56,6 @@ impl FirehoseNonActivity {
             input = firehose_input;
         }
 
-    
-        
         if flags.has_private_string() {
             debug!("[macos-unifiedlogs] Non-Activity Firehose log chunk has has_private_data flag");
             let (firehose_input, private_strings_offset) = le_u16(input)?;
@@ -74,8 +70,7 @@ impl FirehoseNonActivity {
         non_activity.unknown_pc_id = unknown_pc_id;
 
         // Check for flags related to base string format location (shared string file (dsc) or UUID file)
-        let (mut input, formatters) =
-            FirehoseFormatters::firehose_formatter_flags(input, flags)?;
+        let (mut input, formatters) = FirehoseFormatters::firehose_formatter_flags(input, flags)?;
         non_activity.firehose_formatters = formatters;
 
         if flags.has_subsystem() {
@@ -85,7 +80,7 @@ impl FirehoseNonActivity {
             input = firehose_input;
         }
 
-        if flags.has_rules(){
+        if flags.has_rules() {
             debug!("[macos-unifiedlogs] Non-Activity Firehose log chunk has has_rules flag");
             let (firehose_input, ttl_value) = le_u8(input)?;
             non_activity.ttl_value = ttl_value;

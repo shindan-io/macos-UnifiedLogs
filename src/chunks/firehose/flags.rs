@@ -9,7 +9,6 @@ use log::{debug, error};
 use nom::number::complete::{be_u128, le_u16};
 use nom::Needed;
 
-
 #[derive(Clone, Copy)]
 pub struct FirehoseFlags(u16);
 
@@ -29,7 +28,7 @@ impl FirehoseFlags {
     /// has_current_aid flag
     const ACTIVITY_ID_CURRENT: u16 = 0x1;
     /// has_private_data flag
-    /// Entry has private string data. 
+    /// Entry has private string data.
     /// The private data is found after parsing all the public data first
     const PRIVATE_STRING_RANGE: u16 = 0x100;
     /// message strings UUID flag
@@ -63,7 +62,6 @@ impl FirehoseFlags {
     pub fn has_name(&self) -> bool {
         self.has_flag(Self::HAS_NAME)
     }
-
 
     pub fn has_flag(&self, flag_mask: u16) -> bool {
         (self.0 & flag_mask) != 0
@@ -126,7 +124,6 @@ impl FirehoseFlags {
         self.0 & Self::FLAGS_CHECK
     }
 }
-
 
 #[derive(Debug, Clone, Default)]
 pub struct FirehoseFormatters {
