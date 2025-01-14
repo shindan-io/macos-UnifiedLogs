@@ -118,7 +118,7 @@ impl FirehoseNonActivity {
             || (firehose.firehose_formatters.large_shared_cache != 0)
         {
             if firehose.firehose_formatters.has_large_offset == 0 {
-                return MessageData::extract_shared_strings(
+                MessageData::extract_shared_strings(
                     shared_strings,
                     strings_data,
                     string_offset,
@@ -126,51 +126,48 @@ impl FirehoseNonActivity {
                     second_proc_id,
                     catalogs,
                     string_offset,
-                );
-            }
-
-            let mut large_offset = firehose.firehose_formatters.has_large_offset;
-            let extra_offset_value;
-            // large_shared_cache should be double the value of has_large_offset
-            // Ex: has_large_offset = 1, large_shared_cache = 2
-            // If the value do not match then there is an issue with shared string offset
-            // Can recover by using large_shared_cache
-            // Apple/log records this as an error: "error: ~~> <Invalid shared cache code pointer offset>"
-            // But is still able to get string formatter
-            if large_offset != firehose.firehose_formatters.large_shared_cache / 2
-                && !firehose.firehose_formatters.shared_cache
-            {
-                large_offset = firehose.firehose_formatters.large_shared_cache / 2;
-                // Combine large offset value with current string offset to get the true offset
-                extra_offset_value = format!("{:X}{:08X}", large_offset, string_offset);
-            } else if firehose.firehose_formatters.shared_cache {
-                // Large offset is 8 if shared_cache flag is set
-                large_offset = 8;
-                let add_offset = 0x10000000 * u64::from(large_offset);
-                extra_offset_value = format!("{:X}", add_offset + string_offset);
+                )
             } else {
-                extra_offset_value = format!("{:X}{:08X}", large_offset, string_offset);
+                let mut large_offset = firehose.firehose_formatters.has_large_offset;
+
+                // large_shared_cache should be double the value of has_large_offset
+                // Ex: has_large_offset = 1, large_shared_cache = 2
+                // If the value do not match then there is an issue with shared string offset
+                // Can recover by using large_shared_cache
+                // Apple/log records this as an error: "error: ~~> <Invalid shared cache code pointer offset>"
+                // But is still able to get string formatter
+                let extra_offset_value = if large_offset
+                    != firehose.firehose_formatters.large_shared_cache / 2
+                    && !firehose.firehose_formatters.shared_cache
+                {
+                    large_offset = firehose.firehose_formatters.large_shared_cache / 2;
+                    // Combine large offset value with current string offset to get the true offset
+                    format!("{:X}{:08X}", large_offset, string_offset)
+                } else if firehose.firehose_formatters.shared_cache {
+                    // Large offset is 8 if shared_cache flag is set
+                    large_offset = 8;
+                    let add_offset = 0x10000000 * u64::from(large_offset);
+                    format!("{:X}", add_offset + string_offset)
+                } else {
+                    format!("{:X}{:08X}", large_offset, string_offset)
+                };
+
+                let offset = u64::from_str_radix(&extra_offset_value, 16).map_err(|err| {
+                    // We should not get errors since we are combining two numbers to create the offset
+                    error!("Failed to get shared string offset to format string for non-activity firehose entry: {err:?}");
+                    nom::Err::Incomplete(Needed::Unknown)
+                })?;
+
+                MessageData::extract_shared_strings(
+                    shared_strings,
+                    strings_data,
+                    offset,
+                    first_proc_id,
+                    second_proc_id,
+                    catalogs,
+                    string_offset,
+                )
             }
-
-            let offset = u64::from_str_radix(&extra_offset_value, 16)
-                    .map_err(|err| {
-                        // We should not get errors since we are combining two numbers to create the offset
-                        error!(
-                            "Failed to get shared string offset to format string for non-activity firehose entry: {err:?}"  
-                        );
-                        nom::Err::Incomplete(Needed::Unknown)
-                    }
-                )?;
-
-            MessageData::extract_shared_strings(
-                shared_strings,
-                strings_data,
-                offset,
-                first_proc_id,
-                second_proc_id,
-                catalogs,
-                string_offset,
-            )
         } else {
             if firehose.firehose_formatters.absolute {
                 let extra_offset_value = format!(
@@ -178,28 +175,23 @@ impl FirehoseNonActivity {
                     firehose.firehose_formatters.main_exe_alt_index, firehose.unknown_pc_id
                 );
 
-                let offset_result = u64::from_str_radix(&extra_offset_value, 16);
-                match offset_result {
-                    Ok(offset) => {
-                        return MessageData::extract_absolute_strings(
-                            strings_data,
-                            offset,
-                            string_offset,
-                            first_proc_id,
-                            second_proc_id,
-                            catalogs,
-                            string_offset,
-                        );
-                    }
-                    Err(err) => {
-                        // We should not get errors since we are combining two numbers to create the offset
-                        error!("Failed to get absolute offset to format string for non-activity firehose entry: {:?}", err);
-                        return Err(nom::Err::Incomplete(Needed::Unknown));
-                    }
-                }
-            }
-            if !firehose.firehose_formatters.uuid_relative.is_empty() {
-                return MessageData::extract_alt_uuid_strings(
+                let offset = u64::from_str_radix(&extra_offset_value, 16).map_err(|err|{
+                    // We should not get errors since we are combining two numbers to create the offset
+                    error!("Failed to get absolute offset to format string for non-activity firehose entry: {err:?}");
+                    nom::Err::Incomplete(Needed::Unknown)
+                })?;
+
+                MessageData::extract_absolute_strings(
+                    strings_data,
+                    offset,
+                    string_offset,
+                    first_proc_id,
+                    second_proc_id,
+                    catalogs,
+                    string_offset,
+                )
+            } else if !firehose.firehose_formatters.uuid_relative.is_empty() {
+                MessageData::extract_alt_uuid_strings(
                     strings_data,
                     string_offset,
                     &firehose.firehose_formatters.uuid_relative,
@@ -207,16 +199,17 @@ impl FirehoseNonActivity {
                     second_proc_id,
                     catalogs,
                     string_offset,
-                );
+                )
+            } else {
+                MessageData::extract_format_strings(
+                    strings_data,
+                    string_offset,
+                    first_proc_id,
+                    second_proc_id,
+                    catalogs,
+                    string_offset,
+                )
             }
-            MessageData::extract_format_strings(
-                strings_data,
-                string_offset,
-                first_proc_id,
-                second_proc_id,
-                catalogs,
-                string_offset,
-            )
         }
     }
 }

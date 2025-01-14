@@ -429,7 +429,7 @@ impl Iterator for LogIterator<'_> {
                             }
                         }
                     }
-                    FirehoseItem::Trace(item) => {
+                    FirehoseItem::Trace(_item) => {
                         let message_data = FirehoseTrace::get_firehose_trace_strings(
                             self.strings_data,
                             u64::from(firehose.format_string_location),
