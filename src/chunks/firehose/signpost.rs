@@ -31,19 +31,114 @@ pub struct FirehoseSignpost {
     pub firehose_formatters: FirehoseFormatters,
 }
 
+#[derive(Clone, Copy)]
+pub struct FirehoseFlags(u16);
+
+
+impl FirehoseFlags {
+    pub fn from_u16(value: u16) -> Self {
+        FirehoseFlags(value)
+    }
+
+    // has_current_aid flag
+    const ACTIVITY_ID_CURRENT: u16 = 0x1;
+    // has_private_data flag
+    const PRIVATE_STRING_RANGE: u16 = 0x100;
+    // has_subsystem flag. In Signpost log entries this is the subsystem flag
+
+    /// message strings UUID flag
+    const MESSAGE_STRINGS_UUID: u16 = 0x2;
+
+    const SUBSYSTEM: u16 = 0x200;
+    /// has_rules flag
+    const HAS_RULES: u16 = 0x400;
+    /// has_oversize flag
+    const DATA_REF: u16 = 0x800;
+    const HAS_NAME: u16 = 0x8000;
+
+    pub fn has_current_aid(&self) -> bool {
+        self.has_flag(Self::ACTIVITY_ID_CURRENT)
+    }
+    pub fn has_private_string(&self) -> bool {
+        self.has_flag(Self::PRIVATE_STRING_RANGE)
+    }
+    pub fn has_message_strings_uuid(&self) -> bool {
+        self.has_flag(Self::MESSAGE_STRINGS_UUID)
+    }
+    pub fn has_subsystem(&self) -> bool {
+        self.has_flag(Self::SUBSYSTEM)
+    }
+    pub fn has_rules(&self) -> bool {
+        self.has_flag(Self::HAS_RULES)
+    }
+    pub fn has_data_ref(&self) -> bool {
+        self.has_flag(Self::DATA_REF)
+    }
+    pub fn has_name(&self) -> bool {
+        self.has_flag(Self::HAS_NAME)
+    }
+
+
+    pub fn has_flag(&self, flag_mask: u16) -> bool {
+        (self.0 & flag_mask) != 0
+    }
+
+
+    /// Get only sub flags
+    const FLAGS_CHECK: u16 = 0xe;
+
+    /// large_shared_cache flag - Offset to format string is larger than normal
+    const LARGE_SHARED_CACHE: u16 = 0xc;
+    /// has_large_offset flag - Offset to format string is larger than normal
+    const LARGE_OFFSET: u16 = 0x20;
+    ///  absolute flag - The log uses an alterantive index number that points to the UUID file name in the Catalog which contains the format string
+    const ABSOLUTE: u16 = 0x8;
+    /// main_exe flag. A UUID file contains the format string
+    const MAIN_EXE: u16 = 0x2;
+    /// shared_cache flag. DSC file contains the format string
+    const SHARED_CACHE: u16 = 0x4;
+    /// uuid_relative flag. The UUID file name is in the log data (instead of the Catalog)
+    const UUID_RELATIVE: u16 = 0xa;
+
+    pub fn has_large_offset(&self) -> bool {
+        self.flags() == Self::LARGE_OFFSET
+    }
+    pub fn has_large_shared_cache(&self) -> bool {
+        self.flags() == Self::LARGE_SHARED_CACHE
+    }
+    pub fn has_absolute(&self) -> bool {
+        self.flags() == Self::ABSOLUTE
+    }
+    pub fn has_main_exe(&self) -> bool {
+        self.flags() == Self::MAIN_EXE
+    }
+    pub fn has_shared_cache(&self) -> bool {
+        self.flags() == Self::SHARED_CACHE
+    }
+    pub fn has_uuid_relative(&self) -> bool {
+        self.flags() == Self::UUID_RELATIVE
+    }
+
+
+    pub fn flags(&self) -> u16 {
+        self.0 & Self::FLAGS_CHECK
+    }
+}
+
 impl FirehoseSignpost {
     /// Parse Signpost Firehose log entry.
-    // Ex: tp 2368 + 92: process signpost event (shared_cache, has_name, has_subsystem)
+    /// Ex: tp 2368 + 92: process signpost event (shared_cache, has_name, has_subsystem)
     pub fn parse_signpost<'a>(
         data: &'a [u8],
         firehose_flags: u16,
     ) -> nom::IResult<&'a [u8], FirehoseSignpost> {
+        let flags = FirehoseFlags(firehose_flags);
+
         let mut firehose_signpost = FirehoseSignpost::default();
 
         let mut input = data;
 
-        const ACTIVITY_ID_CURRENT: u16 = 0x1; // has_current_aid flag
-        if (firehose_flags & ACTIVITY_ID_CURRENT) != 0 {
+        if flags.has_current_aid() {
             debug!("[macos-unifiedlogs] Signpost Firehose has has_current_aid flag");
             let (firehose_input, unknown_activity_id) = le_u32(input)?;
             let (firehose_input, unknown_sentinel) = le_u32(firehose_input)?;
@@ -52,9 +147,8 @@ impl FirehoseSignpost {
             input = firehose_input;
         }
 
-        const PRIVATE_STRING_RANGE: u16 = 0x100; // has_private_data flag
-                                                 // Entry has private string data. The private data is found after parsing all the public data first
-        if (firehose_flags & PRIVATE_STRING_RANGE) != 0 {
+        // Entry has private string data. The private data is found after parsing all the public data first
+        if flags.has_private_string() {
             debug!("[macos-unifiedlogs] Signpost Firehose has has_private_data flag");
             let (firehose_input, private_strings_offset) = le_u16(input)?;
             let (firehose_input, private_strings_size) = le_u16(firehose_input)?;
@@ -69,11 +163,10 @@ impl FirehoseSignpost {
 
         // Check for flags related to base string format location (shared string file (dsc) or UUID file)
         let (mut input, firehose_formatters) =
-            FirehoseFormatters::firehose_formatter_flags(input, firehose_flags)?;
+            FirehoseFormatters::firehose_formatter_flags(input, firehose_flags, flags)?;
         firehose_signpost.firehose_formatters = firehose_formatters;
 
-        const SUBSYSTEM: u16 = 0x200; // has_subsystem flag. In Signpost log entries this is the subsystem flag
-        if (firehose_flags & SUBSYSTEM) != 0 {
+        if flags.has_subsystem() {
             debug!("[macos-unifiedlogs] Signpost Firehose log chunk has has_subsystem flag");
             let (firehose_input, subsystem) = le_u16(input)?;
             firehose_signpost.subsystem = subsystem;
@@ -83,24 +176,21 @@ impl FirehoseSignpost {
         let (mut input, signpost_id) = le_u64(input)?;
         firehose_signpost.signpost_id = signpost_id;
 
-        const HAS_RULES: u16 = 0x400; // has_rules flag
-        if (firehose_flags & HAS_RULES) != 0 {
+        if flags.has_rules() {
             debug!("[macos-unifiedlogs] Signpost Firehose log chunk has has_rules flag");
             let (firehose_input, ttl_value) = le_u8(input)?;
             firehose_signpost.ttl_value = ttl_value;
             input = firehose_input;
         }
 
-        const DATA_REF: u16 = 0x800; // has_oversize flag
-        if (firehose_flags & DATA_REF) != 0 {
+        if flags.has_data_ref() {
             debug!("[macos-unifiedlogs] Signpost Firehose log chunk has has_oversize flag");
             let (firehose_input, data_ref_value) = le_u32(input)?;
             firehose_signpost.data_ref_value = data_ref_value;
             input = firehose_input;
         }
 
-        const HAS_NAME: u16 = 0x8000;
-        if (firehose_flags & HAS_NAME) != 0 {
+        if flags.has_name() {
             debug!("[macos-unifiedlogs] Signpost Firehose log chunk has has_name flag");
             let (firehose_input, signpost_name) = le_u32(input)?;
             firehose_signpost.signpost_name = signpost_name;

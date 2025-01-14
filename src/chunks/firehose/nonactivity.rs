@@ -18,6 +18,8 @@ use nom::{
 };
 use std::mem::size_of;
 
+use super::signpost::FirehoseFlags;
+
 #[derive(Debug, Clone, Default)]
 pub struct FirehoseNonActivity {
     pub unknown_activity_id: u32,        // if flag 0x0001
@@ -77,7 +79,7 @@ impl FirehoseNonActivity {
 
         // Check for flags related to base string format location (shared string file (dsc) or UUID file)
         let (mut input, formatters) =
-            FirehoseFormatters::firehose_formatter_flags(input, firehose_flags)?;
+            FirehoseFormatters::firehose_formatter_flags(input, firehose_flags, FirehoseFlags::from_u16(firehose_flags))?;
         non_activity.firehose_formatters = formatters;
 
         let subsystem: u16 = 0x200; // has_subsystem flag. In Non-Activity log entries this is the subsystem flag
