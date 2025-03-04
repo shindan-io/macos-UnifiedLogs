@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::mem::size_of;
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct TimesyncBoot {
     pub signature: u16,
     pub header_size: u16,
@@ -27,7 +27,7 @@ pub struct TimesyncBoot {
     pub timesync: Vec<Timesync>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct Timesync {
     // Timestamps are in UTC
     pub signature: u32,
@@ -84,8 +84,8 @@ impl TimesyncBoot {
         let expected_boot_signature = 0xbbb0;
         if expected_boot_signature != timesync_signature {
             error!(
-                "[macos-unifiedlogs] Incorrect Timesync boot header signature. Expected {}. Got: {}",
-                expected_boot_signature, timesync_signature
+              "[macos-unifiedlogs] Incorrect Timesync boot header signature. Expected {}. Got: {}",
+              expected_boot_signature, timesync_signature
             );
             return Err(nom::Err::Incomplete(Needed::Unknown));
         }
@@ -138,8 +138,8 @@ impl TimesyncBoot {
         let expected_record_signature = 0x207354;
         if expected_record_signature != timesync_signature {
             error!(
-                "[macos-unifiedlogs] Incorrect Timesync record header signature. Expected {}. Got: {}",
-                expected_record_signature, timesync_signature
+              "[macos-unifiedlogs] Incorrect Timesync record header signature. Expected {}. Got: {}",
+              expected_record_signature, timesync_signature
             );
             return Err(nom::Err::Incomplete(Needed::Unknown));
         }

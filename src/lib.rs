@@ -32,12 +32,13 @@
     clippy::unnecessary_cast
 )]
 
+#![allow(clippy::all, clippy::pedantic, clippy::restriction, clippy::nursery)]
 mod catalog;
-mod chunks;
+pub mod chunks;
 mod chunkset;
 mod decoders;
 pub mod dsc;
-mod error;
+pub mod error;
 pub mod filesystem;
 mod header;
 pub mod iterator;
