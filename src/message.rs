@@ -215,12 +215,10 @@ pub fn format_firehose_log_message(
             }
         }
 
-        let precision_items = [0x10, 0x12]; // dynamic precision item types?
-                                            // If the item message was a precision type increment to actual value
-        if PRECISION_ITEMS.contains(&item_at_index.item_type) {
-            update_index_or!(item_index + 1, {
-                continue;
-            });
+        const PRECISION_ITEMS: [u8; 2] = [0x10, 0x12]; // dynamic precision item types?
+        // If the item message was a precision type increment to actual value
+        if PRECISION_ITEMS.contains(&item_message[item_index].item_type) {
+            item_index += 1;
         }
 
         if item_index >= item_message.len() {
