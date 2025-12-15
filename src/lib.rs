@@ -44,6 +44,7 @@ pub mod iterator;
 mod message;
 pub mod parser;
 mod preamble;
+mod specs;
 pub mod timesync;
 pub mod traits;
 pub mod unified_log;

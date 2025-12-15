@@ -9,6 +9,7 @@ use log::{debug, error};
 use nom::number::complete::{be_u128, le_u16};
 use nom::Needed;
 
+/// https://github.com/libyal/dtformats/blob/main/documentation/Apple%20Unified%20Logging%20and%20Activity%20Tracing%20formats.asciidoc#2102-firehose-tracepoint-flags
 #[derive(Clone, Copy)]
 pub struct FirehoseFlags(u16);
 

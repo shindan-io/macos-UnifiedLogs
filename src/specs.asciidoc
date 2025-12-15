@@ -1,0 +1,3166 @@
+= Apple Unified Logging and Activity Tracing formats
+
+:toc:
+:toclevels: 4
+
+:numbered!:
+[abstract]
+== Summary
+
+The Apple Unified Logging and Activity Tracing formats are used to store
+system logs. This specification is based on the source code and documentation.
+
+This document is intended as a working document for the Apple Unified Logging
+and Activity Tracing file formats specification.
+
+[preface]
+== Document information
+
+[cols="1,5"]
+|===
+| Author(s): | Joachim Metz <joachim.metz@gmail.com>
+| Abstract: | Apple Unified Logging and Activity Tracing formats
+| Classification: | Public
+| Keywords: | Unified Logging, tracev3, uuidtext
+|===
+
+[preface]
+== License
+
+....
+Copyright (C) 2019-2023, Joachim Metz <joachim.metz@gmail.com>.
+Permission is granted to copy, distribute and/or modify this document under the
+terms of the GNU Free Documentation License, Version 1.3 or any later version
+published by the Free Software Foundation; with no Invariant Sections, no
+Front-Cover Texts, and no Back-Cover Texts. A copy of the license is included
+in the section entitled "GNU Free Documentation License".
+....
+
+[preface]
+== Revision history
+
+[cols="1,1,1,5",options="header"]
+|===
+| Version | Author | Date | Comments
+| 0.0.1 | J.B. Metz | January 2019 | Initial version.
+| 0.0.2 | J.B. Metz | February 2019 | Additional changes based on work by Y. Khatri.
+| 0.0.3 | Y. Khatri | February 2019 | Additional changes based prior work.
+| 0.0.4 | J.B. Metz | February 2019 | Additional changes based on format analysis.
+| 0.0.5 | J.B. Metz | March 2019 | Additional changes based on format analysis.
+| 0.0.6 | R. Asselin | July 2022 | Additional changes based on format analysis.
+| 0.0.7 | J.B. Metz | August 2022 | Additional changes based on format analysis.
+| 0.0.8 | Fry | November 2022 | Additional changes based on format analysis.
+| 0.0.9 | J.B. Metz | May 2023 | Additional changes based on format analysis.
+| 0.0.10 | J.B. Metz | June 2023 | Additional changes based on format analysis.
+|===
+
+:numbered:
+== Overview
+
+Apple Unified Logging and Activity Tracing was introduced in macOS 10.12
+(Sierra) and are used to store system logs.
+
+Apple Unified Logging and Activity Tracing consists of:
+
+* Diagnostics data
+* Shared-Cache Strings data
+
+=== Diagnostics data
+
+The diagnostics data can be stored in a logarchive (directory), as part of a
+sysdiagnose dump for iOS, or on a Mac OS in the directory:
+
+....
+/private/var/db/diagnostics/
+/var/db/diagnostics/
+....
+
+The diagnostics directory contains the following sub directories:
+
+* HighVolume
+* Persist
+* Signpost
+* Special
+* timesync
+
+And files:
+
+* logdata.statistics.[0-9].txt
+* logd.[0-9].log
+* shutdown.log
+* version.plist
+
+[yellow-background]*TODO describe what HighVolume sub directory contains*
+
+The Persist, Signpost and Special sub directories can contain zero or more
+files with the extension .tracev3. These files are stored in the
+<<tracev3_file_format,tracev3 file format>>.
+
+The timesync sub directory can contain one or more files with the extension
+.timesync. These files are stored in the
+<<timesync_database_file_format,timesync database file format>>.
+
+==== logd.[0-9].log
+
+The logd.log files contain logging messages from the file logging daemon
+itself. They are in the single text line format:
+
+....
+timestamp logd[pid]: message
+....
+
+For example:
+
+....
+2022-10-23 19:15:32-0700 logd[25]: Unable to parse os_log_simple buffer. Error: 94 Received: 89
+....
+
+==== logdata.statistics.[0-9].txt
+
+The logdata.statistics files contain various statistics and metrics kept by the
+logging daemon, about both individual tracev3 files and the operations of the
+daemon itself.
+
+These are delimited by headers of the form `--- !logd <type> record` where type is one of:
+
+* purge
+* snapshot
+* statistics
+* uuid purge
+
+===== purge logdata statistics
+
+The purge logdata statistics consist of:
+
+* Records of type "Persist Periodic Purge" detail tracev3 files in the `Persist/` subdirectory that have been purged, including the size of the file and how many files in the `Persist/` subdirectory remain.
+* Records of type "Signpost Periodic Compaction" lists the files that have undergone compaction, all observed have been in the `Signpost/` subdirectory.
+* Records of type "Special Periodic Compaction" lists the files that have undergone compaction, all observed have been in the `Special/` subdirectory.
+
+===== snapshot logdata statistics
+
+The purpose of the snapshot logdata statistics is currently unknown. An example
+of a log record:
+
+....
+--- !logd snapshot record
+client : /usr/libexec/signpost_reporter
+time   : 2022-11-20 03:04:48+0000
+flags  : 0x3
+....
+
+===== statistics logdata statistics
+
+The statistics logdata statistics consist of:
+
+* Records of type "File Rotate" list, per file, how many records it contains and a list of each process that produced records in the file, sorted descendingly by total record count. Example:
+* Records of type "Memory Rollover" appear to be total number of records, and a list of each process that produced records, but globally and not for any particular file.
+
+===== uuid purge logdata statistics
+
+The uuid perger logdata statistics consist of:
+
+* List of UUIDs that have been purged
+
+==== shutdown.log
+
+shutdown.log contains a period list of the clients that still exist while the
+system is attempting to shut down.
+
+The logs are of the form:
+
+....
+After <x>s, these clients are still here:
+		remaining client pid: <pid> (/<process>/<uuid>) (repeats)
+SIGTERM: [<timestamp>] All buffers flushed
+....
+
+==== version.plist
+
+[yellow-background]*TODO describe what version.plist file contains*
+
+=== Shared-Cache Strings data
+
+The Shared-Cache Strings data can be stored in a logarchive (directory) or
+on a Mac OS system in the directory:
+
+....
+/private/var/db/uuidtext/
+/var/db/uuidtext/
+....
+
+The uuidtext directory contains the following sub directories:
+
+* `[0-9A-F][0-9A-F]`
+* dsc
+
+=== `[0-9A-F][0-9A-F]` sub directory
+
+The `[0-9A-F][0-9A-F]` sub directory contains zero or more files:
+
+* `[0-9A-F]{30}`
+
+This path relates to an UUID, for example:
+
+....
+AB/414C1EC0233A05AF22029CC5E160EA represents AB414C1E-C023-3A05-AF22-029CC5E160EA
+....
+
+=== dsc sub directory
+
+The dsc sub directory contains one or more files:
+
+* `[0-9A-F]{32}`
+
+This filename relates to an UUID, for example:
+
+....
+2576AD2587533C119308541E6149A88D represents 2576AD25-8753-3C11-9308-541E6149A88D
+....
+
+These files are store in the <<shared_cache_strings_file_format,Shared-Cache strings (dsc) file format>>
+
+=== Test versions
+
+The following version of programs were used to test the information within this
+document:
+
+* macOS 10.12 (Sierra)
+* macOS 10.13 (High Sierra)
+* macOS 10.14 (Mojave)
+* macOS 10.15 (Catalina)
+* macOS 11 (Big Sur)
+* macOS 12 (Monterey)
+* macOS 13 (Ventura)
+
+== [[tracev3_file_format]]tracev3 file format
+
+A tracev3 file consists of:
+
+* header chunk
+* one or more:
+** catalog chunk
+** chunk sets related to the catalog chunk
+
+[NOTE]
+Note that a new catalog chunk overwrites the previous catalog.
+
+[cols="1,5",options="header"]
+|===
+| Characteristics | Description
+| Byte order | little-endian
+|===
+
+=== tracev3 chunk
+
+A tracev3 chunk (tracev3_chunk) is variable of size and consists of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+4+| _Chunk header (tracev3_chunk_preamble)_
+| 0 | 4 | | Chunk tag (tag) +
+See section: <<chunk_tag_types,Chunk tag types>>
+| 4 | 4 | | Chunk sub tag (subtag)
+| 8 | 8 | | Chunk data size (length) +
+[yellow-background]*Note that only the lower 32-bit has been observed to be used, so this could be 2 32-bit values as well*
+4+| _Chunk data_
+| 16 | chunk_data_size | | Chunk data
+|===
+
+[NOTE]
+The chunk header is stored 64-bit aligned.
+
+=== [[chunk_tag_types]]Chunk tag types
+
+[cols="1,1,5",options="header"]
+|===
+| Value | Identifier | Description
+| 0x1000 | Header |
+| | |
+| 0x6001 | Firehose |
+| 0x6002 | Oversize |
+| 0x6003 | StateDump |
+| 0x6004 | SimpleDump |
+| | |
+| 0x600b | Catalog |
+| | |
+| 0x600d | ChunkSet |
+|===
+
+=== Header (chunk)
+
+The header (chunk) is 224 bytes of size and consists of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+4+| _Chunk header (tracev3_chunk_preamble)_
+| 0 | 4 | 0x1000 | Chunk tag (tag)
+| 4 | 4 | 0x0011 | Chunk sub tag (subtag)
+| 8 | 8 | 208 | Chunk data size (length)
+4+| _Chunk data (tracev3_chunk_header)_
+| 16 | 4 | | (Mach) Timebase numerator (first number in timebase # / #)
+| 20 | 4 | | (Mach) Timebase denominator (second number in timebase # / #)
+| 24 | 8 | | Start time +
+Contains a Mach continuous timestamp
+| 32 | 4 | | Timestamp (or wall clock time) +
+Signed integer that contains the number of seconds since January 1, 1970 00:00:00 UTC (POSIX epoch), disregarding leap seconds
+| 36 | 4 | | [yellow-background]*Unknown*
+| 40 | 4 | | [yellow-background]*Unknown*
+| 44 | 4 | | Time zone offset in minutes +
+Contains a signed integer that contains the number of minutes relative from UTC, for example -60 represents UTC+1
+| 48 | 4 | | Daylight savings time (DST) flag +
+0 = daylight savings time is not active (no-DST) +
+1 = daylight savings time is active (DST)
+| 52 | 4 | | <<tracev3_header_flags,Header flags>>
+| 56 | 16 | | <<header_continuous_time_sub_chunk,Header continuous time sub chunk>>
+| 72 | 64 | | <<header_system_information_sub_chunk,Header system information sub chunk>>
+| 136 | 32 | | <<header_generation_sub_chunk,Header generation sub chunk>>
+| 168 | 56 | | <<header_time_zone_sub_chunk,Header time zone sub chunk>>
+|===
+
+[NOTE]
+Timebase numerator / Timebase denominator is the timebase, which contains the
+number of seconds per continuous time unit.
+
+[NOTE]
+The start time contains the Mach continuous time representation of the POSIX
+timestamp (or wall clock time).
+
+[NOTE]
+Timestamp appears to be stored in UTC but the log tool shows the local time zone.
+
+==== [[tracev3_header_flags]]Header flags
+
+[cols="1,1,5",options="header"]
+|===
+| Value | Identifier | Description
+| 0x00000001 | 64bits | Is 64-bits
+| 0x00000002 | is_boot | [yellow-background]*Unknown (Is boot what?)*
+|===
+
+[NOTE]
+Note that files without the "64bits" header flag have not yet been observed.
+
+==== [[header_continuous_time_sub_chunk]]Header continuous time sub chunk
+
+The header continuous time sub chunk is 16 bytes of size and consist of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+4+| _The sub chunk header (tracev3_subchunk_preamble)_
+| 0 | 4 | 0x6100 | Sub chunk tag
+| 4 | 4 | | Sub chunk data size +
+The size value does not include the 8 bytes of the sub chunk tag and data size
+4+| _The continuous time sub chunk data (tracev3_subchunk_continuous)_
+| 8 | 8 | | Continuous time +
+Contains a Mach continuous timestamp
+|===
+
+==== [[header_system_information_sub_chunk]]Header system information sub chunk
+
+The header system information sub chunk is 64 bytes of size and consist of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+4+| _The sub chunk header (tracev3_subchunk_preamble)_
+| 0 | 4 | 0x6101 | Sub chunk tag
+| 4 | 4 | | Sub chunk data size +
+The size value does not include the 8 bytes of the sub chunk tag and data size
+4+| _The system information sub chunk data (tracev3_subchunk_systeminfo)_
+| 8 | 4 | | [yellow-background]*Unknown*
+| 12 | 4 | | [yellow-background]*Unknown*
+| 16 | 16 | | Build version +
+Contains an UTF-8 encoded string with end-of-string character
+| 32 | 32 | | Hardware model string +
+Contains an UTF-8 encoded string with end-of-string character
+|===
+
+[NOTE]
+One of the unknowns is likely architecture like (x86_64h).
+
+==== [[header_generation_sub_chunk]]Header generation sub chunk
+
+The header generation sub chunk is 32 bytes of size and consist of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+4+| _The sub chunk header (tracev3_subchunk_preamble)_
+| 0 | 4 | 0x6102 | Sub chunk tag
+| 4 | 4 | | Sub chunk data size +
+The size value does not include the 8 bytes of the sub chunk tag and data size
+4+| _The generation sub chunk data (tracev3_subchunk_generation)_
+| 8 | 16 | | Boot identifier (Boot UUID) +
+Contains a UUID stored in big-endian
+| 24 | 4 | | Process identifier (pid) of logd
+| 28 | 4 | | Exit status (of logd)
+|===
+
+==== [[header_time_zone_sub_chunk]]Header time zone sub chunk
+
+The time zone generation sub chunk is 56 bytes of size and consist of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+4+| _The sub chunk header (tracev3_subchunk_preamble)_
+| 0 | 4 | 0x6103 | Sub chunk tag
+| 4 | 4 | | Sub chunk data size +
+The size value does not include the 8 bytes of the sub chunk tag and data size
+4+| _The time zone sub chunk data (tracev3_subchunk_timezone)_
+| 8 | 48 | | Path to time zone information file +
+Contains an UTF-8 encoded string with end-of-string character
+|===
+
+=== Catalog chunk
+
+The Catalog chunk is variable of size and consists of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+4+| _Chunk header (tracev3_chunk_preamble)_
+| 0 | 4 | 0x600b | Chunk tag (tag)
+| 4 | 4 | | Chunk sub tag (subtag)
+| 8 | 8 | | Chunk data size (length)
+4+| _Chunk data (tracev3_chunk_catalog_v2)_
+| 16 | 2 | | Offset of the catalog sub system strings +
+The offset is relative to the start of the catalog UUIDs
+| 18 | 2 | | Offset of the catalog process information entries +
+The offset is relative to the start of the catalog UUIDs
+| 20 | 2 | | Number of process information entries +
+| 22 | 2 | | Offset of the catalog sub chunks +
+The offset is relative to the start of the catalog UUIDs
+| 24 | 2 | | Number of sub chunks
+| 26 | 6 | | [yellow-background]*Unknown (Reserved or Padding)*
+| 32 | 8 | | Earliest firehose timestamp +
+Contains a Mach continuous timestamp
+| 40 | 16 x ... | | Catalog UUIDs +
+Contains an array of UUIDs stored in big-endian
+| ... | ... | | Catalog sub system strings +
+Contains an array of strings with an end-of-string character
+| ... | ... | | Catalog process information entries +
+Contains an array of <<catalog_process_information_entry,Catalog process information entries>>
+| ... | ... | | Catalog sub chunks +
+Contains an array of <<catalog_sub_chunk,Catalog sub chunks>>
+|===
+
+[yellow-background]*TODO this appears version 3 of the catalog, what about other versions?*
+
+==== [[catalog_process_information_entry]]Catalog process information entry
+
+The catalog process information entry is variable of size and consists of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+| 0 | 2 | | Entry index
+| 2 | 2 | | [yellow-background]*Unknown*
+| 4 | 2 | | Index of the main UUID in the catalog UUIDs
+| 6 | 2 | | Index of the dsc UUID in the catalog UUIDs +
+Where -1 (0xffff) represents not set
+| 8 | 8 | | First number in proc_id #@#
+| 16 | 4 | | Second number in proc_id #@#
+| 20 | 4 | | Process identifier (pid)
+| 24 | 4 | | Effective user identifier (euid)
+| 28 | 4 | | [yellow-background]*Unknown*
+| 32 | 4 | | Number of UUID information entries (uuidinfos)
+| 36 | 4 | | [yellow-background]*Unknown*
+| 40 | 16 x ... | | UUID information entries array
+| ... | 4 | | Number of sub system entries (subsystems)
+| ... | 4 | | [yellow-background]*Unknown*
+| ... | 6 x ... | | Sub system entries array
+|===
+
+[NOTE]
+The catalog process information entry is stored 64-bit aligned.
+
+===== Catalog process information UUID information entry
+
+The catalog process information UUID information entry is 16 bytes of size
+and consists of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+| 0 | 4 | | Size
+| 4 | 4 | | [yellow-background]*Unknown*
+| 8 | 2 | | UUID index +
+Contains an index of an UUID in the catalog UUIDs
+| 10 | 4 | | Load address (lower 32-bit)
+| 14 | 2 | | Load address (upper 16-bit)
+|===
+
+===== Catalog process information sub system
+
+The catalog process information sub system is 6 bytes of size and consists of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+| 0 | 2 | | Identifier
+| 2 | 2 | | Sub system offset +
+The offset is relative to the start of the catalog sub system strings
+| 4 | 2 | | Category offset +
+The offset is relative to the start of the catalog sub system strings
+|===
+
+==== [[catalog_sub_chunk]]Catalog sub chunk
+
+The catalog sub chunk describes metadata for the chunk to follow and consists of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+| 0 | 8 | | Start (earliest) time +
+Contains a Mach continuous timestamp
+| 8 | 8 | | End (latest) time +
+Contains a Mach continuous timestamp
+| 16 | 4 | | Uncompressed size of chunk
+| 20 | 4 | 0x100 | Compression algorithm used (0x100 = LZ4)
+| 24 | 4 | | Number of indexes (num_indexes or procinfos)
+| 28 | 2 x Number of indexes | | Indexes (2 bytes each) pointing to process info entry
+| ... | 4 | | Number of string offsets (num_offsets or subcats)
+| ... | 2 x Number of string offsets | | [yellow-background]*Unknown (offsets used as cache?)* +
+The offset is relative to the start of the catalog sub system strings
+| ... | ... | 0 | 64-bit alignment padding
+|===
+
+=== ChunkSet chunk
+
+The ChunkSet chunk is variable of size and consists of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+4+| _Chunk header (tracev3_chunk_preamble)_
+| 0 | 4 | 0x600d | Chunk tag (tag)
+| 4 | 4 | | Chunk sub tag (subtag)
+| 8 | 8 | | Chunk data size (length)
+4+| _Chunk data_
+| 16 | ... | | Contains compressed data +
+The compressed data contains chunks
+|===
+
+=== LZ4 compressed data
+
+LZ4 compressed data consists of:
+
+* compressed block marker
+** compressed or uncompressed data
+* end of compressed stream marker
+
+==== LZ4 compressed data markers
+
+[cols="1,1,5",options="header"]
+|===
+| Value | Identifier | Description
+| "bv41" | | LZ4 compressed block marker +
+See section: <<lz4_compressed_block,LZ4 compressed block>>
+| "bv4-" | | LZ4 uncompressed block marker +
+See section: <<lz4_uncompressed_block,LZ4 uncompressed block>>
+| "bv4$" | | end of LZ4 compressed stream marker
+|===
+
+==== [[lz4_compressed_block]]LZ4 compressed block
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+4+| _LZ4 compressed block header_
+| 0 | 4 | "bv41" | LZ4 compressed block marker
+| 4 | 4 | | Uncompressed data size (in bytes)
+| 8 | 4 | | LZ4 compressed data size (in bytes)
+4+| _LZ4 compressed block data_
+| 12 | ... | | LZ4 compressed data
+|===
+
+==== [[lz4_uncompressed_block]]LZ4 uncompressed block
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+| 0 | 4 | "bv4-" | LZ4 uncompressed block marker
+| 4 | 4 | | Uncompressed data size (in bytes)
+4+| _LZ4 uncompressed block data_
+| 8 | ... | | Uncompressed data
+|===
+
+=== [[tracev3_firehose_chunk]]Firehose chunk
+
+The firehose chunk (tracev3_chunk_firehose) is variable of size and consists of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+4+| _Chunk header (tracev3_chunk_preamble)_
+| 0 | 4 | 0x6001 | Chunk tag (tag)
+| 4 | 4 | | Chunk sub tag (subtag)
+| 8 | 8 | | Chunk data size (length)
+4+| _Chunk data (tracev3_chunk_log_preamble)_
+| 16 | 8 | | First number in proc_id #@#
+| 24 | 4 | | Second number in proc_id #@#
+| 28 | 1 | | TTL
+| 29 | 1 | | Collapsed
+| 30 | 2 | 0 | [yellow-background]*Unknown (Reserved)*
+| 32 | 2 | | Public data size (size_pub_data)
+| 34 | 2 | | Private data virtual offset +
+Contains 4096 (0x1000) if there is no private data and `-(4096 - offset)` as offset relative to the end of the firehose chunk.
+| 36 | 2 | | [yellow-background]*Unknown*
+| 38 | 1 | | Stream type
+| 39 | 1 | | [yellow-background]*Unknown3*
+| 40 | 8 | | Base continuous time for events in the firehose chunk +
+Contains a Mach continuous timestamp
+4+|
+| 48 | data size | | data +
+Contains one or more <<tracev3_firehose_tracepoint,Firehose tracepoints>>
+| ... | ... | | Private or remnant data
+|===
+
+[NOTE]
+It appears that the size of a firehose chunk can grow to 4096 bytes, with
+public data as the header of that 4096 block and private data at the end (as
+a footer).
+
+[NOTE]
+'Collapsed' indicates if the empty bytes in between have been removed to shrink
+the block. Size of private data can be calculated by subtracting virtual offset
+from 4096.
+
+[NOTE]
+This chunk is usually 64-bit aligned with padding, but at times it is not. It
+is unknown if there is a flag to control this behavior.
+
+=== Stream type
+
+[cols="1,1,5",options="header"]
+|===
+| Value | Identifier | Description
+| 0x00 | persist |
+| 0x01 | special handling |
+| 0x02 | memory |
+| | |
+| 0x04 | signpost |
+|===
+
+=== Unknown3
+
+[cols="1,1,5",options="header"]
+|===
+| Value | Identifier | Description
+| 0x01 | |
+| 0x02 | |
+| 0x03 | |
+|===
+
+=== [[tracev3_firehose_tracepoint]]Firehose tracepoint
+
+A firehose tracepoint is variable of size and consists of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+| 0 | 1 | | Record type +
+See section: <<tracev3_firehose_tracepoint_record_type,Record type>>
+| 1 | 1 | | Log type +
+See section: <<tracev3_log_type,Log type>>
+| 2 | 2 | | Flags +
+See section: <<tracev3_firehose_tracepoint_flags,Flags>>
+| 4 | 4 | | Format string reference (lower 32-bit) +
+See section: <<tracev3_firehose_tracepoint_string_reference,String reference>>
+| 8 | 8 | | Thread identifier
+| 16 | 6 | | Continuous time delta +
+Contains the delta relative to the base continuous time in the <<tracev3_firehose_chunk,Firehose chunk>>
+| 22 | 2 | | Data size
+4+| _Start of data_
+| 24 | ... | | Data which contents depends on the flags
+4+| _End of data_
+| ... | ... | | 64-bit alignment padding
+|===
+
+==== [[tracev3_firehose_tracepoint_record_type]]Firehose tracepoint record type
+
+[cols="1,1,5",options="header"]
+|===
+| Value | Identifier | Description
+| 0x00 | | Unused (or Empty)
+| | |
+| 0x02 | activity | Activity +
+See section: <<tracev3_firehose_tracepoint_activity,Activity firehose tracepoint>>
+| 0x03 | trace | Trace +
+See section: <<tracev3_firehose_tracepoint_trace,Trace firehose tracepoint>>
+| 0x04 | log | Log +
+See section: <<tracev3_firehose_tracepoint_log,Log firehose tracepoint>>
+| | |
+| 0x06 | | Signpost +
+See section: <<tracev3_firehose_tracepoint_signpost,Signpost firehose tracepoint>>
+| 0x07 | | Loss +
+See section: <<tracev3_firehose_tracepoint_loss,Loss firehose loss>>
+|===
+
+==== [[tracev3_firehose_tracepoint_flags]]Firehose tracepoint flags
+
+[cols="1,1,5",options="header"]
+|===
+| Value | Identifier | Description
+| 0x0001 | has_current_aid | Has current activity identifier
+| 0x000e | | <<tracev3_firehose_tracepoint_strings_file_type,Strings file type>>
+| 0x0010 | has_unique_pid | Has process identifier value
+| 0x0020 | has_large_offset | Has large offset data
+| | |
+| 0x0100 | has_private_data | Has private data range
+| 0x0200 | has_other_aid | Has other activity identifier +
+Note that appears to be only used by the "Activity" record type, other record types use has_subsystem
+| 0x0200 | has_subsystem | Has sub system
+| 0x0400 | has_rules | Has rules
+| 0x0800 | has_oversize | Has oversize data reference
+| 0x1000 | has_backtrace | Has backtrace
+| | |
+| 0x8000 | has_name | Has name string reference
+|===
+
+===== [[tracev3_firehose_tracepoint_strings_file_type]]Firehose tracepoint strings file type
+
+[cols="1,1,5",options="header"]
+|===
+| Value | Identifier | Description
+| 0x0002 | main_exe | Strings are stored in an uuidtext file by proc_id
+| 0x0004 | shared_cache | Strings are stored in a Shared-Cache Strings (dsc) file
+| 0x0008 | absolute | Strings are stored in an uuidtext file by reference
+| 0x000a | uuid_relative | Strings are stored in an uuidtext file by identifier
+| 0x000c | large_shared_cache | Strings are stored in a Shared-Cache Strings (dsc) file
+|===
+
+==== [[tracev3_firehose_tracepoint_data_range]]Firehose tracepoint data range
+
+A firehose tracepoint data range is 4 bytes of size and consists of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+| 0 | 2 | | Range offset
+| 2 | 2 | | Range size
+|===
+
+==== [[tracev3_firehose_tracepoint_data_item]]Firehose tracepoint data item
+
+A firehose tracepoint data item is variable of size and consists of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+| 0 | 1 | | Value type
+| 1 | 1 | | Data item data size
+| 2 | ... | | Data item data +
+Contains inline data or a value data range
+|===
+
+===== Value type
+
+[cols="1,1,5",options="header"]
+|===
+| Value | Identifier | Description
+| 0x00 | | [yellow-background]*Unknown (integer or floating-point value)* +
+Contains a 32-bit or 64-bit value
+| 0x01 | | [yellow-background]*Unknown (private value)* +
+Contains a 32-bit value, formatted as "<private>"
+| 0x02 | | [yellow-background]*Unknown (integer or floating-point value)* +
+Contains a 8-bit, 16-bit, 32-bit or 64-bit value
+3+|
+| 0x10 | | [yellow-background]*Unknown (integer format precision)* +
+Contains a 32-bit value +
+This value has been seen to be used in combination with format strings like "%.0lld"
+3+|
+| 0x12 | | [yellow-background]*Unknown (string format precision)* +
+Contains a 32-bit value +
+This value has been seen to be used in combination with format strings like "%.16s" and "%.*s", where this value contains the number of characters of the string that should be printed.
+3+|
+| 0x20 | | [yellow-background]*Unknown (string)* +
+Consists of a <<tracev3_firehose_tracepoint_data_time_with_value_data_range,Firehose tracepoint data item with value data range>> where the value data contains an UTF-8 encoded string with an optional end-of-string character.
+| 0x21 | | [yellow-background]*Unknown (private value)* +
+Consists of a <<tracev3_firehose_tracepoint_data_time_with_private_data_range,Firehose tracepoint data item with private data range>> where the value data contains an UTF-8 encoded string with an optional end-of-string character.
+| 0x22 | | [yellow-background]*Unknown (string)* +
+Consists of a <<tracev3_firehose_tracepoint_data_time_with_value_data_range,Firehose tracepoint data item with value data range>> where the value data contains an UTF-8 encoded string with an optional end-of-string character.
+3+|
+| 0x25 | | [yellow-background]*Unknown (sensitive value)* +
+Contains a 32-bit value, formatted as "<private>"
+3+|
+| 0x30 | | [yellow-background]*Unknown (binary data)* +
+Consists of a <<tracev3_firehose_tracepoint_data_time_with_value_data_range,Firehose tracepoint data item with value data range>> where the value data contains binary data.
+| 0x31 | | [yellow-background]*Unknown (private value)* +
+Contains a 32-bit value, formatted as "<private>"
+| 0x32 | | [yellow-background]*Unknown (binary data)* +
+Consists of a <<tracev3_firehose_tracepoint_data_time_with_value_data_range,Firehose tracepoint data item with value data range>> where the value data contains binary data.
+3+|
+| 0x35 | | [yellow-background]*Unknown (private value?)*
+3+|
+| 0x40 | | [yellow-background]*Unknown (string)* +
+Consists of a <<tracev3_firehose_tracepoint_data_time_with_value_data_range,Firehose tracepoint data item with value data range>> where the value data contains an UTF-8 encoded string with an optional end-of-string character.
+| 0x41 | | [yellow-background]*Unknown (private value)* +
+Consists of a <<tracev3_firehose_tracepoint_data_time_with_private_data_range,Firehose tracepoint data item with private data range>> where the value data contains an UTF-8 encoded string with an optional end-of-string character.
+| 0x42 | | [yellow-background]*Unknown (string)* +
+Consists of a <<tracev3_firehose_tracepoint_data_time_with_value_data_range,Firehose tracepoint data item with value data range>> where the value data contains an UTF-8 encoded string with an optional end-of-string character.
+3+|
+| 0x45 | | [yellow-background]*Unknown (private value?)*
+3+|
+| 0xf2 | | [yellow-background]*Unknown (binary data)* +
+Consists of a <<tracev3_firehose_tracepoint_data_time_with_value_data_range,Firehose tracepoint data item with value data range>> where the value data contains binary data.
+|===
+
+[NOTE]
+Private value types are formatted as "<private>".
+
+===== [[tracev3_firehose_tracepoint_data_time_with_value_data_range]]Firehose tracepoint data item with value data range
+
+A firehose tracepoint data item with value data range is 6 bytes of size
+and consists of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+| 0 | 1 | | Value type
+| 1 | 1 | 4 | Data item data size
+4+| _Data item data_
+| 2 | 2 | | Value data (range) offset +
+The offset is relative to the start of the values data
+| 4 | 2 | | Value data (range) size
+|===
+
+===== [[tracev3_firehose_tracepoint_data_time_with_private_data_range]]Firehose tracepoint data item with private data range
+
+A firehose tracepoint data item with private data range is 6 bytes of size
+and consists of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+| 0 | 1 | | Value type
+| 1 | 1 | 4 | Data item data size
+4+| _Data item data_
+| 2 | 2 | | Value data (range) offset +
+The offset is relative to the start of the private data in the <<tracev3_firehose_chunk,Firehose chunk>>
+| 4 | 2 | | Value data (range) size
+|===
+
+==== [[tracev3_firehose_tracepoint_backtrace_data]]Firehose tracepoint backtrace data
+
+Firehose tracepoint backtrace data is variable of size and consists of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+| 0 | 2 | | [yellow-background]*Unknown (Seen: 0x01)*
+| 2 | 1 | | [yellow-background]*Unknown (Seen: 0x12)*
+| 3 | 1 | | Number of (image) identifiers
+| 4 | 1 | | Number of frames
+| 5 | 1 | | [yellow-background]*Unknown*
+| 6 | number of identifiers | | Array of image identifiers (UUIDs)
+| ... | number of frames | | Array of image offsets
+| ... | number of frames | | Array of image identifier indexes
+|===
+
+==== [[tracev3_firehose_tracepoint_activity]]Activity firehose tracepoint
+
+An activity firehose tracepoint is variable of size and consists of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+| 0 | 1 | 0x02 | Record type +
+See section: <<tracev3_firehose_tracepoint_record_type,Record type>>
+| 1 | 1 | | Log type +
+See section: <<tracev3_log_type,Log type>>
+| 2 | 2 | | Flags +
+See section: <<tracev3_firehose_tracepoint_flags,Flags>>
+| 4 | 4 | | Format string reference (lower 32-bit) +
+See section: <<tracev3_firehose_tracepoint_string_reference,String reference>>
+| 8 | 8 | | Thread identifier
+| 16 | 6 | | Continuous time delta +
+Contains the delta relative to the base continuous time in the <<tracev3_firehose_chunk,Firehose chunk>>
+| 22 | 2 | | Data size
+4+| _Start of data_
+4+| _Has current activity identifier flag (0x0001) is set_
+| ... | 8 | | Current activity identifier
+4+| _Has process identifier value flag (0x0010) is set_
+| ... | 8 | | Process identifier (pid)
+4+| _Has other activity identifier (0x0200) is set_
+| ... | 8 | | Other activity identifier
+4+| _Log type != 0x03_
+| ... | 8 | | New activity identifier
+4+| _Common_
+| ... | 4 | | UUID entry load address (lower 32-bit)
+4+| _Has large offset flag (0x0020) is set_
+| 0 | 2 | | Large offset data
+4+| _If strings file type == 0x0008_
+| ... | 2 | | UUID entry load address (upper 16-bit)
+4+| _If strings file type == 0x000a_
+| ... | 16 | | uuidtext file identifier (or image uuid)
+4+| _If strings file type == 0x000c_
+| ... | 2 | | Large shared cache data
+4+| _End of data_
+| ... | ... | | 64-bit alignment padding
+|===
+
+[NOTE]
+Note that "has private data range flag (0x0100)" has been observed to be set
+but without any obvious changes to the activity firehose tracepoint structure.
+
+==== [[tracev3_firehose_tracepoint_trace]]Trace firehose tracepoint
+
+A trace firehose tracepoint is variable of size and consists of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+| 0 | 1 | 0x03 | Record type +
+See section: <<tracev3_firehose_tracepoint_record_type,Record type>>
+| 1 | 1 | | Log type +
+See section: <<tracev3_log_type,Log type>>
+| 2 | 2 | | Flags +
+See section: <<tracev3_firehose_tracepoint_flags,Flags>>
+| 4 | 4 | | Format string reference (lower 32-bit) +
+See section: <<tracev3_firehose_tracepoint_string_reference,String reference>>
+| 8 | 8 | | Thread identifier
+| 16 | 6 | | Continuous time delta +
+Contains the delta relative to the base continuous time in the <<tracev3_firehose_chunk,Firehose chunk>>
+| 22 | 2 | | Data size
+4+| _Start of data_
+| ... | 4 | | UUID entry load address (lower 32-bit)
+4+| _If data size > 5_
+| ... | ... | | Values data
+| ... | number of values | | Value data size +
+Seen: 4 and 8
+4+| _Common_
+| ... | 1 | | Number of values +
+Seen: 0 and 1
+4+| _End of data_
+| ... | ... | | 64-bit alignment padding
+|===
+
+[NOTE]
+The value data sizes and values are stored front-to-back.
+
+==== [[tracev3_firehose_tracepoint_log]]Log firehose tracepoint
+
+A log firehose tracepoint is variable of size and consists of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+| 0 | 1 | 0x04 | Record type +
+See section: <<tracev3_firehose_tracepoint_record_type,Record type>>
+| 1 | 1 | | Log type +
+See section: <<tracev3_log_type,Log type>>
+| 2 | 2 | | Flags +
+See section: <<tracev3_firehose_tracepoint_flags,Flags>>
+| 4 | 4 | | Format string reference (lower 32-bit) +
+See section: <<tracev3_firehose_tracepoint_string_reference,String reference>>
+| 8 | 8 | | Thread identifier
+| 16 | 6 | | Continuous time delta +
+Contains the delta relative to the base continuous time in the <<tracev3_firehose_chunk,Firehose chunk>>
+| 22 | 2 | | Data size
+4+| _Start of data_
+4+| _Has current activity identifier flag (0x0001) is set_
+| ... | 8 | | Current activity identifier
+4+| _Has private data range flag (0x0100) is set_
+| ... | 4 | | <<tracev3_firehose_tracepoint_data_range,Private data range>> +
+Where the range offset is a virtual private strings offset in the <<tracev3_firehose_chunk,Firehose chunk>>
+4+| _Common_
+| ... | 4 | | UUID entry load address (lower 32-bit)
+4+| _Has large offset flag (0x0020) is set_
+| 0 | 2 | | Large offset data
+4+| _If strings file type == 0x0008_
+| ... | 2 | | UUID entry load address (upper 16-bit)
+4+| _If strings file type == 0x000a_
+| ... | 16 | | uuidtext file identifier (or image uuid)
+4+| _If strings file type == 0x000c_
+| ... | 2 | | Large shared cache data
+4+| _Has sub system flag (0x0200) is set_
+| ... | 2 | | Sub system identifier
+4+| _Has rules flag (0x0400) is set_
+| ... | 1 | | TTL
+4+| _Has oversize data reference flag (0x0800) is set_
+| ... | 2 | | Oversize data reference
+4+| _Common_
+| ... | 1 | | [yellow-background]*Unknown*
+| ... | 1 | | Number of data items
+| ... | number of data items | | Array of data items +
+See section: <<tracev3_firehose_tracepoint_data_item,Data item>>
+4+| _Values data_
+4+| _Has backtrace flag (0x1000) is set_
+| ... | ... | | Backtrace data +
+See section: <<tracev3_firehose_tracepoint_backtrace_data,Backtrace data>>
+4+| _Common_
+| ... | ... | | Data items values data
+4+| _End of values data_
+4+| _End of data_
+| ... | ... | | 64-bit alignment padding
+|===
+
+[NOTE]
+The backtrace data is stored as part of the values data. Value data offsets
+of data items are relative from the start of the values data.
+
+==== [[tracev3_firehose_tracepoint_singpost]]Signpost firehose tracepoint
+
+A signpost firehose tracepoint is variable of size and consists of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+| 0 | 1 | 0x06 | Record type +
+See section: <<tracev3_firehose_tracepoint_record_type,Record type>>
+| 1 | 1 | | Log type +
+See section: <<tracev3_log_type,Log type>>
+| 2 | 2 | | Flags +
+See section: <<tracev3_firehose_tracepoint_flags,Flags>>
+| 4 | 4 | | Format string reference (lower 32-bit) +
+See section: <<tracev3_firehose_tracepoint_string_reference,String reference>>
+| 8 | 8 | | Thread identifier
+| 16 | 6 | | Continuous time delta +
+Contains the delta relative to the base continuous time in the <<tracev3_firehose_chunk,Firehose chunk>>
+| 22 | 2 | | Data size
+4+| _Start of data_
+4+| _Has current activity identifier flag (0x0001) is set_
+| ... | 8 | | Current activity identifier
+4+| _Has private data range flag (0x0100) is set_
+| ... | 4 | | <<tracev3_firehose_tracepoint_data_range,Private data range>> +
+Where the range offset is a virtual private strings offset in the <<tracev3_firehose_chunk,Firehose chunk>>
+4+| _Common_
+| ... | 4 | | UUID entry load address (lower 32-bit)
+4+| _Has large offset flag (0x0020) is set_
+| 0 | 2 | | Large offset data
+4+| _If strings file type == 0x0008_
+| ... | 2 | | UUID entry load address (upper 16-bit)
+4+| _If strings file type == 0x000a_
+| ... | 16 | | uuidtext file identifier (or image uuid)
+4+| _If strings file type == 0x000c_
+| ... | 2 | | Large shared cache data
+4+| _Has sub system flag (0x0200) is set_
+| ... | 2 | | Sub system identifier
+4+| _Common_
+| ... | 8 | | Signpost identifier
+4+| _Has rules flag (0x0400) is set_
+| ... | 1 | | TTL
+4+| _Has oversize data reference flag (0x0800) is set_
+| ... | 2 | | Oversize data reference
+4+| _Has name string reference flag (0x8000) is set_
+| ... | 4 | | Name string reference (lower 32-bit) +
+See section: <<tracev3_firehose_tracepoint_string_reference,String reference>>
+4+| _Has name string reference flag (0x8000) and Has large offset flag (0x0020) are set_
+| ... | 2 | | Name string reference (upper 16-bit)
+4+| _Common_
+| ... | 1 | | [yellow-background]*Unknown*
+| ... | 1 | | Number of data items
+| ... | number of data items | | Array of data items +
+See section: <<tracev3_firehose_tracepoint_data_item,Data item>>
+4+| _Values data_
+| ... | ... | | Data items values data
+4+| _End of values data_
+4+| _End of data_
+| ... | ... | | 64-bit alignment padding
+|===
+
+==== [[tracev3_firehose_tracepoint_loss]]Loss firehose tracepoint
+
+A loss firehose tracepoint is variable of size and consists of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+| 0 | 1 | 0x07 | Record type +
+See section: <<tracev3_firehose_tracepoint_record_type,Record type>>
+| 1 | 1 | | Log type +
+See section: <<tracev3_log_type,Log type>>
+| 2 | 2 | 0x00 | Flags +
+See section: <<tracev3_firehose_tracepoint_flags,Flags>>
+| 4 | 4 | | Format string reference (lower 32-bit) +
+See section: <<tracev3_firehose_tracepoint_string_reference,String reference>>
+| 8 | 8 | | Thread identifier
+| 16 | 6 | | Continuous time delta +
+Contains the delta relative to the base continuous time in the <<tracev3_firehose_chunk,Firehose chunk>>
+| 22 | 2 | | Data size
+4+| _Start of data_
+| ... | 8 | | Start time +
+Contains the date and time the loss started
+| ... | 8 | | End time +
+Contains the date and time the loss ended
+| ... | 8 | | Number of messages +
+Contains the number of messages lost
+4+| _End of data_
+| ... | ... | | 64-bit alignment padding
+|===
+
+==== [[tracev3_firehose_tracepoint_string_reference]]Firehose tracepoint string reference
+
+A string reference is used to look up strings in the uuidtext or Shared-Cache
+Strings (dsc) files.
+
+[NOTE]
+The most-significant bit (MSB) of the string reference lower 32-bit is
+a "dynamic" flag. If set (and the string reference <= 0xffffffff) the string
+is "%s". In a Shared-Cache Strings (dsc) file the corresponding image
+identifier and offset can be found comparing the remaining value of the string
+referrence with the dsc text offset.
+
+To calculate a format string reference:
+
+* ( large shared cache data << 31 ) | ( format string reference lower 32-bit & 0x7fffffff )
+* ( large offset data << 31 ) | ( format string reference lower 32-bit & 0x7fffffff )
+* ( format string reference lower 32-bit & 0x7fffffff )
+
+To calculate a name string reference:
+
+* ( name string reference upper 16-bit << 31 ) | ( name string reference lower 32-bit & 0x7fffffff )
+* ( name string reference lower 32-bit & 0x7fffffff )
+
+===== Invalid shared cache code pointer offset
+
+....
+tp 2872 + 117:      log info (has_current_aid, has_large_offset, large_shared_cache, has_subsystem)
+    thread:         00000000000009ba
+    time:           +42.683s
+    walltime:       1659846550 - 2022-08-07 06:29:10 (Sunday)
+    cur_aid:        8000000000001652
+    location:       pc:0x8008ecf707e9 fmt:0x1117a0720
+    image uuid:     CC386FB1-8C26-3CB7-8329-CC63095FCA7D
+    format:         START %{public}@
+    error:          ~~> <Invalid shared cache code pointer offset>
+    subsystem:      21 com.apple.reminderkit.utility
+
+Format string reference                                                 : 0x117a0720
+UUID entry load address (lower 32-bit)                                  : 0xecf707e9
+Large offset data                                                       : 0x8008
+Large shared cache data                                                 : 0x0002
+
+Calculated format string reference                                      : 0x1117a0720
+Strings file identifier                                                 : cc386fb1-8c26-3cb7-8329-cc63095fca7d
+Image identifier                                                        : cc386fb1-8c26-3cb7-8329-cc63095fca7d
+Load address                                                            : 0x8008ecf707e9
+....
+
+Observed behavior:
+
+* Large shared cache data is used to calculate format string reference
+* Image identifier = strings file identifier (value from Shared-Cache Strings (dsc) is not used)
+* Image path is not set
+* Image text offset = 0
+* Load address = ( Large offset data << 32 ) | UUID entry load address (lower 32-bit)
+
+===== Invalid bounds for uuidtext file
+
+....
+tp 272 + 38:        activity create (has_large_offset, main_exe)
+    thread:         000000000000117c
+    time:           +1,284.168s
+    walltime:       1659848875 - 2022-08-07 07:07:55 (Sunday)
+    new_aid:        8000000000013b44
+    location:       pc:0x744dd fmt:0x7fcbf77bca21
+    image uuid:     3BC14712-721B-3B0E-A542-A289155FE74E
+    image path:     /System/Library/PrivateFrameworks/GameCenterFoundation.framework/Versions/A/gamed
+    error:          ~~> Invalid bounds -142882271 for 3BC14712-721B-3B0E-A542-A289155FE74E
+
+Format string reference                                                 : 0x777bca21
+UUID entry load address (lower 32-bit)                                  : 0x000744dd
+Large offset data                                                       : 0xff97
+
+Calculated format string reference                                      : 0x7fcbf77bca21
+Strings file identifier                                                 : 3bc14712-721b-3b0e-a542-a289155fe74e
+Image identifier                                                        : 3bc14712-721b-3b0e-a542-a289155fe74e
+Load address                                                            : 0x000744dd
+....
+
+Observed behavior:
+
+* Large offset data is used to calculate format string reference
+* Format string is not set
+* Load address = UUID entry load address (lower 32-bit)
+
+==== [[tracev3_firehose_tracepoint_format_string]]Firehose tracepoint format string
+
+Format string operators are defined in the following format:
+
+....
+%[value_type_decoder] [flags] [width] [.precision] [length_modifier] conversion_specifier
+....
+
+Where `%%` represents a literal `%`.
+
+Also see `man 3 os_log` and `man 3 printf` on Mac OS.
+
+[NOTE]
+A missing data item is formatted as "<decode: missing data>".
+
+The built-in value type decoders are:
+
+[cols="1,1,5",options="header"]
+|===
+| Value | Identifier | Description
+| "bitrate" | | Formatted as a bit-rate value, for example "123 kbps"
+| "bool" | | Formatted as a lower-case boolean value, for example "true" or "false"
+| "BOOL" | | Formatted as a upper-case boolean value, for example "YES" or "NO"
+| "bytes" | | Formatted a bytes value, for example "4.72 kB"
+| "darwin.errno" | | Formatted as a system error, for example "[32: Broken pipe]"
+| "darwin.mode" | | Formatted as a file mode value, for example "drwxr-xr-x"
+| "darwin.signal" | | Formatted as a signal, for example "[sigsegv: Segmentation Fault]"
+| "iec-bitrate" | | Formatted as an IEC bit-rate value, for example "118 Kibps"
+| "iec-bytes" | | Formatted as IEC bytes value, for example "4.61 KiB"
+| "in_addr" | | Formatted as an IPv4 address, for example "127.0.0.1"
+| "in6_addr" | | Formatted as an IPv6 address, for example "fe80::f:86ff:fee9:5c16"
+| "sockaddr" | | Formatted as a <<socket_address,socket address>>
+| "time_t" | | Formatted as a seconds precision date and time value, for example "2016-01-12 19:41:37"
+| "timespec" | | Formatted as a nanoseconds precision date and time value, for example "2016-01-12 19:41:37.2382382823"
+| "timeval" | | Formatted as a microseconds precision date and time value, for example "2016-01-12 19:41:37.774236"
+| "uuid_t" | | Formatted as an UUID, for example "10742E39-0657-41F8-AB99-878C5EC2DCAA"
+|===
+
+Other observerd value type decoders are:
+
+[cols="1,1,5",options="header"]
+|===
+| Value | Identifier | Description
+| "bluetooth:OI_STATUS" | | No additional formatting
+| "errno" | | Formatted as a system error, for example "[32: Broken pipe]"
+| "location:_CLClientManagerStateTrackerState" | | Formatted as a <<locationd_core_location_client_manager_state_tracker_state,locationd Core Location client manager (CLClientManager) state tracker state>>
+| "location:_CLLocationManagerStateTrackerState" | | Formatted as a <<locationd_core_location_location_manager_state_tracker_state,locationd Core Location location manager (CLLocationManager) state tracker state>>
+| "location:CLClientAuthorizationStatus" | | Formatted as a <<locationd_core_location_client_authorization_status,locationd Core Location client authorization status>>
+| "location:CLDaemonStatus_Type::Reachability" | | Formatted as a <<locationd_core_location_daemon_reachability_status_types,locationd Core Location daemon reachability status types>>
+| "location:CLDaemonStatusStateTracker" | | Formatted as a <<locationd_core_location_daemon_tracker_state,locationd Core Location daemon tracker state>>
+| "location:CLSubHarvesterIdentifier" | | Formatted as a <<locationd_core_location_sub_harvester_identifier,locationd Core Location sub harvester identifier>>
+| "location:escape_only" | | Formatter that escapes specific characters such as: "/"
+| "location:IOMessage" | | Formatted as a <<locationd_io_message,locationd IO message>>
+| "location:SqliteResult" | | Formatted as a <<locationd_sqlite_result,locationd SQLite result>>
+| "mask.hash" | | Formatted as a <<mask_hash,Mask hash>>
+| "mdns:acceptable" | | Formatted as a boolean value, for example "acceptable" or "unacceptable"
+| "mdns:addrmv" | | Formatted as a boolean value, for example "add" or "rmv"
+| "mdns:dns.counts" | | Formatted as a <<mdns_dns_counters,mDNS DNS countters>>
+| "mdns:dns.idflags" | | Formatted as a <<mdns_dns_identifier_and_flags,mDNS DNS identifier and flags>>
+| "mdns:dnshdr" | | Formatted as a <<mdns_dns_header,mDNS DNS header>>
+| "mdns:gaiopts" | | Formatted as a <<mdns_getaddrinfo_options,mDNS getaddrinfo options>>
+| "mdns:nreason" | | Formatted as a <<mdns_reason,mDNS reason>>
+| "mdns:protocol" | | Formatted as a <<mdns_protocol,mDNS protocol>>
+| "mdns:rd.svcb" | |
+| "mdns:rrtype" | | Formatted as a <<mdns_resource_record_type,mDNS resource record (RR) type>>
+| "mdns:yesno" | | Formatted as a boolean value, for example "yes" or "no"
+| "mdnsresponder:domain_name" | |
+| "mdnsresponder:ip_addr" | | Formatted as a <<mdnsresponder_ip_address,mDNSResponder IP address>>
+| "mdnsresponder:mac_addr" | | Formatted as a <<mdnsresponder_mac_address,mDNSResponder MAC address>>
+| "name=NAME" | | Name formatting argument, where NAME is the name of the value, which has no additional formatting
+| "Name:NAME" | | [yellow-background]*Unknown, see notes below*
+| "network:in_addr" | | Formatted as an IPv4 address, for example "127.0.0.1"
+| "network:in6_addr" | | Formatted as an IPv6 address, for example "fe80::f:86ff:fee9:5c16"
+| "network:sockaddr" | | Formatted as a <<socket_address,socket address>>
+| "network:tcp_flags" | |
+| "network:tcp_state" | |
+| "odtypes:mbr_details" | | Formatted as a <<open_directory_membership_details,Open Directory membership details>>
+| "odtypes:mbridtype" | | Formatted as a <<open_directory_membership_identifier_type,Open Directory membership identifier type>>
+| "odtypes:nt_sid_t" | | Formatted as a <<open_directory_windows_nt_sid,Open Directory Windows NT Security Identifier (SID)>>
+| "odtypes:ODError" | | Formatted as a <<open_directory_error,Open Directory error>>
+| "private" | | Private formatting argument, which is formatted as "<private>"
+| "public" | | Public formatting argument, which has no additional formatting
+| "sensitive" | | Sensitive formatting argument, which is formatted as "<private>"
+| "signpost.description:attribute" | | Formatted as a signpost description attribute, for example `__##__signpost.description#____#attribute#_##_#efilogin-helper##__##`
+| "signpost.description:begin_time" | | Formatted as a signpost description begin time, for example `__##__signpost.description#____#begin_time#_##_#2180300470618##__##`
+| "signpost.description:end_time" | | Formatted as a signpost description end time, for example `__##__signpost.description#____#end_time#_##_#1005756624719##__##`
+| "signpost.telemetry:number1" | | For example `__##__signpost.telemetry#____#number1#_##_#5.88671875##__##`, where a avalue can be an integer or floating-point which is formatted as (at least) "%.9g"
+| "signpost.telemetry:number2" | | For example `__##__signpost.telemetry#____#number2#_##_#6.05859375##__##`, where a avalue can be an integer or floating-point and which is formatted as (at least) "%.9g"
+| "signpost.telemetry:number3" | | For example `__##__signpost.telemetry#____#number3#_##_#6.05859375##__##`, where a avalue can be an integer or floating-point and which is formatted as (at least) "%.9g"
+| "signpost.telemetry:string1" | | For example `__##__signpost.telemetry#____#string1#_##_#executeQueryBegin##__##`
+| "signpost.telemetry:string2" | | For example `__##__signpost.telemetry#____#string2#_##_#executeQueryBegin##__##`
+| "xcode:size-in-bytes" | | No additional formatting
+|===
+
+[NOTE]
+The multiple value type decoders can be used in combination for example
+"%{public,uuid_t}.16P" or "%{private, mask.hash, mdnsresponder:ip_addr}.20P".
+
+The flags are defined as:
+
+[cols="1,1,5",options="header"]
+|===
+| Value | Identifier | Description
+| "#" | | Value should be converted to an "alternate form". Note that "%#x" is formatted as "0x%x" with the exception of "0".
+| "0" | | Value should be padded with 0
+| "-" | | Value should be left-justified instead of right-justified
+| " " | | Value should be padded with space
+| "+" | | Add the '+' sign in front of positive values
+| "'" | | [yellow-background]*TODO describe*
+|===
+
+The length modifiers are defined as:
+
+[cols="1,1,5",options="header"]
+|===
+| Value | Identifier | Description
+| "h" | | short
+| "hh" | | char
+| "j" | | intmax_t or uintmax_t
+| "l" | | (unsigned) long
+| "ll" | | (unsigned) long long
+| "q" | | (unsigned) long long
+| "t" | | ptrdiff_t
+| "z" | | size_t
+|===
+
+The .precision is defined as:
+
+[cols="1,1,5",options="header"]
+|===
+| Value | Identifier | Description
+| "0" | | Observed that this has no effect in "%.0s"
+| "*" | | An additional integer argument supplies the field width or precision.
+|===
+
+The types are defined as:
+
+[cols="1,1,5",options="header"]
+|===
+| Value | Identifier | Description
+| "@" | | Obj-C/CF/Swift object
+| "a" | | Floating-point value
+| "A" | | Floating-point value
+| "c" | | Character value
+| "C" | | wide character value, equivalent to "lc"
+| "d" | | Signed decimal integer value
+| "D" | | Long signed decimal integer value, equivalent to "ld"
+| "e" | | Floating-point value
+| "E" | | Floating-point value
+| "f" | | Floating-point value
+| "F" | | Floating-point value
+| "g" | | Floating-point value
+| "G" | | Floating-point value
+| "i" | | Signed decimal integer value
+| "m" | | Signed decimal integer value representing a system error (errno), formatted as "No route to host"
+| "n" | | [yellow-background]*TODO describe*
+| "o" | | Octal integer value
+| "O" | | Long octal integer value, equivalent to "lo"
+| "p" | | Pointer value, equivalent to "0x%x"
+| "P" | | Binary data
+| "s" | | String value
+| "S" | | Wide character string value, equivalent to "ls"
+| "u" | | Unsigned decimal integer value
+| "U" | | Long unsigned decimal integer value, equivalent to "lu"
+| "x" | | Hexadecimal interger value, formatter in lower case
+| "X" | | Hexadecimal interger value, formatter in upper case
+|===
+
+===== Notes
+
+For a format string like "%6.6d" 0 padding is used.
+
+....
+Post "com.apple.system.config.network_change" (%s: %ld.%6.6d: 0x%x)
+....
+
+Formatted as:
+
+....
+Post "com.apple.system.config.network_change" (delayed: 0.000001: 0x2)
+....
+
+
+For format string with a "Name:" custom formatter:
+
+....
+ enableTelemetry=YES ResultCount=%{public, signpost.telemetry:number1, Name:ResultCount}ld DataSize=%{public, signpost.telemetry:number2, Name:DataSize}ld
+....
+
+Seen:
+
+....
+ enableTelemetry=YES ResultCount=0 DataSize=256
+....
+
+Is "Name:NAME" used for some kind of formatting override?
+
+
+For a format string like "%{public}-22s" space padding is used:
+
+....
+%{public}-22s: OFF
+....
+
+Formatted as:
+
+....
+SFIManagedFocal       : OFF
+....
+
+
+Observed behavior:
+
+If the number of values stored in the data items > number of formatters
+the values are formatted as "<decode: missing data>".
+
+=== Oversize chunk
+
+Oversize chunks contain data that is too large to fit into a single log entry,
+hence it is stored seperately and referenced by firehose tracepoints.
+
+The Oversize chunk is variable of size and consists of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+4+| _Chunk header (tracev3_chunk_preamble)_
+| 0 | 4 | 0x6002 | Chunk tag (tag)
+| 4 | 4 | | Chunk sub tag (subtag)
+| 8 | 8 | | Chunk data size (length)
+4+| _Chunk data (tracev3_chunk_oversize)_
+| 16 | 8 | | First number in proc_id #@#
+| 24 | 4 | | Second number in proc_id #@#
+| 28 | 1 | | TTL
+| 29 | 3 | 0 | [yellow-background]*Unknown (Reserved?)*
+| 32 | 8 | | Timestamp +
+Contains a Mach continuous timestamp
+| 40 | 4 | | Data reference (or message identifier)
+| 44 | 2 | | Size of data (buffdata_sz) +
+Contains the size of the data items and values data
+| 46 | 2 | | Size of private data (privdata_sz)
+4+| _Data_
+| 48 | 1 | | [yellow-background]*Unknown*
+| 49 | 1 | | Number of data items
+| 50 | number of data items | | Array of data items +
+See section: <<tracev3_firehose_tracepoint_data_item,Data item>>
+4+| _Has backtrace flag (0x1000) is set_
+| ... | ... | | Backtrace data +
+See section: <<tracev3_firehose_tracepoint_backtrace_data,Backtrace data>>
+4+| _Common_
+| ... | ... | | Data items values data
+4+| _End of data_
+| ... | ... | | Private data
+|===
+
+=== StateDump chunk
+
+The StateDump chunk is variable of size and consists of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+4+| _Chunk header (tracev3_chunk_preamble)_
+| 0 | 4 | 0x6003 | Chunk tag (tag)
+| 4 | 4 | | Chunk sub tag (subtag)
+| 8 | 8 | | Chunk data size (length)
+4+| _Chunk data (tracev3_chunk_statedump)_
+| 16 | 8 | | First number in proc_id #@#
+| 24 | 4 | | Second number in proc_id #@#
+| 28 | 1 | | TTL
+| 29 | 3 | 0 | [yellow-background]*Unknown (Reserved?)*
+| 32 | 8 | | Timestamp +
+Contains a Mach continuous timestamp
+| 40 | 8 | | Activity identifier
+| 48 | 16 | | Sender image identifier +
+Contains a UUID stored in big-endian
+| 64 | 4 | | State data type +
+See section: <<state_data_types,State data types>>
+| 68 | 4 | | State data size
+4+| _If state data type != 3_
+| 72 | 64 | | [yellow-background]*Unknown* +
+[yellow-background]*Only used when data type is 3?*
+| 136 | 64 | | [yellow-background]*Unknown* +
+[yellow-background]*Only used when data type is 3?*
+4+| _If state data type == 3_
+| 72 | 64 | | Decoder library +
+Contains an UTF-8 formatted string with an end-of-string character
+| 136 | 64 | | Decoder type +
+Contains an UTF-8 formatted string with an end-of-string character
+4+| _Common_
+| 200 | 64 | | Title (or Name) +
+Contains an UTF-8 formatted string with an end-of-string character
+| 264 | state data size | | State data
+|===
+
+[NOTE]
+Note that both the decoder library and decoder type can contain remnant data.
+
+==== [[state_data_types]]State data types
+
+[cols="1,1,5",options="header"]
+|===
+| Value | Identifier | Description
+| 1 | | serialized NS/CF object +
+State date contains a binary plist
+| 2 | | protocol buffer (protobuf)
+| 3 | | custom +
+State date contains decoder specific data
+|===
+
+=== SimpleDump chunk
+
+The SimpleDump chunk is variable of size and consists of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+4+| _Chunk header (tracev3_chunk_preamble)_
+| 0 | 4 | 0x6004 | Chunk tag (tag)
+| 4 | 4 | | Chunk sub tag (subtag)
+| 8 | 8 | | Chunk data size (length)
+4+| _Chunk data (tracev3_chunk_simpledump)_
+| 16 | 8 | | First number in proc_id #@#
+| 24 | 4 | | Second number in proc_id #@#
+| 28 | 1 | | TTL
+| 29 | 1 | | Log type +
+See section: <<tracev3_log_type,Log type>>
+| 29 | 2 | 0 | [yellow-background]*Unknown (Reserved?)*
+| 32 | 8 | | Timestamp +
+Contains a Mach continuous timestamp
+| 40 | 8 | | Thread identifier
+| 48 | 8 | | Load address (or offset)
+| 56 | 16 | | Sender image identifier +
+Contains a UUID stored in big-endian
+| 72 | 16 | | Shared-Cache Strings (dsc) identifier +
+Contains a UUID stored in big-endian
+| 88 | 4 | | [yellow-background]*Unknown (number of message strings?)*
+| 92 | 4 | | Subsystem string size
+| 96 | 4 | | Message string size
+| 100 | subsystem string size | | Subsystem string +
+Contains an UTF-8 formatted string with an end-of-string character
+| ... | message string size | | Message string +
+Contains an UTF-8 formatted string with an end-of-string character
+|===
+
+=== [[tracev3_log_type]]Log type
+
+[cols="1,1,5",options="header"]
+|===
+| Value | Identifier | Description
+| 0x00 | default | Default
+| 0x01 | create | Create +
+Note that appears to be only used by the "Activity" record type, other record types use info
+| 0x01 | info | Info
+| 0x02 | debug | Debug
+| 0x03 | useraction | Useraction +
+Note that appears to be only used by the "Activity" record type
+| | |
+| 0x10 | error | Error
+| 0x11 | fault | Fault
+| | |
+3+| _Signpost thread scope (0x40)_
+| 0x40 | thread, event | Thread Signpost event
+| 0x41 | thread, interval_begin | Thread Signpost start
+| 0x42 | thread, interval_end | Thread Signpost end
+| | |
+3+| _Signpost process scope (0x80)_
+| 0x80 | process, event | Process Signpost event
+| 0x81 | process, interval_begin | Process Signpost start
+| 0x82 | process, interval_end | Process Signpost end
+| | |
+3+| _Signpost system scope (0xc0)_
+| 0xc0 | system, event | System Signpost event
+| 0xc1 | system, interval_begin | System Signpost start
+| 0xc2 | system, interval_end | System Signpost end
+|===
+
+[yellow-background]*Other values are marked as "Default"?*
+
+=== Notes
+
+To view the contents of a tracev3 file on Mac OS:
+
+....
+log raw-dump -f ${FILE}.tracev3
+....
+
+== [[timesync_database_file_format]]timesync database file format
+
+A timesync database file consists of:
+
+* one or more:
+** timesync boot record
+** timesync sync records related to the boot record
+
+[cols="1,5",options="header"]
+|===
+| Characteristics | Description
+| Byte order | little-endian
+| Date and time values | number of nanoseconds since January 1, 1970 00:00:00 UTC (POSIX epoch), disregarding leap seconds
+|===
+
+=== timesync boot record
+
+The timesync boot record is 48 bytes of size and consists of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+| 0 | 2 | "\xb0\xbb" | Signature
+| 2 | 2 | 48 | Size of record
+| 4 | 4 | | [yellow-background]*Unknown (Seen: 0)*
+| 8 | 16 | | Boot identifier (boot UUID)
+| 24 | 4 | | (Mach) Timebase numerator (first number in timebase # / #)
+| 28 | 4 | | (Mach) Timebase denominator (second number in timebase # / #)
+| 32 | 8 | | Timestamp (or boot time) +
+Signed integer that contains the number of nanoseconds since January 1, 1970 00:00:00 UTC or 0 if not set
+| 40 | 4 | | Time zone offset in minutes +
+Contains a signed integer that contains the number of minutes relative from UTC, for example -60 represents UTC+1
+| 44 | 4 | | Daylight savings (DST) flag (0 = no DST, 1 = DST)
+|===
+
+[NOTE]
+Timebase numerator / Timebase denominator is the timebase, which contains the
+number of seconds per continuous time unit.
+
+[NOTE]
+Timestamp appears to be stored in UTC but the log tool shows the local time zone.
+
+==== timesync sync record
+
+The timesync sync record is 32 bytes of size and consists of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+| 0 | 2 | "Ts" | Signature
+| 2 | 2 | 32 | Size of record
+| 4 | 4 | | [yellow-background]*Unknown (Seen: 0 and 1)*
+| 8 | 8 | | Kernel time +
+Contains a Mach continuous timestamp
+| 16 | 8 | | Timestamp (or wall clock time) +
+Signed integer that contains the number of nanoseconds since January 1, 1970 00:00:00 UTC or 0 if not set
+| 24 | 4 | | Time zone offset in minutes +
+Contains a signed integer that contains the number of minutes relative from UTC, for example -60 represents UTC+1
+| 28 | 4 | | Daylight savings (DST) flag (0 = no DST, 1 = DST)
+|===
+
+[NOTE]
+The kernel time contains the Mach continuous time representation of the POSIX
+timestamp (or wall clock time).
+
+[NOTE]
+Timestamp appears to be stored in UTC but the log tool shows the local time zone.
+
+=== Notes
+
+To view the contents of timesync files on Mac OS:
+
+....
+log raw-dump -t /var/db/diagnostics/timesync/
+....
+
+== [[shared_cache_strings_file_format]]Shared-Cache Strings (dsc) file format
+
+A Shared-Cache Strings (dsc) file consist of:
+
+* Shared-Cache Strings (dsc) file header
+* Range descriptors
+* UUID descriptors
+* path strings
+
+[cols="1,5",options="header"]
+|===
+| Characteristics | Description
+| Byte order | little-endian
+|===
+
+=== Shared-Cache Strings (dsc) file header
+
+The Shared-Cache Strings (dsc) file header is 16 bytes of size and consists of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+| 0 | 4 | "hcsd" | Signature
+| 4 | 2 | | Format major version
+| 6 | 2 | | Format minor version
+| 8 | 4 | | Number of ranges (range count)
+| 12 | 4 | | Number of UUIDs (uuid count)
+|===
+
+==== Format versions
+
+[cols="1,5",options="header"]
+|===
+| OS version | Format version
+| macOS 10.12 (Sierra) | 1.0
+| macOS 10.13 (High Sierra) | 1.0
+| macOS 10.14 (Mojave) | 1.0
+| macOS 10.15 (Catalina) | 1.0
+| macOS 11 (Big Sur) | 1.0
+| macOS 12 (Monterey) | 2.0
+| macOS 13 (Ventura) | 2.0
+|===
+
+=== Shared-Cache Strings (dsc) range descriptor
+
+==== Shared-Cache Strings (dsc) range descriptor - version 1
+
+A Shared-Cache Strings (dsc) range descriptor - version 1 is 16 bytes of size
+and consist of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+| 0 | 4 | | UUID descriptor index
+| 4 | 4 | | (dsc) range offset
+| 8 | 4 | | Data offset +
+The offset is relative to the start of the file
+| 12 | 4 | | (dsc) range size
+|===
+
+==== Shared-Cache Strings (dsc) range descriptor - version 2
+
+A Shared-Cache Strings (dsc) range descriptor - version 2 is 24 bytes of size
+and consist of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+| 0 | 8 | | (dsc) range offset
+| 8 | 4 | | Data offset +
+The offset is relative to the start of the file
+| 12 | 4 | | (dsc) range size
+| 16 | 8 | | UUID descriptor index
+|===
+
+=== Shared-Cache Strings (dsc) UUID descriptor
+
+==== Shared-Cache Strings (dsc) UUID descriptor - version 1
+
+A Shared-Cache Strings (dsc) UUID descriptor - version 1 is 28 bytes of size
+and consist of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+| 0 | 4 | | (dsc) text offset +
+Contains the base image offset (or base sender program counter)
+| 4 | 4 | | (dsc) text size
+| 8 | 16 | | Image (process or library) identifier +
+Contains a UUID stored in big-endian
+| 24 | 4 | | Image (process or library) path offset +
+The offset is relative to the start of the file
+|===
+
+==== Shared-Cache Strings (dsc) UUID descriptor - version 2
+
+A Shared-Cache Strings (dsc) UUID descriptor - version 2 is 32 bytes of size
+and consist of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+| 0 | 8 | | (dsc) text offset +
+Contains the base image offset (or base sender program counter)
+| 8 | 4 | | (dsc) text size
+| 12 | 16 | | Image (process or library) identifier +
+Contains a UUID stored in big-endian
+| 28 | 4 | | Image (process or library) path offset +
+The offset is relative to the start of the file
+|===
+
+=== Notes
+
+To view the contents of a shared-cache strings (dsc) file on Mac OS:
+
+....
+log raw-dump -s /var/db/uuidtext/dsc/${FILE}
+....
+
+== UUID text file format
+
+An UUID text (uuidtext) file consist of:
+
+* UUID text (uuidtext) file header
+* UUID text (uuidtext) entries
+* UUID text (uuidtext) footer
+
+[cols="1,5",options="header"]
+|===
+| Characteristics | Description
+| Byte order | little-endian
+|===
+
+=== UUID text (uuidtext) file header
+
+The UUID text (uuidtext) file header is variable of size and consists of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+| 0 | 4 | "\x99\x88\x77\x66" | Signature
+| 4 | 4 | 2 | [yellow-background]*Unknown (format major version?)*
+| 8 | 4 | 1 | [yellow-background]*Unknown (format minor version?)*
+| 12 | 4 | | Number of entries
+| 16 | 8 x number of entries | | Array of entry descriptors
+|===
+
+The UUID text (uuidtext) entry descriptor is 8 bytes of size and consists of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+| 0 | 4 | | Range start offset
+| 4 | 4 | | Entry size
+|===
+
+=== UUID text (uuidtext) file footer
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+| 0 | ... | | Image (process or library) path +
+Contains an UTF-8 formatted string with an end-of-string character
+|===
+
+== [[converting_continuous_time]]Converting a Mach continuous in to wall clock time
+
+The Apple Unified Logging and Activity Tracing formats contain both Mach
+continuous time and POSIX timestamps. The exact method of converting between
+both is undocumented but the following behavior has been observed:
+
+=== Without corresponding timesync database file
+
+If there is no timesync database corresponding to the boot identifier:
+
+* use the timebase numerator and timebase denominator of the .tracev3 file to determine the timebase:
+
+....
+timebase = numerator / denominator
+....
+
+* calculate the wall clock time from the continuous time
+
+....
+wall clock time = header wall clock time + (continuous time * timebase)
+....
+
+[yellow-background]*TODO it is currently unknown if a floor or ceil function is
+used to convert the timebase corrected continuous time to an integer*
+
+=== With corresponding timesync database file
+
+If there is a timesync database corresponding to the boot identifier:
+
+* use the timebase numerator and timebase denominator of the corresponding timesync boot record to determine the timebase:
+
+....
+timebase = numerator / denominator
+....
+
+* find the timesync sync record that corresponds to the continuous time, if none applicable the timesync boot record is used
+
+* determine the base continous time from the record, for timesync boot record the base is 0
+
+* calculate the wall clock time from the continuous time
+
+....
+wall clock time = record wall clock time + ((continuous time - base continuous time) * timebase)
+....
+
+[yellow-background]*TODO it is currently unknown if a floor or ceil function is
+used to convert the timebase corrected continuous time to an integer*
+
+== Value type decoders
+
+=== [[locationd_core_location_client_authorization_status]]locationd Core Location client authorization status
+
+The locationd Core Location client authorization status value is 8 bytes of size
+and consists of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+| 0 | 8 | | Authorization status
+|===
+
+The value is formatted as:
+
+....
+"%s"
+....
+
+Where %s contains one of the following descriptions based on the value for
+example:
+
+....
+"Denied"
+....
+
+[cols="1,1,5",options="header"]
+|===
+| Value | Identifier | Description
+| 0 | | Not Determined
+| 1 | | Restricted
+| 2 | | Denied
+| 3 | | Authorized Always
+| 4 | | Authorized When In Use
+|===
+
+=== [[locationd_core_location_daemon_reachability_status_types]]locationd Core Location daemon reachability status types
+
+[yellow-background]*TODO describe*
+
+[cols="1,1,5",options="header"]
+|===
+| Value | Identifier | Description
+| 0 | | Reachability Unavailable
+| 1 | | Reachability Small
+| 2 | | Reachability Large
+| | |
+| 56 | | Reachability Unachievable
+|===
+
+=== [[locationd_core_location_daemon_tracker_state]]locationd Core Location daemon tracker state
+
+The locationd Core Location Daemon status tracker state (CLDaemonStatusStateTracker)
+is 36 bytes of size and consists of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+| 0 | 8 | | Level +
+Contains a floating-point value
+| 8 | 1 | | Is charged +
+Contains a boolean value where false if 0 or true otherwise
+| 9 | 1 | | Is connected +
+Contains a boolean value where false if 0 or true otherwise
+| 10 | 4 | | Charger type
+| 14 | 1 | | Was connected +
+Contains a boolean value where false if 0 or true otherwise
+| 15 | 9 | | [yellow-background]*Unknown*
+| 24 | 4 | | Reachability
+| 28 | 4 | | Thermal level +
+Contains a signed integer
+| 32 | 1 | | Airplane mode (enabled) +
+Contains a boolean value where false if 0 or true otherwise
+| 33 | 1 | | Battery saver mode (enabled) +
+Contains a boolean value where false if 0 or true otherwise
+| 34 | 1 | | Push service +
+Contains a boolean value where false if 0 or true otherwise
+| 35 | 1 | | Restricted mode (enabled) +
+Contains a boolean value where false if 0 or true otherwise
+|===
+
+The value is formatted as:
+
+....
+{"thermalLevel":-1,"reachability":"kReachabilityLarge","airplaneMode":false,"batteryData":{"wasConnected":false,"charged":false,"level":-1,"connected":false,"chargerType":"kChargerTypeUnknown"},"restrictedMode":false,"batterySaverModeEnabled":false}"
+....
+
+Charger type values:
+
+[cols="1,1,5",options="header"]
+|===
+| Value | Identifier | Description
+| 0 | kChargerTypeUnknown |
+|===
+
+Reachability values:
+
+[cols="1,1,5",options="header"]
+|===
+| Value | Identifier | Description
+| 2 | kReachabilityLarge |
+|===
+
+=== [[locationd_core_location_client_manager_state_tracker_state]]locationd Core Location client manager (CLClientManager) state tracker state
+
+The locationd Core Location client manager (CLClientManager) state tracker
+state is 8 bytes of size and consists of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+| 0 | 4 | | Location enabled status
+| 4 | 4 | | Location restricted +
+Contains a boolean value where false if 0 or true otherwise
+|===
+
+[yellow-background]*TODO: confirm location enabled status is the first value in the
+structure. Only seen data where both values are 0.*
+
+The value is formatted as:
+
+....
+{"locationRestricted":false,"locationServicesEnabledStatus":0}
+....
+
+=== [[locationd_core_location_location_manager_state_tracker_state]]locationd Core Location location manager (CLLocationManager) state tracker state
+
+The locationd Core Location location manager (CLLocationManager) state tracker
+state is 64 or 72 bytes of size and consists of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+| 0 | 8 | | Distance filter +
+Contains a floating-point value
+| 8 | 8 | | Desired accuracy +
+Contains a floating-point value
+| 16 | 1 | | Updating location +
+Contains a boolean value where false if 0 or true otherwise
+| 17 | 1 | | Requestiong location +
+Contains a boolean value where false if 0 or true otherwise
+| 18 | 1 | | Requestiong ranging +
+Contains a boolean value where false if 0 or true otherwise
+| 19 | 1 | | Updating ranging +
+Contains a boolean value where false if 0 or true otherwise
+| 20 | 1 | | Updating heading +
+Contains a boolean value where false if 0 or true otherwise
+| 21 | 3 | | [yellow-background]*Unknown*
+| 24 | 8 | | Heading filter +
+Contains a floating-point value
+| 32 | 1 | | Allows location prompts +
+Contains a boolean value where false if 0 or true otherwise
+| 33 | 1 | | Allows altered accessory location +
+Contains a boolean value where false if 0 or true otherwise
+| 34 | 1 | | Dynamic accuracy reduction enabled +
+Contains a boolean value where false if 0 or true otherwise
+| 35 | 1 | | Previous authorization status valid +
+Contains a boolean value where false if 0 or true otherwise
+| 36 | 4 | | Previous authorization status
+| 40 | 1 | | Limits precision +
+Contains a boolean value where false if 0 or true otherwise
+| 41 | 7 | | [yellow-background]*Unknown*
+| 48 | 8 | | Activity type +
+Contains a signed integer
+| 56 | 4 | | Pauses location updates automatically +
+Contains a signed integer
+| 60 | 1 | | Paused +
+Contains a boolean value where false if 0 or true otherwise
+| 61 | 1 | | Allows background location updates +
+Contains a boolean value where false if 0 or true otherwise
+| 62 | 1 | | Shows background location indicator +
+Contains a boolean value where false if 0 or true otherwise
+| 63 | 1 | | Allows map correction +
+Contains a boolean value where false if 0 or true otherwise
+4+| _Additional values if size > 64_
+| 64 | 1 | | Batching location +
+Contains a boolean value where false if 0 or true otherwise
+| 65 | 1 | | Updating vehicle speed +
+Contains a boolean value where false if 0 or true otherwise
+| 66 | 1 | | Updating vehicle heading +
+Contains a boolean value where false if 0 or true otherwise
+| 67 | 1 | | Match information enabled +
+Contains a boolean value where false if 0 or true otherwise
+| 68 | 1 | | Ground altitude enabled +
+Contains a boolean value where false if 0 or true otherwise
+| 69 | 1 | | Fusion information enabled +
+Contains a boolean value where false if 0 or true otherwise
+| 70 | 1 | | Courtesy prompt needed +
+Contains a boolean value where false if 0 or true otherwise
+| 71 | 1 | | Is authorized for widget updates +
+Contains a boolean value where false if 0 or true otherwise
+|===
+
+The value is formatted as:
+
+....
+{"previousAuthorizationStatusValid":false,"paused":false,"requestingLocation":false,"updatingVehicleSpeed":false,"desiredAccuracy":100,"allowsBackgroundLocationUpdates":false,"dynamicAccuracyReductionEnabled":false,"distanceFilter":-1,"allowsLocationPrompts":true,"activityType":0,"groundAltitudeEnabled":false,"pausesLocationUpdatesAutomatially":1,"fusionInfoEnabled":false,"isAuthorizedForWidgetUpdates":false,"updatingVehicleHeading":false,"batchingLocation":false,"showsBackgroundLocationIndicator":false,"updatingLocation":false,"requestingRanging":false,"updatingHeading":false,"previousAuthorizationStatus":0,"allowsMapCorrection":true,"matchInfoEnabled":false,"allowsAlteredAccessoryLoctions":false,"updatingRanging":false,"limitsPrecision":false,"courtesyPromptNeeded":false,"headingFilter":1}
+....
+
+=== [[locationd_core_location_sub_harvester_identifier]]locationd Core Location sub harvester identifier
+
+[yellow-background]*TODO describe*
+
+[cols="1,1,5",options="header"]
+|===
+| Value | Identifier | Description
+| 1 | | Wifi
+| 2 | | Tracks
+| 3 | | Realtime
+| 4 | | App
+| 5 | | Pass
+| 6 | | Indoor
+| 7 | | Pressure
+| 8 | | Poi
+| 9 | | Trace
+| 10 | | Avenger
+| 11 | | Altimeter
+| 12 | | Ionosphere
+| 13 | | Unknown
+|===
+
+=== [[locationd_io_message]]locationd IO message
+
+[yellow-background]*TODO describe*
+
+[cols="1,1,5",options="header"]
+|===
+| Value | Identifier | Description
+| 3758096400 | | ServiceIsTerminated
+| 3758096416 | | ServiceIsSuspended
+| 3758096432 | | ServiceIsResumed
+| 3758096640 | | ServiceIsRequestingClose
+| 3758096641 | | ServiceIsAttemptingOpen
+| 3758096656 | | ServiceWasClosed
+| 3758096672 | | ServiceBusyStateChange
+| 3758096680 | | ConsoleSecurityChange
+| 3758096688 | | ServicePropertyChange
+| 3758096896 | | CanDevicePowerOff
+| 3758096912 | | DeviceWillPowerOff
+| 3758096928 | | DeviceWillNotPowerOff
+| 3758096944 | | DeviceHasPoweredOn
+| 3758096976 | | SystemWillPowerOff
+| 3758096981 | | SystemPagingOff
+| 3758097008 | | CanSystemSleep
+| 3758097024 | | SystemWillSleep
+| 3758097040 | | SystemWillNotSleep
+| 3758097152 | | SystemHasPoweredOn
+| 3758097168 | | SystemWillRestart
+| 3758097184 | | SystemWillPowerOn
+| 3758097200 | | CopyClientID
+| 3758097216 | | SystemCapabilityChange
+| 3758097232 | | DeviceSignaledWakeup
+|===
+
+=== [[locationd_sqlite_result]]locationd SQLite result
+
+The locationd SQLite result is 4 bytes of size and consists of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+| 0 | 4 | | SQLite result or error code
+|===
+
+The value is formatted as:
+
+....
+"%s"
+....
+
+Where "%s" contains one of the following identifiers based on the
+<<locationd_sqlite_result_values,value>> for example:
+
+....
+"SQLITE_OK"
+....
+
+==== [[locationd_sqlite_result_values]]locationd SQLite result values
+
+[cols="1,1,5",options="header"]
+|===
+| Value | Identifier | Description
+| 0 | SQLITE_OK |
+| 1 | SQLITE_ERROR |
+| 2 | SQLITE_INTERNAL |
+| 3 | SQLITE_PERM |
+| 4 | SQLITE_ABORT |
+| 5 | SQLITE_BUSY |
+| 6 | SQLITE_LOCKED |
+| 7 | SQLITE_NOMEM |
+| 8 | SQLITE_READONLY |
+| 9 | SQLITE_INTERRUPT |
+| 10 | SQLITE_IOERR |
+| 11 | SQLITE_CORRUPT |
+| 12 | SQLITE_NOTFOUND |
+| 13 | SQLITE_FULL |
+| 14 | SQLITE_CANTOPEN |
+| 15 | SQLITE_PROTOCOL |
+| 16 | SQLITE_EMPTY |
+| 17 | SQLITE_SCHEMA |
+| 18 | SQLITE_TOOBIG |
+| 19 | SQLITE_CONSTRAINT |
+| 20 | SQLITE_MISMATCH |
+| 21 | SQLITE_MISUSE |
+| 22 | SQLITE_NOLFS |
+| 23 | SQLITE_AUTH |
+| 24 | SQLITE_FORMAT |
+| 25 | SQLITE_RANGE |
+| 26 | SQLITE_NOTADB |
+| 27 | SQLITE_NOTICE |
+| 28 | SQLITE_WARNING |
+3+|
+| 100 | SQLITE_ROW |
+| 101 | SQLITE_DONE |
+3+|
+| 266 | SQLITE IO ERR READ |
+|===
+
+=== [[mask_hash]]Mask hash
+
+The mask hash is 16 bytes of size and consists of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+| 0 | 16 | | [yellow-background]*Unknown*
+|===
+
+The value is formatted as:
+
+....
+<mask.hash: '%s'>
+....
+
+Where "%s" contains the value encoded in base64, for example:
+
+....
+<mask.hash: 'HR/T++mmRmq3Mn+2mGECsg=='>
+....
+
+=== [[mdns_dns_counters]]mDNS DNS counters
+
+The mDNS DNS counters are 8 bytes of size and consists of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+| 0 | 2 | | Number of additional records
+| 2 | 2 | | Number of authority records
+| 4 | 2 | | Number of answers
+| 6 | 2 | | Number of questions
+|===
+
+The value is formatted as:
+
+....
+1/0/0/0
+....
+
+where:
+
+....
+questions / answers / authority records / additional records
+....
+
+=== [[mdns_dns_header]]mDNS DNS header
+
+The mDNS DNS header is 12 bytes of size and consists of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+| 0 | 2 | | Identifier
+| 2 | 2 | | Flags
+| 4 | 2 | | Number of questions
+| 6 | 2 | | Number of answers
+| 8 | 2 | | Number of authority records
+| 10 | 2 | | Number of additional records
+|===
+
+[NOTE]
+The values of the mDNS DNS header are stored in big-endian.
+
+The value is formatted as:
+
+....
+id: 0x0000 (0), flags: 0x8180 (R/Query, RD, RA, NoError), counts: 1/0/0/0
+....
+
+Where "counts" consists of:
+
+....
+questions / answers / authority records / additional records
+....
+
+=== [[mdns_dns_identifier_and_flags]]mDNS DNS identifier and flags
+
+The mDNS DNS identifier and flags are 8 bytes of size and consists of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+| 0 | 2 | | Flags
+| 2 | 2 | | Identifier
+| 4 | 4 | | [yellow-background]*Unknown*
+|===
+
+The value is formatted as:
+
+....
+id: 0x4BBB (19387), flags: 0x0100 (Q/Query, RD, NoError)
+....
+
+=== [[mdns_getaddrinfo_options]]mDNS getaddrinfo options
+
+[yellow-background]*TODO describe flags*
+
+[cols="1,1,5",options="header"]
+|===
+| Value | Identifier | Description
+| 0x0004 | | in-app-browser
+| 0x0008 | | use-failover
+| 0x0010 | | prohibit-encrypted-dns
+|===
+
+=== [[mdns_protocol]]mDNS protocol
+
+The mDNS protocol value is 4 bytes of size and consists of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+| 0 | 4 | | mDNS resource record (RR) type value
+|===
+
+The value is formatted as:
+
+....
+%s
+....
+
+Where %s contains one of the following descriptions based on the value for
+example:
+
+....
+UDP
+....
+
+[cols="1,1,5",options="header"]
+|===
+| Value | Identifier | Description
+| 1 | | UDP
+| 2 | | TCP
+| | |
+| 4 | | HTTPS
+|===
+
+=== [[mdns_reason]]mDNS reason
+
+The mDNS reason value is 4 bytes of size and consists of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+| 0 | 4 | | mDNS reason value
+|===
+
+The value is formatted as:
+
+....
+%s
+....
+
+Where %s contains one of the following descriptions based on the value for
+example:
+
+....
+query-suppressed
+....
+
+[cols="1,1,5",options="header"]
+|===
+| Value | Identifier | Description
+| 1 | | no-data
+| 2 | | nxdomain
+| 3 | | query-suppressed
+| 4 | | no-dns-service
+| 5 | | server error
+|===
+
+[yellow-background]*TODO check values 2, 4 and 5*
+
+=== [[mdns_resource_record_type]]mDNS resource record (RR) type
+
+The mDNS resource record (RR) type value is 4 bytes of size and consists of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+| 0 | 4 | | mDNS resource record (RR) type value
+|===
+
+The value is formatted as:
+
+....
+%s
+....
+
+Where %s contains one of the following descriptions based on the value for
+example:
+
+....
+A
+....
+
+[cols="1,1,5",options="header"]
+|===
+| Value | Identifier | Description
+| 1 | | A
+| 2 | | NS
+| 5 | | CNAME
+| 6 | | SOA
+| 12 | | PTR
+| 13 | | HINFO
+| 15 | | MX
+| 16 | | TXT
+| 17 | | RP
+| 18 | | AFSDB
+| 24 | | SIG
+| 25 | | KEY
+| 28 | | AAAA
+| 29 | | LOC
+| 33 | | SRV
+| 35 | | NAPTR
+| 36 | | KX
+| 37 | | CERT
+| 39 | | DNAME
+| 42 | | APL
+| 43 | | DS
+| 44 | | SSHFP
+| 45 | | IPSECKEY
+| 46 | | RRSIG
+| 47 | | NSEC
+| 48 | | DNSKEY
+| 49 | | DHCID
+| 50 | | NSEC3
+| 51 | | NSEC3PARAM
+| 52 | | TLSA
+| 53 | | SMIMEA
+| 55 | | HIP
+| 59 | | CDS
+| 60 | | CDNSKEY
+| 61 | | OPENPGPKEY
+| 62 | | CSYNC
+| 63 | | ZONEMD
+| 64 | | SVCB
+| 65 | | HTTPS
+| 108 | | EUI48
+| 109 | | EUI64
+| 249 | | TKEY
+| 250 | | TSIG
+| 256 | | URI
+| 257 | | CAA
+| 32768 | | TA
+| 32769 | | DLV
+|===
+
+=== [[mdnsresponder_ip_address]]mDNSResponder IP address
+
+It is currently unknown how the value is formatted is has only been observed
+in combination with the "mask.hash" value type formatter.
+
+=== [[mdnsresponder_mac_address]]mDNSResponder MAC address
+
+It is currently unknown how the value is formatted is has only been observed
+in combination with the "mask.hash" value type formatter.
+
+=== [[open_directory_error]]Open Directory error
+
+The Open Directory error code is 4 bytes of size and consists of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+| 0 | 4 | | Open Directory error code
+|===
+
+The value is formatted as:
+
+....
+%s
+....
+
+Where %s contains one of the following descriptions based on the value for
+example:
+
+....
+ODNoError
+....
+
+[cols="1,1,5",options="header"]
+|===
+| Value | Identifier | Description
+| 0 | kODErrorSuccess | ODNoError
+| | |
+| 2 | | Not Found
+| | |
+| 1000 | | ODErrorSessionLocalOnlyDaemonInUse
+| 1001 | | ODErrorSessionNormalDaemonInUse
+| 1002 | | ODErrorSessionDaemonNotRunning
+| 1003 | | ODErrorSessionDaemonRefused
+| | |
+| 1100 | | ODErrorSessionProxyCommunicationError
+| 1101 | | ODErrorSessionProxyVersionMismatch
+| 1102 | | ODErrorSessionProxyIPUnreachable
+| 1103 | | ODErrorSessionProxyUnknownHost
+| | |
+| 2000 | | ODErrorNodeUnknownName
+| 2001 | | ODErrorNodeUnknownType
+| 2002 | | ODErrorNodeDisabled
+| | |
+| 2100 | | ODErrorNodeConnectionFailed
+| | |
+| 2200 | | ODErrorNodeUnknownHost
+| | |
+| 3000 | | ODErrorQuerySynchronize
+| | |
+| 3100 | | ODErrorQueryInvalidMatchType
+| 3101 | | ODErrorQueryUnsupportedMatchType
+| 3102 | | ODErrorQueryTimeout
+| | |
+| 4000 | | ODErrorRecordReadOnlyNode
+| 4001 | | ODErrorRecordPermissionError
+| | |
+| 4100 | | ODErrorRecordParameterError
+| 4101 | | ODErrorRecordInvalidType
+| 4102 | | ODErrorRecordAlreadyExists
+| 4103 | | ODErrorRecordTypeDisabled
+| 4104 | | ODErrorRecordNoLongerExists
+| | |
+| 4200 | | ODErrorRecordAttributeUnknownType
+| 4201 | | ODErrorRecordAttributeNotFound
+| 4202 | | ODErrorRecordAttributeValueSchemaError
+| 4203 | | ODErrorRecordAttributeValueNotFound
+| | |
+| 5000 | | ODErrorCredentialsInvalid
+| 5001 | | ODErrorCredentialsInvalidComputer
+| | |
+| 5100 | | ODErrorCredentialsMethodNotSupported
+| 5101 | | ODErrorCredentialsNotAuthorized
+| 5102 | | ODErrorCredentialsParameterError
+| 5103 | | ODErrorCredentialsOperationFailed
+| | |
+| 5200 | | ODErrorCredentialsServerUnreachable
+| 5201 | | ODErrorCredentialsServerNotFound
+| 5202 | | ODErrorCredentialsServerError
+| 5203 | | ODErrorCredentialsServerTimeout
+| 5204 | | ODErrorCredentialsContactPrimary
+| 5205 | | ODErrorCredentialsServerCommunicationError
+| | |
+| 5300 | | ODErrorCredentialsAccountNotFound
+| 5301 | | ODErrorCredentialsAccountDisabled
+| 5302 | | ODErrorCredentialsAccountExpired
+| 5303 | | ODErrorCredentialsAccountInactive
+| 5304 | | ODErrorCredentialsAccountTemporarilyLocked
+| 5305 | | ODErrorCredentialsAccountLocked
+| | |
+| 5400 | | ODErrorCredentialsPasswordExpired
+| 5401 | | ODErrorCredentialsPasswordChangeRequired
+| 5402 | | ODErrorCredentialsPasswordQualityFailed
+| 5403 | | ODErrorCredentialsPasswordTooShort
+| 5404 | | ODErrorCredentialsPasswordTooLong
+| 5405 | | ODErrorCredentialsPasswordNeedsLetter
+| 5406 | | ODErrorCredentialsPasswordNeedsDigit
+| 5407 | | ODErrorCredentialsPasswordChangeTooSoon
+| 5408 | | ODErrorCredentialsPasswordUnrecoverable
+| | |
+| 5500 | | ODErrorCredentialsInvalidLogonHours
+| | |
+| 6000 | | ODErrorPolicyUnsupported
+| 6001 | | ODErrorPolicyOutOfRange
+| | |
+| 10000 | | ODErrorPluginOperationNotSupported
+| 10001 | | ODErrorPluginError
+| 10002 | | ODErrorDaemonError
+| 10003 | | ODErrorPluginOperationTimeout
+|===
+
+==== Notes
+
+....
+List of Open Directory error codes:
+https://developer.apple.com/documentation/opendirectory/odframeworkerrors?changes=__2&language=objc
+....
+
+=== [[open_directory_membership_details]]Open Directory membership details
+
+The Open Directory membership details is variable of size and consists of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+| 0 | 1 | | Type indicator
+| 1 | ... | | Membership data
+| ... | ... | | Domain +
+Contains an UTF-8 encoded string with end-of-string character
+|===
+
+Where membership data is type indicator dependent:
+
+[cols="1,5",options="header"]
+|===
+| Type indicator | Membership data
+| 0x23 | user identifier (UID)
+Contains a 32-bit signed integer
+| 0x24 | Username +
+Contains an UTF-8 encoded string with end-of-string character
+| |
+| 0x44 | Group name +
+Contains an UTF-8 encoded string with end-of-string character
+| |
+| 0xa0 | Username +
+Contains an UTF-8 encoded string with end-of-string character
+| |
+| 0xa3 | user identifier (UID)
+Contains a 32-bit signed integer
+| 0xa4 | Username +
+Contains an UTF-8 encoded string with end-of-string character
+| |
+| 0xc3 | group identifier (GID)
+Contains a 32-bit signed integer
+|===
+
+The value is formatted as:
+
+....
+user: 501@/Local/Default
+....
+
+or
+
+....
+group: wheel@/Local/Default
+....
+
+=== [[open_directory_membership_identifier_type]]Open Directory membership identifier type
+
+[yellow-background]*TODO describe*
+
+....
+/Library/Developer/CommandLineTools/SDKs/MacOSX12.3.sdk/usr/include/membership.h
+....
+
+[cols="1,1,5",options="header"]
+|===
+| Value | Identifier | Description
+| 0 | | UID
+| 1 | | GID
+| | |
+| 3 | | SID
+| 4 | | Username
+| 5 | | Groupname
+| 6 | | UUID
+| 7 | | GROUP NFS
+| 8 | | USER NFS
+| | |
+| 10 | | GSS EXPORT NAME
+| 11 | | X509 DN
+| 12 | | KERBEROS
+|===
+
+=== [[open_directory_windows_nt_sid]]Open Directory Windows NT Security Identifier (SID)
+
+The format of a Windows NT Security Identifier (SID) is described in https://github.com/libyal/libfwnt/blob/main/documentation/Security%20Descriptor.asciidoc[[LIBFWNT\]]
+
+The value is formatted as:
+
+....
+S-1-5-1-2-3-4-5
+....
+
+=== [[socket_address]]Socket address
+
+The socket address record is variable of size and consists of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+| 0 | 1 | | Record size
+| 1 | 1 | | Address family
+| 2 | ... | | Address data
+|===
+
+==== Address family
+
+[cols="1,1,5",options="header"]
+|===
+| Value | Identifier | Description
+| 2 | AF_INET | IPv4 address
+| | |
+| 30 | AF_INET6 | IPv6 address
+|===
+
+=== IPv4 socket address
+
+The IPv4 socket address (sockaddr_in) record is 16 bytes of size and consists
+of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+| 0 | 1 | 16 | Record size
+| 1 | 1 | 2 | Address family
+| 2 | 2 | | Port number
+| 4 | 4 | | IPv4 address
+| 8 | 8 | 0 | [yellow-background]*Unknown (reserved)*
+|===
+
+The value is formatted as:
+
+....
+127.0.0.1
+....
+
+=== IPv6 socket address
+
+The IPv6 socket address (sockaddr_in6) record is 28 bytes of size and consists
+of:
+
+[cols="1,1,1,5",options="header"]
+|===
+| Offset | Size | Value | Description
+| 0 | 1 | 20 | Record size
+| 1 | 1 | 30 | Address family
+| 2 | 2 | | Port number
+| 4 | 4 | | Flow information
+| 8 | 16 | | IPv6 address
+| 24 | 4 | | Scope zone index
+|===
+
+The value is formatted as:
+
+....
+fe80::f:86ff:fee9:5c16
+....
+
+== Notes
+
+....
+plutil -p /var/db/diagnostics/version.plist
+{
+  "Identifier" => "9C956601-D721-47E0-BBB7-42AF4351FF4E"
+  "ttl01" => {
+    "ContinuousTime" => 393453185112398
+    "UUID" => "BBF90666-3E6D-4DD5-9A57-99F2A94F4955"
+  }
+  "ttl03" => {
+    "ContinuousTime" => 220653185112398
+    "UUID" => "BBF90666-3E6D-4DD5-9A57-99F2A94F4955"
+  }
+  "ttl07" => {
+    "ContinuousTime" => 211836946939114
+    "UUID" => "83C643BF-0E8A-466E-8EFC-156EEADBA2D5"
+  }
+  "ttl14" => {
+    "ContinuousTime" => 298223698807905
+    "UUID" => "862A1404-20FC-4C3B-84A7-FB03D37E0EA0"
+  }
+  "ttl30" => {
+    "ContinuousTime" => 406810835343916
+    "UUID" => "E1693458-8845-48EF-A9AE-E9C8CA37E46E"
+  }
+  "Version" => 7
+}
+....
+
+[yellow-background]*TODO what about .atrc and .ktrace files?*
+
+=== Output
+
+....
+log raw-dump -A test.logarchive
+....
+
+Output starts with *.tracev3 files under "Signpost" followed by
+"logdata.LiveData.tracev3", "Special", "Persist"
+
+=== JSON output
+
+`log show --style json --timezone UTC --backtrace --debug --info --loss --signpost --file *.tracev3`
+
+traceID of a Firehose Tracepoint consists of:
+
+....
+( fmt lower 32-bit << 32 ) | ( tp flags << 16 ) | ( tp log type << 8 ) | ( tp record type )
+....
+
+traceID of SimpleDump and StateDump is 0
+
+[yellow-background]*TODO describe senderProgramCounter*
+
+:numbered!:
+[appendix]
+== References
+
+`[REFERENCE]`
+
+[cols="1,5",options="header"]
+|===
+| Title: | Apple Developer: COMPRESSION_LZ4
+| URL: | https://developer.apple.com/documentation/compression/compression_lz4
+|===
+
+[cols="1,5",options="header"]
+|===
+| Title: | Class dump of CDStructures.h
+| URL: | https://github.com/w0lfschild/macOS_headers/blob/master/macOS/PrivateFrameworks/LoggingSupport/906.250.3/CDStructures.h
+|===
+
+[appendix]
+== GNU Free Documentation License
+
+Version 1.3, 3 November 2008
+Copyright © 2000, 2001, 2002, 2007, 2008 Free Software Foundation, Inc.
+<http://fsf.org/>
+
+Everyone is permitted to copy and distribute verbatim copies of this license
+document, but changing it is not allowed.
+
+=== 0. PREAMBLE
+
+The purpose of this License is to make a manual, textbook, or other functional
+and useful document "free" in the sense of freedom: to assure everyone the
+effective freedom to copy and redistribute it, with or without modifying it,
+either commercially or noncommercially. Secondarily, this License preserves for
+the author and publisher a way to get credit for their work, while not being
+considered responsible for modifications made by others.
+
+This License is a kind of "copyleft", which means that derivative works of the
+document must themselves be free in the same sense. It complements the GNU
+General Public License, which is a copyleft license designed for free software.
+
+We have designed this License in order to use it for manuals for free software,
+because free software needs free documentation: a free program should come with
+manuals providing the same freedoms that the software does. But this License is
+not limited to software manuals; it can be used for any textual work,
+regardless of subject matter or whether it is published as a printed book. We
+recommend this License principally for works whose purpose is instruction or
+reference.
+
+=== 1. APPLICABILITY AND DEFINITIONS
+
+This License applies to any manual or other work, in any medium, that contains
+a notice placed by the copyright holder saying it can be distributed under the
+terms of this License. Such a notice grants a world-wide, royalty-free license,
+unlimited in duration, to use that work under the conditions stated herein. The
+"Document", below, refers to any such manual or work. Any member of the public
+is a licensee, and is addressed as "you". You accept the license if you copy,
+modify or distribute the work in a way requiring permission under copyright law.
+
+A "Modified Version" of the Document means any work containing the Document or
+a portion of it, either copied verbatim, or with modifications and/or
+translated into another language.
+
+A "Secondary Section" is a named appendix or a front-matter section of the
+Document that deals exclusively with the relationship of the publishers or
+authors of the Document to the Document's overall subject (or to related
+matters) and contains nothing that could fall directly within that overall
+subject. (Thus, if the Document is in part a textbook of mathematics, a
+Secondary Section may not explain any mathematics.) The relationship could be a
+matter of historical connection with the subject or with related matters, or of
+legal, commercial, philosophical, ethical or political position regarding them.
+
+The "Invariant Sections" are certain Secondary Sections whose titles are
+designated, as being those of Invariant Sections, in the notice that says that
+the Document is released under this License. If a section does not fit the
+above definition of Secondary then it is not allowed to be designated as
+Invariant. The Document may contain zero Invariant Sections. If the Document
+does not identify any Invariant Sections then there are none.
+
+The "Cover Texts" are certain short passages of text that are listed, as
+Front-Cover Texts or Back-Cover Texts, in the notice that says that the
+Document is released under this License. A Front-Cover Text may be at most 5
+words, and a Back-Cover Text may be at most 25 words.
+
+A "Transparent" copy of the Document means a machine-readable copy, represented
+in a format whose specification is available to the general public, that is
+suitable for revising the document straightforwardly with generic text editors
+or (for images composed of pixels) generic paint programs or (for drawings)
+some widely available drawing editor, and that is suitable for input to text
+formatters or for automatic translation to a variety of formats suitable for
+input to text formatters. A copy made in an otherwise Transparent file format
+whose markup, or absence of markup, has been arranged to thwart or discourage
+subsequent modification by readers is not Transparent. An image format is not
+Transparent if used for any substantial amount of text. A copy that is not
+"Transparent" is called "Opaque".
+
+Examples of suitable formats for Transparent copies include plain ASCII without
+markup, Texinfo input format, LaTeX input format, SGML or XML using a publicly
+available DTD, and standard-conforming simple HTML, PostScript or PDF designed
+for human modification. Examples of transparent image formats include PNG, XCF
+and JPG. Opaque formats include proprietary formats that can be read and edited
+only by proprietary word processors, SGML or XML for which the DTD and/or
+processing tools are not generally available, and the machine-generated HTML,
+PostScript or PDF produced by some word processors for output purposes only.
+
+The "Title Page" means, for a printed book, the title page itself, plus such
+following pages as are needed to hold, legibly, the material this License
+requires to appear in the title page. For works in formats which do not have
+any title page as such, "Title Page" means the text near the most prominent
+appearance of the work's title, preceding the beginning of the body of the text.
+
+The "publisher" means any person or entity that distributes copies of the
+Document to the public.
+
+A section "Entitled XYZ" means a named subunit of the Document whose title
+either is precisely XYZ or contains XYZ in parentheses following text that
+translates XYZ in another language. (Here XYZ stands for a specific section
+name mentioned below, such as "Acknowledgements", "Dedications",
+"Endorsements", or "History".) To "Preserve the Title" of such a section when
+you modify the Document means that it remains a section "Entitled XYZ"
+according to this definition.
+
+The Document may include Warranty Disclaimers next to the notice which states
+that this License applies to the Document. These Warranty Disclaimers are
+considered to be included by reference in this License, but only as regards
+disclaiming warranties: any other implication that these Warranty Disclaimers
+may have is void and has no effect on the meaning of this License.
+
+=== 2. VERBATIM COPYING
+
+You may copy and distribute the Document in any medium, either commercially or
+noncommercially, provided that this License, the copyright notices, and the
+license notice saying this License applies to the Document are reproduced in
+all copies, and that you add no other conditions whatsoever to those of this
+License. You may not use technical measures to obstruct or control the reading
+or further copying of the copies you make or distribute. However, you may
+accept compensation in exchange for copies. If you distribute a large enough
+number of copies you must also follow the conditions in section 3.
+
+You may also lend copies, under the same conditions stated above, and you may
+publicly display copies.
+
+=== 3. COPYING IN QUANTITY
+
+If you publish printed copies (or copies in media that commonly have printed
+covers) of the Document, numbering more than 100, and the Document's license
+notice requires Cover Texts, you must enclose the copies in covers that carry,
+clearly and legibly, all these Cover Texts: Front-Cover Texts on the front
+cover, and Back-Cover Texts on the back cover. Both covers must also clearly
+and legibly identify you as the publisher of these copies. The front cover must
+present the full title with all words of the title equally prominent and
+visible. You may add other material on the covers in addition. Copying with
+changes limited to the covers, as long as they preserve the title of the
+Document and satisfy these conditions, can be treated as verbatim copying in
+other respects.
+
+If the required texts for either cover are too voluminous to fit legibly, you
+should put the first ones listed (as many as fit reasonably) on the actual
+cover, and continue the rest onto adjacent pages.
+
+If you publish or distribute Opaque copies of the Document numbering more than
+100, you must either include a machine-readable Transparent copy along with
+each Opaque copy, or state in or with each Opaque copy a computer-network
+location from which the general network-using public has access to download
+using public-standard network protocols a complete Transparent copy of the
+Document, free of added material. If you use the latter option, you must take
+reasonably prudent steps, when you begin distribution of Opaque copies in
+quantity, to ensure that this Transparent copy will remain thus accessible at
+the stated location until at least one year after the last time you distribute
+an Opaque copy (directly or through your agents or retailers) of that edition
+to the public.
+
+It is requested, but not required, that you contact the authors of the Document
+well before redistributing any large number of copies, to give them a chance to
+provide you with an updated version of the Document.
+
+=== 4. MODIFICATIONS
+
+You may copy and distribute a Modified Version of the Document under the
+conditions of sections 2 and 3 above, provided that you release the Modified
+Version under precisely this License, with the Modified Version filling the
+role of the Document, thus licensing distribution and modification of the
+Modified Version to whoever possesses a copy of it. In addition, you must do
+these things in the Modified Version:
+
+A. Use in the Title Page (and on the covers, if any) a title distinct from that
+of the Document, and from those of previous versions (which should, if there
+were any, be listed in the History section of the Document). You may use the
+same title as a previous version if the original publisher of that version
+gives permission.
+
+B. List on the Title Page, as authors, one or more persons or entities
+responsible for authorship of the modifications in the Modified Version,
+together with at least five of the principal authors of the Document (all of
+its principal authors, if it has fewer than five), unless they release you from
+this requirement.
+
+C. State on the Title page the name of the publisher of the Modified Version,
+as the publisher.
+
+D. Preserve all the copyright notices of the Document.
+
+E. Add an appropriate copyright notice for your modifications adjacent to the
+other copyright notices.
+
+F. Include, immediately after the copyright notices, a license notice giving
+the public permission to use the Modified Version under the terms of this
+License, in the form shown in the Addendum below.
+
+G. Preserve in that license notice the full lists of Invariant Sections and
+required Cover Texts given in the Document's license notice.
+
+H. Include an unaltered copy of this License.
+
+I. Preserve the section Entitled "History", Preserve its Title, and add to it
+an item stating at least the title, year, new authors, and publisher of the
+Modified Version as given on the Title Page. If there is no section Entitled
+"History" in the Document, create one stating the title, year, authors, and
+publisher of the Document as given on its Title Page, then add an item
+describing the Modified Version as stated in the previous sentence.
+
+J. Preserve the network location, if any, given in the Document for public
+access to a Transparent copy of the Document, and likewise the network
+locations given in the Document for previous versions it was based on. These
+may be placed in the "History" section. You may omit a network location for a
+work that was published at least four years before the Document itself, or if
+the original publisher of the version it refers to gives permission.
+
+K. For any section Entitled "Acknowledgements" or "Dedications", Preserve the
+Title of the section, and preserve in the section all the substance and tone of
+each of the contributor acknowledgements and/or dedications given therein.
+
+L. Preserve all the Invariant Sections of the Document, unaltered in their text
+and in their titles. Section numbers or the equivalent are not considered part
+of the section titles.
+
+M. Delete any section Entitled "Endorsements". Such a section may not be
+included in the Modified Version.
+
+N. Do not retitle any existing section to be Entitled "Endorsements" or to
+conflict in title with any Invariant Section.
+
+O. Preserve any Warranty Disclaimers.
+
+If the Modified Version includes new front-matter sections or appendices that
+qualify as Secondary Sections and contain no material copied from the Document,
+you may at your option designate some or all of these sections as invariant. To
+do this, add their titles to the list of Invariant Sections in the Modified
+Version's license notice. These titles must be distinct from any other section
+titles.
+
+You may add a section Entitled "Endorsements", provided it contains nothing but
+endorsements of your Modified Version by various parties—for example,
+statements of peer review or that the text has been approved by an organization
+as the authoritative definition of a standard.
+
+You may add a passage of up to five words as a Front-Cover Text, and a passage
+of up to 25 words as a Back-Cover Text, to the end of the list of Cover Texts
+in the Modified Version. Only one passage of Front-Cover Text and one of
+Back-Cover Text may be added by (or through arrangements made by) any one
+entity. If the Document already includes a cover text for the same cover,
+previously added by you or by arrangement made by the same entity you are
+acting on behalf of, you may not add another; but you may replace the old one,
+on explicit permission from the previous publisher that added the old one.
+
+The author(s) and publisher(s) of the Document do not by this License give
+permission to use their names for publicity for or to assert or imply
+endorsement of any Modified Version.
+
+=== 5. COMBINING DOCUMENTS
+
+You may combine the Document with other documents released under this License,
+under the terms defined in section 4 above for modified versions, provided that
+you include in the combination all of the Invariant Sections of all of the
+original documents, unmodified, and list them all as Invariant Sections of your
+combined work in its license notice, and that you preserve all their Warranty
+Disclaimers.
+
+The combined work need only contain one copy of this License, and multiple
+identical Invariant Sections may be replaced with a single copy. If there are
+multiple Invariant Sections with the same name but different contents, make the
+title of each such section unique by adding at the end of it, in parentheses,
+the name of the original author or publisher of that section if known, or else
+a unique number. Make the same adjustment to the section titles in the list of
+Invariant Sections in the license notice of the combined work.
+
+In the combination, you must combine any sections Entitled "History" in the
+various original documents, forming one section Entitled "History"; likewise
+combine any sections Entitled "Acknowledgements", and any sections Entitled
+"Dedications". You must delete all sections Entitled "Endorsements".
+
+=== 6. COLLECTIONS OF DOCUMENTS
+
+You may make a collection consisting of the Document and other documents
+released under this License, and replace the individual copies of this License
+in the various documents with a single copy that is included in the collection,
+provided that you follow the rules of this License for verbatim copying of each
+of the documents in all other respects.
+
+You may extract a single document from such a collection, and distribute it
+individually under this License, provided you insert a copy of this License
+into the extracted document, and follow this License in all other respects
+regarding verbatim copying of that document.
+
+=== 7. AGGREGATION WITH INDEPENDENT WORKS
+
+A compilation of the Document or its derivatives with other separate and
+independent documents or works, in or on a volume of a storage or distribution
+medium, is called an "aggregate" if the copyright resulting from the
+compilation is not used to limit the legal rights of the compilation's users
+beyond what the individual works permit. When the Document is included in an
+aggregate, this License does not apply to the other works in the aggregate
+which are not themselves derivative works of the Document.
+
+If the Cover Text requirement of section 3 is applicable to these copies of the
+Document, then if the Document is less than one half of the entire aggregate,
+the Document's Cover Texts may be placed on covers that bracket the Document
+within the aggregate, or the electronic equivalent of covers if the Document is
+in electronic form. Otherwise they must appear on printed covers that bracket
+the whole aggregate.
+
+=== 8. TRANSLATION
+
+Translation is considered a kind of modification, so you may distribute
+translations of the Document under the terms of section 4. Replacing Invariant
+Sections with translations requires special permission from their copyright
+holders, but you may include translations of some or all Invariant Sections in
+addition to the original versions of these Invariant Sections. You may include
+a translation of this License, and all the license notices in the Document, and
+any Warranty Disclaimers, provided that you also include the original English
+version of this License and the original versions of those notices and
+disclaimers. In case of a disagreement between the translation and the original
+version of this License or a notice or disclaimer, the original version will
+prevail.
+
+If a section in the Document is Entitled "Acknowledgements", "Dedications", or
+"History", the requirement (section 4) to Preserve its Title (section 1) will
+typically require changing the actual title.
+
+=== 9. TERMINATION
+
+You may not copy, modify, sublicense, or distribute the Document except as
+expressly provided under this License. Any attempt otherwise to copy, modify,
+sublicense, or distribute it is void, and will automatically terminate your
+rights under this License.
+
+However, if you cease all violation of this License, then your license from a
+particular copyright holder is reinstated (a) provisionally, unless and until
+the copyright holder explicitly and finally terminates your license, and (b)
+permanently, if the copyright holder fails to notify you of the violation by
+some reasonable means prior to 60 days after the cessation.
+
+Moreover, your license from a particular copyright holder is reinstated
+permanently if the copyright holder notifies you of the violation by some
+reasonable means, this is the first time you have received notice of violation
+of this License (for any work) from that copyright holder, and you cure the
+violation prior to 30 days after your receipt of the notice.
+
+Termination of your rights under this section does not terminate the licenses
+of parties who have received copies or rights from you under this License. If
+your rights have been terminated and not permanently reinstated, receipt of a
+copy of some or all of the same material does not give you any rights to use it.
+
+=== 10. FUTURE REVISIONS OF THIS LICENSE
+
+The Free Software Foundation may publish new, revised versions of the GNU Free
+Documentation License from time to time. Such new versions will be similar in
+spirit to the present version, but may differ in detail to address new problems
+or concerns. See http://www.gnu.org/copyleft/.
+
+Each version of the License is given a distinguishing version number. If the
+Document specifies that a particular numbered version of this License "or any
+later version" applies to it, you have the option of following the terms and
+conditions either of that specified version or of any later version that has
+been published (not as a draft) by the Free Software Foundation. If the
+Document does not specify a version number of this License, you may choose any
+version ever published (not as a draft) by the Free Software Foundation. If the
+Document specifies that a proxy can decide which future versions of this
+License can be used, that proxy's public statement of acceptance of a version
+permanently authorizes you to choose that version for the Document.
+
+=== 11. RELICENSING
+
+"Massive Multiauthor Collaboration Site" (or "MMC Site") means any World Wide
+Web server that publishes copyrightable works and also provides prominent
+facilities for anybody to edit those works. A public wiki that anybody can edit
+is an example of such a server. A "Massive Multiauthor Collaboration" (or
+"MMC") contained in the site means any set of copyrightable works thus
+published on the MMC site.
+
+"CC-BY-SA" means the Creative Commons Attribution-Share Alike 3.0 license
+published by Creative Commons Corporation, a not-for-profit corporation with a
+principal place of business in San Francisco, California, as well as future
+copyleft versions of that license published by that same organization.
+
+"Incorporate" means to publish or republish a Document, in whole or in part, as
+part of another Document.
+
+An MMC is "eligible for relicensing" if it is licensed under this License, and
+if all works that were first published under this License somewhere other than
+this MMC, and subsequently incorporated in whole or in part into the MMC, (1)
+had no cover texts or invariant sections, and (2) were thus incorporated prior
+to November 1, 2008.
+
+The operator of an MMC Site may republish an MMC contained in the site under
+CC-BY-SA on the same site at any time before August 1, 2009, provided the MMC
+is eligible for relicensing.
+
