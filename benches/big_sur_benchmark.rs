@@ -6,7 +6,6 @@
 // See the License for the specific language governing permissions and limitations under the License.
 
 #![allow(clippy::all, clippy::pedantic, clippy::restriction, clippy::nursery)]
-use std::{fs::File, path::PathBuf};
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use macos_unifiedlogs::{
