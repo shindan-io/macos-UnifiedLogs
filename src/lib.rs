@@ -88,7 +88,7 @@ mod chunkset;
 mod decoders;
 /// Functions to parse the shared string cache
 pub mod dsc;
-mod error;
+pub mod error;
 /// Providers to parse Unified Log data on a live system or a provided logarchive
 pub mod filesystem;
 mod header;
