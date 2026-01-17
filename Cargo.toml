@@ -18,6 +18,7 @@ lz4_flex = "0.12.0"
 byteorder = "1.5.0"
 plist = "1.8.0"
 regex = "1.12.2"
+uuid = { version = "1.19", features = ["v4"] }
 base64 = "0.22.1"
 chrono = "0.4.42"
 walkdir = "2.5.0"

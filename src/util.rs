@@ -16,6 +16,8 @@ use nom::{
 };
 use std::str::from_utf8;
 
+pub(crate) const INVALID_UTF8: &str = "<Invalid UTF-8>";
+
 /// Returns the padding to consume in order to align to 8 bytes
 /// Actual total size is computed as `items_count` * `items_size`
 pub(crate) fn anticipated_padding_size_8(items_count: u64, items_size: u64) -> u64 {

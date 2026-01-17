@@ -5,3 +5,4 @@ Cargo.lock
 *.logarchive
 test*.zip
 tests/test_data
+mise.toml
