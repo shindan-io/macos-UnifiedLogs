@@ -18,15 +18,15 @@ pub struct FirehoseFormatters {
     pub has_large_offset: u16,
     pub large_shared_cache: u16,
     pub absolute: bool,
-    pub uuid_relative: String,
+    pub uuid_relative: uuid::Uuid,
     pub main_plugin: bool,       // Not seen yet
     pub pc_style: bool,          // Not seen yet
     pub main_exe_alt_index: u16, // If log entry uses an alternative uuid file index (ex: absolute). This value gets prepended to the unknown_pc_id/offset
 }
 
-impl FirehoseFormatters {
+impl<'a> FirehoseFormatters {
     /// Identify formatter flags associated with the log entry. Formatter flags determine the file where the base format string is located
-    pub fn firehose_formatter_flags<'a>(
+    pub fn firehose_formatter_flags(
         data: &'a [u8],
         firehose_flags: &u16,
     ) -> nom::IResult<&'a [u8], FirehoseFormatters> {
@@ -109,7 +109,8 @@ impl FirehoseFormatters {
                 debug!("[macos-unifiedlogs] Firehose flag: uuid_relative");
                 let (firehose_input, uuid_relative) = take(size_of::<u128>())(input)?;
                 let (_, firehose_uuid_relative) = be_u128(uuid_relative)?;
-                formatter_flags.uuid_relative = format!("{firehose_uuid_relative:X}");
+                let uuid: uuid::Uuid = uuid::Uuid::from_u128(firehose_uuid_relative);
+                formatter_flags.uuid_relative = uuid;
                 input = firehose_input;
             }
             _ => {
@@ -194,6 +195,6 @@ mod tests {
         let test_flags = 0xa;
         let (_, results) =
             FirehoseFormatters::firehose_formatter_flags(&test_data, &test_flags).unwrap();
-        assert_eq!(results.uuid_relative, "7B0D3775F1903E21BA130447C41B8743");
+        assert_eq!(results.uuid_relative, uuid::Uuid::parse_str("7B0D3775F1903E21BA130447C41B8743").unwrap());
     }
 }
