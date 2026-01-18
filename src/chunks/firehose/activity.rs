@@ -194,7 +194,7 @@ impl FirehoseActivity {
                     }
                 }
             }
-            if !firehose.firehose_formatters.uuid_relative.is_empty() {
+            if !firehose.firehose_formatters.uuid_relative.is_nil() {
                 return MessageData::extract_alt_uuid_strings(
                     provider,
                     string_offset,
