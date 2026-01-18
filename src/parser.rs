@@ -6,6 +6,7 @@
 // See the License for the specific language governing permissions and limitations under the License.
 
 use log::{error, info};
+use uuid::Uuid;
 
 use crate::dsc::SharedCacheStrings;
 use crate::error::ParserError;
@@ -87,7 +88,7 @@ pub fn parse_log(mut reader: impl Read) -> Result<UnifiedLogData, ParserError> {
 pub fn build_log(
     unified_data: &UnifiedLogData,
     provider: &mut dyn FileProvider,
-    timesync_data: &HashMap<String, TimesyncBoot>,
+    timesync_data: &HashMap<Uuid, TimesyncBoot>,
     exclude_missing: bool,
 ) -> (Vec<LogData>, UnifiedLogData) {
     LogData::build_log(unified_data, provider, timesync_data, exclude_missing)
@@ -141,11 +142,13 @@ pub fn collect_shared_strings(
 
         match SharedCacheStrings::parse_dsc(&buf) {
             Ok((_, mut results)) => {
-                results.dsc_uuid = PathBuf::from(source.source_path())
+                let dsc_uuid = PathBuf::from(source.source_path())
                     .file_name()
                     .map(|fname| fname.to_string_lossy())
-                    .unwrap_or_default()
-                    .to_string();
+                    .map(|fname| Uuid::parse_str(&fname).ok())
+                    .flatten()
+                    .unwrap_or_default();
+                results.dsc_uuid = dsc_uuid;
                 shared_strings_vec.push(results);
             }
             Err(err) => {
@@ -170,8 +173,8 @@ pub fn collect_shared_strings(
 /// ```
 pub fn collect_timesync(
     provider: &dyn FileProvider,
-) -> Result<HashMap<String, TimesyncBoot>, ParserError> {
-    let mut timesync_data: HashMap<String, TimesyncBoot> = HashMap::new();
+) -> Result<HashMap<Uuid, TimesyncBoot>, ParserError> {
+    let mut timesync_data: HashMap<Uuid, TimesyncBoot> = HashMap::new();
     // Start process to read and parse all timesync files
     for mut source in provider.timesync_files() {
         let mut buffer = Vec::new();
@@ -205,6 +208,8 @@ pub fn collect_timesync(
 
 #[cfg(test)]
 mod tests {
+    use uuid::Uuid;
+
     use crate::filesystem::LogarchiveProvider;
     use crate::parser::{
         build_log, collect_shared_strings, collect_strings, collect_timesync, parse_log,
@@ -337,7 +342,7 @@ mod tests {
         assert_eq!(shared_strings_results[0].number_ranges, 2993);
         assert_eq!(
             shared_strings_results[0].dsc_uuid,
-            "80896B329EB13A10A7C5449B15305DE2"
+            Uuid::parse_str("80896B329EB13A10A7C5449B15305DE2").unwrap()
         );
         assert_eq!(shared_strings_results[0].minor_version, 0);
         assert_eq!(shared_strings_results[0].major_version, 1);
@@ -423,10 +428,19 @@ mod tests {
         assert_eq!(results[10].log_type, LogType::Default);
         assert_eq!(results[10].event_type, EventType::Log);
         assert_eq!(results[10].euid, 0);
-        assert_eq!(results[10].boot_uuid, "80D194AF56A34C54867449D2130D41BB");
+        assert_eq!(
+            results[10].boot_uuid,
+            Uuid::parse_str("80D194AF56A34C54867449D2130D41BB").unwrap()
+        );
         assert_eq!(results[10].timezone_name, "Pacific");
-        assert_eq!(results[10].library_uuid, "D8E5AF1CAF4F3CEB8731E6F240E8EA7D");
-        assert_eq!(results[10].process_uuid, "6C3ADF991F033C1C96C4ADFAA12D8CED");
+        assert_eq!(
+            results[10].library_uuid,
+            Uuid::parse_str("D8E5AF1CAF4F3CEB8731E6F240E8EA7D").unwrap()
+        );
+        assert_eq!(
+            results[10].process_uuid,
+            Uuid::parse_str("6C3ADF991F033C1C96C4ADFAA12D8CED").unwrap()
+        );
         assert_eq!(results[10].raw_message, "%@ LOM isSupported : %s");
     }
 }

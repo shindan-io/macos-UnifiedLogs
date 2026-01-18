@@ -45,7 +45,7 @@ pub struct CatalogChunk {
 
 /// First & Second Proc Ids
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct CatalogProcessInfoKey(u64, u32);
+pub struct CatalogProcessInfoKey(pub u64, pub u32);
 
 #[derive(Debug, Clone)]
 pub struct ProcessInfoEntry {

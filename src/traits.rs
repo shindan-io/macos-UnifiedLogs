@@ -1,5 +1,7 @@
 use std::io::Error;
 
+use uuid::Uuid;
+
 use crate::{dsc::SharedCacheStrings, uuidtext::UUIDText};
 
 /// Implementing this trait allows library consumers to provide the files required by the parser in
@@ -24,13 +26,13 @@ pub trait FileProvider {
     /// Reads a provided UUID file at runtime.
     /// The UUID is obtaind by parsing the `tracev3` files. Reads will fail if the UUID does not exist
     /// This avoids having to read all `UUIDText` files into memory.
-    fn read_uuidtext(&self, uuid: &str) -> Result<UUIDText, Error>;
+    fn read_uuidtext(&self, uuid: Uuid) -> Result<UUIDText, Error>;
 
     /// Check our cached `UUIDText` data for strings
-    fn cached_uuidtext(&self, uuid: &str) -> Option<&UUIDText>;
+    fn cached_uuidtext(&self, uuid: Uuid) -> Option<&UUIDText>;
 
     /// Update our cached `UUIDText` data
-    fn update_uuid(&mut self, uuid: &str, uuid2: &str);
+    fn update_uuid(&mut self, uuid: Uuid, uuid2: Uuid);
 
     /// Provides an iterator of shared string files from the `/var/db/uuidtext/dsc` subdirectory,
     /// along with the filename (i.e., the filename from the _source_ file). This should be a
@@ -41,13 +43,13 @@ pub trait FileProvider {
     /// Reads a provided UUID file at runtime.
     /// The UUID is obtaind by parsing the `tracev3` files. Reads will fail if the UUID does not exist
     /// This avoids having to read all `SharedCacheStrings` files into memory.
-    fn read_dsc_uuid(&self, uuid: &str) -> Result<SharedCacheStrings, Error>;
+    fn read_dsc_uuid(&self, uuid: Uuid) -> Result<SharedCacheStrings, Error>;
 
     /// Check our cached `SharedCacheStrings` for strings
-    fn cached_dsc(&self, uuid: &str) -> Option<&SharedCacheStrings>;
+    fn cached_dsc(&self, uuid: Uuid) -> Option<&SharedCacheStrings>;
 
     /// Update our cached `SharedCacheStrings` data
-    fn update_dsc(&mut self, uuid: &str, uuid2: &str);
+    fn update_dsc(&mut self, uuid: Uuid, uuid2: Uuid);
 
     /// Provides an iterator of `.timesync` files from the `/var/db/diagnostics/timesync` subdirectory.
     fn timesync_files(&self) -> Box<dyn Iterator<Item = Box<dyn SourceFile>>>;

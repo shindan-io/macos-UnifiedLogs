@@ -9,6 +9,7 @@ use crate::util::{clean_uuid, extract_string};
 use nom::bytes::complete::take;
 use nom::number::complete::{le_u16, le_u32, le_u64};
 use std::mem::size_of;
+use uuid::Uuid;
 
 /*
    Introduced in macOS Monterey (12).  Appears to be a "simpler" version of Statedump?
@@ -26,8 +27,8 @@ pub struct SimpleDump {
     pub unknown_offset: u32,
     pub unknown_ttl: u16,
     pub unknown_type: u16,
-    pub sender_uuid: String,
-    pub dsc_uuid: String,
+    pub sender_uuid: Uuid,
+    pub dsc_uuid: Uuid,
     pub unknown_number_message_strings: u32,
     pub unknown_size_subsystem_string: u32,
     pub unknown_size_message_string: u32,
@@ -110,6 +111,8 @@ impl SimpleDump {
 
 #[cfg(test)]
 mod tests {
+    use uuid::Uuid;
+
     use super::SimpleDump;
 
     #[test]
@@ -139,8 +142,14 @@ mod tests {
         assert_eq!(results.unknown_offset, 95862);
         assert_eq!(results.unknown_ttl, 0);
         assert_eq!(results.unknown_type, 0);
-        assert_eq!(results.sender_uuid, "0DCF3E8B4923323EB3E5547307CF0EAC");
-        assert_eq!(results.dsc_uuid, "3D05845F3F65358F9EBF2236E772AC01");
+        assert_eq!(
+            results.sender_uuid,
+            Uuid::parse_str("0DCF3E8B4923323EB3E5547307CF0EAC").unwrap()
+        );
+        assert_eq!(
+            results.dsc_uuid,
+            Uuid::parse_str("3D05845F3F65358F9EBF2236E772AC01").unwrap()
+        );
         assert_eq!(results.unknown_number_message_strings, 1);
         assert_eq!(results.unknown_size_subsystem_string, 79);
         assert_eq!(results.unknown_size_message_string, 56);

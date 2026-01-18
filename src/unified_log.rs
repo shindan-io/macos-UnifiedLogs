@@ -21,7 +21,7 @@ use crate::chunks::oversize::Oversize;
 use crate::chunks::simpledump::SimpleDump;
 use crate::chunks::statedump::Statedump;
 use crate::chunkset::ChunksetChunk;
-use crate::header::HeaderChunk;
+use crate::header::{HeaderChunk, HeaderChunkOwned};
 use crate::message::format_firehose_log_message;
 use crate::preamble::LogPreamble;
 use crate::timesync::TimesyncBoot;
@@ -34,6 +34,7 @@ use nom::bytes::complete::take;
 use regex::Regex;
 use serde::Serialize;
 use sunlight::light::extract_protobuf;
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum LogType {
@@ -72,7 +73,7 @@ pub enum EventType {
 
 #[derive(Debug, Clone, Default)]
 pub struct UnifiedLogData {
-    pub header: Vec<HeaderChunk>,
+    pub header: Vec<HeaderChunkOwned>,
     pub catalog_data: Vec<UnifiedLogCatalogData>,
     /// Keep a global cache of oversize string
     pub oversize: Vec<Oversize>,
@@ -90,16 +91,17 @@ pub struct UnifiedLogCatalogData {
 struct LogIterator<'a> {
     unified_log_data: &'a UnifiedLogData,
     provider: &'a mut dyn FileProvider,
-    timesync_data: &'a HashMap<String, TimesyncBoot>,
+    timesync_data: &'a HashMap<Uuid, TimesyncBoot>,
     exclude_missing: bool,
     message_re: Regex,
     catalog_data_iterator_index: usize,
 }
+
 impl<'a> LogIterator<'a> {
     fn new(
         unified_log_data: &'a UnifiedLogData,
         provider: &'a mut dyn FileProvider,
-        timesync_data: &'a HashMap<String, TimesyncBoot>,
+        timesync_data: &'a HashMap<Uuid, TimesyncBoot>,
         exclude_missing: bool,
     ) -> Result<Self, regex::Error> {
         /*
@@ -176,7 +178,7 @@ impl Iterator for LogIterator<'_> {
                 // Calculate the timestamp for the log entry
                 let timestamp = TimesyncBoot::get_timestamp(
                     self.timesync_data,
-                    &self.unified_log_data.header[0].boot_uuid,
+                    self.unified_log_data.header[0].boot_uuid,
                     continous_time,
                     preamble.base_continous_time,
                 );
@@ -205,15 +207,15 @@ impl Iterator for LogIterator<'_> {
                         preamble.first_number_proc_id,
                         preamble.second_number_proc_id,
                     ),
-                    boot_uuid: self.unified_log_data.header[0].boot_uuid.to_owned(),
+                    boot_uuid: self.unified_log_data.header[0].boot_uuid,
                     timezone_name: self.unified_log_data.header[0]
                         .timezone_path
                         .split('/')
                         .next_back()
                         .unwrap_or("Unknown Timezone Name")
                         .to_string(),
-                    library_uuid: String::new(),
-                    process_uuid: String::new(),
+                    library_uuid: Uuid::nil(),
+                    process_uuid: Uuid::nil(),
                     raw_message: String::new(),
                     message_entries: firehose.message.item_info.to_owned(),
                 };
@@ -231,8 +233,8 @@ impl Iterator for LogIterator<'_> {
                             &firehose.firehose_non_activity,
                             self.provider,
                             u64::from(firehose.format_string_location),
-                            &preamble.first_number_proc_id,
-                            &preamble.second_number_proc_id,
+                            preamble.first_number_proc_id,
+                            preamble.second_number_proc_id,
                             &catalog_data.catalog,
                         );
 
@@ -328,8 +330,8 @@ impl Iterator for LogIterator<'_> {
                             &firehose.firehose_activity,
                             self.provider,
                             u64::from(firehose.format_string_location),
-                            &preamble.first_number_proc_id,
-                            &preamble.second_number_proc_id,
+                            preamble.first_number_proc_id,
+                            preamble.second_number_proc_id,
                             &catalog_data.catalog,
                         );
                         match message_data {
@@ -383,8 +385,8 @@ impl Iterator for LogIterator<'_> {
                             &firehose.firehose_signpost,
                             self.provider,
                             u64::from(firehose.format_string_location),
-                            &preamble.first_number_proc_id,
-                            &preamble.second_number_proc_id,
+                            preamble.first_number_proc_id,
+                            preamble.second_number_proc_id,
                             &catalog_data.catalog,
                         );
                         match message_data {
@@ -473,8 +475,8 @@ impl Iterator for LogIterator<'_> {
                         let message_data = FirehoseTrace::get_firehose_trace_strings(
                             self.provider,
                             u64::from(firehose.format_string_location),
-                            &preamble.first_number_proc_id,
-                            &preamble.second_number_proc_id,
+                            preamble.first_number_proc_id,
+                            preamble.second_number_proc_id,
                             &catalog_data.catalog,
                         );
                         match message_data {
@@ -531,7 +533,7 @@ impl Iterator for LogIterator<'_> {
             let no_firehose_preamble = 1;
             let timestamp = TimesyncBoot::get_timestamp(
                 self.timesync_data,
-                &self.unified_log_data.header[0].boot_uuid,
+                self.unified_log_data.header[0].boot_uuid,
                 simpledump.continous_time,
                 no_firehose_preamble,
             );
@@ -549,15 +551,15 @@ impl Iterator for LogIterator<'_> {
                 message: simpledump.message_string.to_owned(),
                 event_type: EventType::Simpledump,
                 euid: 0,
-                boot_uuid: self.unified_log_data.header[0].boot_uuid.to_owned(),
+                boot_uuid: self.unified_log_data.header[0].boot_uuid,
                 timezone_name: self.unified_log_data.header[0]
                     .timezone_path
                     .split('/')
                     .next_back()
                     .unwrap_or("Unknown Timezone Name")
                     .to_string(),
-                library_uuid: simpledump.sender_uuid.to_owned(),
-                process_uuid: simpledump.dsc_uuid.to_owned(),
+                library_uuid: simpledump.sender_uuid,
+                process_uuid: simpledump.dsc_uuid,
                 raw_message: String::new(),
                 message_entries: Vec::new(),
             };
@@ -600,7 +602,7 @@ impl Iterator for LogIterator<'_> {
             };
             let timestamp = TimesyncBoot::get_timestamp(
                 self.timesync_data,
-                &self.unified_log_data.header[0].boot_uuid,
+                self.unified_log_data.header[0].boot_uuid,
                 statedump.continuous_time,
                 no_firehose_preamble,
             );
@@ -628,8 +630,8 @@ impl Iterator for LogIterator<'_> {
                     .next_back()
                     .unwrap_or("Unknown Timezone Name")
                     .to_string(),
-                library_uuid: String::new(),
-                process_uuid: String::new(),
+                library_uuid: Uuid::nil(),
+                process_uuid: Uuid::nil(),
                 raw_message: String::new(),
                 message_entries: Vec::new(),
             };
@@ -648,17 +650,17 @@ pub struct LogData {
     pub pid: u64,
     pub euid: u32,
     pub library: String,
-    pub library_uuid: String,
+    pub library_uuid: Uuid,
     pub activity_id: u64,
     pub time: f64,
     pub category: String,
     pub event_type: EventType,
     pub log_type: LogType,
     pub process: String,
-    pub process_uuid: String,
+    pub process_uuid: Uuid,
     pub message: String,
     pub raw_message: String,
-    pub boot_uuid: String,
+    pub boot_uuid: Uuid,
     pub timezone_name: String,
     pub message_entries: Vec<FirehoseItemInfo>,
     pub timestamp: String,
@@ -761,7 +763,7 @@ impl LogData {
     pub fn build_log(
         unified_log_data: &UnifiedLogData,
         provider: &mut dyn FileProvider,
-        timesync_data: &HashMap<String, TimesyncBoot>,
+        timesync_data: &HashMap<Uuid, TimesyncBoot>,
         exclude_missing: bool,
     ) -> (Vec<LogData>, UnifiedLogData) {
         let mut log_data_vec: Vec<LogData> = Vec::new();
@@ -837,7 +839,7 @@ impl LogData {
     pub(crate) fn get_header_data(data: &[u8], unified_log_data: &mut UnifiedLogData) {
         let header_results = HeaderChunk::parse_header(data);
         match header_results {
-            Ok((_, header_data)) => unified_log_data.header.push(header_data),
+            Ok((_, header_data)) => unified_log_data.header.push(header_data.into_owned()),
             Err(err) => error!("[macos-unifiedlogs] Failed to parse header data: {err:?}"),
         }
     }
@@ -902,7 +904,7 @@ impl LogData {
         catalog_data: &UnifiedLogCatalogData,
         preamble_index: usize,
         firehose_index: usize,
-        header: &[HeaderChunk],
+        header: &[HeaderChunkOwned],
         missing_unified_log_data_vec: &mut UnifiedLogData,
         preamble: &FirehosePreamble,
     ) {
@@ -931,8 +933,11 @@ impl LogData {
 
 #[cfg(test)]
 mod tests {
+    use uuid::Uuid;
+
     use super::{LogData, UnifiedLogData};
     use crate::{
+        catalog::CatalogProcessInfoKey,
         chunks::firehose::firehose_log::Firehose,
         filesystem::LogarchiveProvider,
         parser::{collect_timesync, parse_log},
@@ -1034,8 +1039,14 @@ mod tests {
         assert_eq!(results[0].time, 1_642_302_326_434_850_800.0);
         assert_eq!(results[0].activity_id, 0);
         assert_eq!(results[0].library, "/usr/libexec/lightsoutmanagementd");
-        assert_eq!(results[0].library_uuid, "6C3ADF991F033C1C96C4ADFAA12D8CED");
-        assert_eq!(results[0].process_uuid, "6C3ADF991F033C1C96C4ADFAA12D8CED");
+        assert_eq!(
+            results[0].library_uuid,
+            Uuid::parse_str("6C3ADF991F033C1C96C4ADFAA12D8CED").unwrap()
+        );
+        assert_eq!(
+            results[0].process_uuid,
+            Uuid::parse_str("6C3ADF991F033C1C96C4ADFAA12D8CED").unwrap()
+        );
         assert_eq!(results[0].message, "LOMD Start");
         assert_eq!(results[0].pid, 45);
         assert_eq!(results[0].thread_id, 588);
@@ -1043,7 +1054,10 @@ mod tests {
         assert_eq!(results[0].log_type, LogType::Default);
         assert_eq!(results[0].event_type, EventType::Log);
         assert_eq!(results[0].euid, 0);
-        assert_eq!(results[0].boot_uuid, "80D194AF56A34C54867449D2130D41BB");
+        assert_eq!(
+            results[0].boot_uuid,
+            Uuid::parse_str("80D194AF56A34C54867449D2130D41BB").unwrap()
+        );
         assert_eq!(results[0].timezone_name, "Pacific");
         assert_eq!(results[0].raw_message, "LOMD Start");
         assert_eq!(results[0].timestamp, "2022-01-16T03:05:26.434850816Z")
@@ -1133,8 +1147,8 @@ mod tests {
         assert_eq!(
             data.catalog.catalog_uuids,
             [
-                "2BEFD20C18EC3838814F2B4E5AF3BCEC",
-                "3D05845F3F65358F9EBF2236E772AC01"
+                Uuid::parse_str("2BEFD20C18EC3838814F2B4E5AF3BCEC").unwrap(),
+                Uuid::parse_str("3D05845F3F65358F9EBF2236E772AC01").unwrap()
             ]
         );
         assert_eq!(
@@ -1150,18 +1164,18 @@ mod tests {
         assert_eq!(
             data.catalog
                 .catalog_process_info_entries
-                .get("158_311")
+                .get(&CatalogProcessInfoKey(158, 311))
                 .unwrap()
                 .main_uuid,
-            "2BEFD20C18EC3838814F2B4E5AF3BCEC"
+            Uuid::parse_str("2BEFD20C18EC3838814F2B4E5AF3BCEC").unwrap()
         );
         assert_eq!(
             data.catalog
                 .catalog_process_info_entries
-                .get("158_311")
+                .get(&CatalogProcessInfoKey(158, 311))
                 .unwrap()
                 .dsc_uuid,
-            "3D05845F3F65358F9EBF2236E772AC01"
+            Some(Uuid::parse_str("3D05845F3F65358F9EBF2236E772AC01").unwrap())
         );
 
         assert_eq!(data.catalog.catalog_subchunks.len(), 7)
@@ -1236,7 +1250,7 @@ mod tests {
         assert_eq!(missing_unified_log_data_vec.header.len(), 1);
         assert_eq!(
             missing_unified_log_data_vec.header[0].boot_uuid,
-            "80D194AF56A34C54867449D2130D41BB"
+            Uuid::parse_str("80D194AF56A34C54867449D2130D41BB").unwrap()
         );
         assert_eq!(missing_unified_log_data_vec.header[0].logd_pid, 42);
         assert_eq!(missing_unified_log_data_vec.catalog_data.len(), 1);

@@ -15,6 +15,7 @@ use nom::{
     error::ErrorKind,
 };
 use std::str::from_utf8;
+use uuid::Uuid;
 
 pub(crate) const INVALID_UTF8: &str = "<Invalid UTF-8>";
 
@@ -146,8 +147,13 @@ pub(crate) fn extract_string(data: &[u8]) -> nom::IResult<&[u8], String> {
 }
 
 /// Clean and format UUIDs to be pretty
-pub(crate) fn clean_uuid(uuid_format: &str) -> String {
-    uuid_format.replace([',', '[', ']', ' '], "")
+pub(crate) fn clean_uuid(uuid_format: &str) -> Uuid {
+    let clean = uuid_format.replace([',', '[', ']', ' '], "");
+    Uuid::parse_str(&clean).unwrap_or(Uuid::nil())
+}
+
+pub(crate) fn format_uuid(uuid: Uuid) -> String {
+    format!("{:X}", uuid.simple())
 }
 
 /// Base64 encode data use the STANDARD engine (alphabet along with "+" and "/")

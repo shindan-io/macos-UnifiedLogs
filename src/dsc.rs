@@ -12,6 +12,7 @@ use nom::bytes::complete::take;
 use nom::number::complete::{be_u128, le_u16, le_u32, le_u64};
 use serde::{Deserialize, Serialize};
 use std::mem::size_of;
+use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct SharedCacheStrings {
@@ -22,7 +23,7 @@ pub struct SharedCacheStrings {
     pub number_uuids: u32,
     pub ranges: Vec<RangeDescriptor>,
     pub uuids: Vec<UUIDDescriptor>,
-    pub dsc_uuid: String,
+    pub dsc_uuid: Uuid,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -38,7 +39,7 @@ pub struct RangeDescriptor {
 pub struct UUIDDescriptor {
     pub text_offset: u64, // Size appears to be 8 bytes in Major version: 2. 4 bytes in Major Version 1
     pub text_size: u32,
-    pub uuid: String,
+    pub uuid: Uuid,
     pub path_offset: u32,
     pub path_string: String, // Not part of format
 }
@@ -179,7 +180,7 @@ impl SharedCacheStrings {
         let (_, dsc_path_offset) = le_u32(path_offset)?;
 
         uuid_data.text_size = dsc_text_size;
-        uuid_data.uuid = format!("{dsc_uuid:X}");
+        uuid_data.uuid = Uuid::from_u128(dsc_uuid);
         uuid_data.path_offset = dsc_path_offset;
 
         Ok((input, uuid_data))
@@ -205,6 +206,7 @@ impl SharedCacheStrings {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::dsc::SharedCacheStrings;
     use std::fs;
     use std::path::PathBuf;
@@ -219,7 +221,10 @@ mod tests {
 
         let (_, results) = SharedCacheStrings::parse_dsc(&buffer).unwrap();
         assert_eq!(results.uuids.len(), 532);
-        assert_eq!(results.uuids[0].uuid, "4DF6D8F5D9C23A968DE45E99D6B73DC8");
+        assert_eq!(
+            results.uuids[0].uuid,
+            Uuid::parse_str("4DF6D8F5D9C23A968DE45E99D6B73DC8").unwrap()
+        );
         assert_eq!(results.uuids[0].path_offset, 19919502);
         assert_eq!(results.uuids[0].text_size, 8192);
         assert_eq!(results.uuids[0].text_offset, 73728);
@@ -237,7 +242,7 @@ mod tests {
         assert_eq!(results.signature, 1685283688); // hcsd
         assert_eq!(results.major_version, 1);
         assert_eq!(results.minor_version, 0);
-        assert_eq!(results.dsc_uuid, "");
+        assert_eq!(results.dsc_uuid, Uuid::nil());
         assert_eq!(results.number_ranges, 788);
         assert_eq!(results.number_uuids, 532);
     }
@@ -252,7 +257,10 @@ mod tests {
 
         let (_, results) = SharedCacheStrings::parse_dsc(&buffer).unwrap();
         assert_eq!(results.uuids.len(), 2250);
-        assert_eq!(results.uuids[0].uuid, "326DD91B4EF83D80B90BF50EB7D7FDB8");
+        assert_eq!(
+            results.uuids[0].uuid,
+            Uuid::parse_str("326DD91B4EF83D80B90BF50EB7D7FDB8").unwrap()
+        );
         assert_eq!(results.uuids[0].path_offset, 98376932);
         assert_eq!(results.uuids[0].text_size, 8192);
         assert_eq!(results.uuids[0].text_offset, 327680);
@@ -270,7 +278,7 @@ mod tests {
         assert_eq!(results.signature, 1685283688); // hcsd
         assert_eq!(results.major_version, 2);
         assert_eq!(results.minor_version, 0);
-        assert_eq!(results.dsc_uuid, "");
+        assert_eq!(results.dsc_uuid, Uuid::nil());
         assert_eq!(results.number_ranges, 3432);
         assert_eq!(results.number_uuids, 2250);
     }

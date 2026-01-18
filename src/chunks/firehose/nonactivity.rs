@@ -114,8 +114,8 @@ impl FirehoseNonActivity {
         firehose: &FirehoseNonActivity,
         provider: &'a mut dyn FileProvider,
         string_offset: u64,
-        first_proc_id: &u64,
-        second_proc_id: &u32,
+        first_proc_id: u64,
+        second_proc_id: u32,
         catalogs: &CatalogChunk,
     ) -> nom::IResult<&'a [u8], MessageData> {
         if firehose.firehose_formatters.shared_cache
@@ -204,11 +204,11 @@ impl FirehoseNonActivity {
                     }
                 }
             }
-            if !firehose.firehose_formatters.uuid_relative.is_empty() {
+            if !firehose.firehose_formatters.uuid_relative.is_nil() {
                 return MessageData::extract_alt_uuid_strings(
                     provider,
                     string_offset,
-                    &firehose.firehose_formatters.uuid_relative,
+                    firehose.firehose_formatters.uuid_relative,
                     first_proc_id,
                     second_proc_id,
                     catalogs,
@@ -229,6 +229,8 @@ impl FirehoseNonActivity {
 
 #[cfg(test)]
 mod tests {
+    use uuid::Uuid;
+
     use super::FirehoseNonActivity;
     use crate::{filesystem::LogarchiveProvider, parser::parse_log};
     use std::path::PathBuf;
@@ -255,7 +257,7 @@ mod tests {
         );
         assert_eq!(
             nonactivity_results.firehose_formatters.uuid_relative,
-            String::from("")
+            Uuid::nil()
         );
         assert!(!nonactivity_results.firehose_formatters.main_exe);
         assert!(!nonactivity_results.firehose_formatters.absolute);
@@ -291,8 +293,8 @@ mod tests {
                                 &firehose.firehose_non_activity,
                                 &mut provider,
                                 u64::from(firehose.format_string_location),
-                                &preamble.first_number_proc_id,
-                                &preamble.second_number_proc_id,
+                                preamble.first_number_proc_id,
+                                preamble.second_number_proc_id,
                                 &catalog_data.catalog,
                             )
                             .unwrap();
@@ -304,11 +306,11 @@ mod tests {
                         assert_eq!(message_data.process, "/usr/libexec/opendirectoryd");
                         assert_eq!(
                             message_data.process_uuid,
-                            "B736DF1625F538248E9527A8CEC4991E"
+                            Uuid::parse_str("B736DF1625F538248E9527A8CEC4991E").unwrap()
                         );
                         assert_eq!(
                             message_data.library_uuid,
-                            "B736DF1625F538248E9527A8CEC4991E"
+                            Uuid::parse_str("B736DF1625F538248E9527A8CEC4991E").unwrap()
                         );
                         return;
                     }

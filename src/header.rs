@@ -9,13 +9,21 @@ use std::{mem::size_of, str::from_utf8};
 
 use log::warn;
 use nom::{
-    bytes::complete::take, combinator::{map_parser, map_res}, number::complete::{be_u128, le_u32, le_u64}
+    bytes::complete::take,
+    number::complete::{be_u128, le_u32, le_u64},
 };
+use uuid::Uuid;
 
 use crate::util::INVALID_UTF8;
 
+pub type HeaderChunkStr<'a> = HeaderChunk<&'a str>;
+pub type HeaderChunkOwned = HeaderChunk<String>;
+
 #[derive(Debug, Clone, Default)]
-pub struct HeaderChunk<'a> {
+pub struct HeaderChunk<S>
+where
+    S: Default + ToString,
+{
     pub chunk_tag: u32,
     pub chunk_sub_tag: u32,
     pub chunk_data_size: u64,
@@ -34,19 +42,54 @@ pub struct HeaderChunk<'a> {
     pub sub_chunk_tag_data_size_2: u32,
     pub unknown_2: u32,
     pub unknown_3: u32,
-    pub build_version_string: &'a str,
-    pub hardware_model_string: &'a str,
+    pub build_version_string: S,
+    pub hardware_model_string: S,
     pub sub_chunk_tag_3: u32, // 0x6102
     pub sub_chunk_tag_data_size_3: u32,
-    pub boot_uuid: String,
+    pub boot_uuid: Uuid,
     pub logd_pid: u32,
     pub logd_exit_status: u32,
     pub sub_chunk_tag_4: u32, // 0x6103
     pub sub_chunk_tag_data_size_4: u32,
-    pub timezone_path: &'a str,
+    pub timezone_path: S,
 }
 
-impl<'a> HeaderChunk<'a> {
+impl<'a> HeaderChunkStr<'a> {
+    pub fn into_owned(self) -> HeaderChunkOwned {
+        HeaderChunkOwned {
+            build_version_string: self.build_version_string.to_string(),
+            hardware_model_string: self.hardware_model_string.to_string(),
+            timezone_path: self.timezone_path.to_string(),
+            chunk_tag: self.chunk_tag,
+            chunk_sub_tag: self.chunk_sub_tag,
+            chunk_data_size: self.chunk_data_size,
+            mach_time_numerator: self.mach_time_numerator,
+            mach_time_denominator: self.mach_time_denominator,
+            continous_time: self.continous_time,
+            unknown_time: self.unknown_time,
+            unknown: self.unknown,
+            bias_min: self.bias_min,
+            daylight_savings: self.daylight_savings,
+            unknown_flags: self.unknown_flags,
+            sub_chunk_tag: self.sub_chunk_tag,
+            sub_chunk_data_size: self.sub_chunk_data_size,
+            sub_chunk_continous_time: self.sub_chunk_continous_time,
+            sub_chunk_tag_2: self.sub_chunk_tag_2,
+            sub_chunk_tag_data_size_2: self.sub_chunk_tag_data_size_2,
+            unknown_2: self.unknown_2,
+            unknown_3: self.unknown_3,
+            sub_chunk_tag_3: self.sub_chunk_tag_3,
+            sub_chunk_tag_data_size_3: self.sub_chunk_tag_data_size_3,
+            boot_uuid: self.boot_uuid,
+            logd_pid: self.logd_pid,
+            logd_exit_status: self.logd_exit_status,
+            sub_chunk_tag_4: self.sub_chunk_tag_4,
+            sub_chunk_tag_data_size_4: self.sub_chunk_tag_data_size_4,
+        }
+    }
+}
+
+impl<'a> HeaderChunkStr<'a> {
     /// Parse the Unified Log tracev3 header data
     pub fn parse_header(data: &'a [u8]) -> nom::IResult<&[u8], Self> {
         let (input, chunk_tag) = take(size_of::<u32>())(data)?;
@@ -128,7 +171,7 @@ impl<'a> HeaderChunk<'a> {
         let (_, sub_chunk_tag_data_size_4) = le_u32(sub_chunk_tag_data_size_4)?;
 
         let (_, boot_uuid_be) = be_u128(boot_uuid)?;
-        let boot_uuid =  format!("{boot_uuid_be:X}");
+        let boot_uuid = Uuid::from_u128(boot_uuid_be);
 
         let header_chunk = HeaderChunk {
             chunk_tag,
@@ -158,7 +201,7 @@ impl<'a> HeaderChunk<'a> {
             build_version_string,
             hardware_model_string,
             boot_uuid,
-            timezone_path
+            timezone_path,
         };
 
         Ok((input, header_chunk))
@@ -167,6 +210,8 @@ impl<'a> HeaderChunk<'a> {
 
 #[cfg(test)]
 mod tests {
+
+    use uuid::Uuid;
 
     use super::HeaderChunk;
 
@@ -208,7 +253,10 @@ mod tests {
         assert_eq!(header_data.hardware_model_string, "MacBookPro16,1");
         assert_eq!(header_data.sub_chunk_tag_3, 24834);
         assert_eq!(header_data.sub_chunk_tag_data_size_3, 24);
-        assert_eq!(header_data.boot_uuid, "C320B8CE97FA4DA59F317D392E389CEA");
+        assert_eq!(
+            header_data.boot_uuid,
+            Uuid::parse_str("C320B8CE97FA4DA59F317D392E389CEA").unwrap()
+        );
         assert_eq!(header_data.logd_pid, 85);
         assert_eq!(header_data.logd_exit_status, 0);
         assert_eq!(header_data.sub_chunk_tag_4, 24835);

@@ -1,5 +1,5 @@
 use crate::{
-    header::HeaderChunk,
+    header::{HeaderChunk, HeaderChunkOwned, HeaderChunkStr},
     preamble::LogPreamble,
     unified_log::{LogData, UnifiedLogCatalogData, UnifiedLogData},
     util::padding_size_8,
@@ -11,11 +11,12 @@ use nom::bytes::complete::take;
 /// Iterator to loop through Chunks in the tracev3 file
 pub struct UnifiedLogIterator {
     pub data: Vec<u8>,
-    pub header: Vec<HeaderChunk>,
+    pub header: Vec<HeaderChunkOwned>,
 }
 
 impl Iterator for UnifiedLogIterator {
     type Item = UnifiedLogData;
+
     fn next(&mut self) -> Option<Self::Item> {
         if self.data.is_empty() {
             return None;
@@ -133,6 +134,8 @@ fn nom_bytes<'a>(data: &'a [u8], size: &u64) -> nom::IResult<&'a [u8], &'a [u8]>
 
 #[cfg(test)]
 mod tests {
+    use uuid::Uuid;
+
     use super::UnifiedLogIterator;
     use crate::{
         filesystem::LogarchiveProvider,
@@ -215,10 +218,19 @@ mod tests {
                 assert_eq!(results[10].log_type, LogType::Default);
                 assert_eq!(results[10].event_type, EventType::Log);
                 assert_eq!(results[10].euid, 0);
-                assert_eq!(results[10].boot_uuid, "80D194AF56A34C54867449D2130D41BB");
+                assert_eq!(
+                    results[10].boot_uuid,
+                    Uuid::parse_str("80D194AF56A34C54867449D2130D41BB").unwrap()
+                );
                 assert_eq!(results[10].timezone_name, "Pacific");
-                assert_eq!(results[10].library_uuid, "D8E5AF1CAF4F3CEB8731E6F240E8EA7D");
-                assert_eq!(results[10].process_uuid, "6C3ADF991F033C1C96C4ADFAA12D8CED");
+                assert_eq!(
+                    results[10].library_uuid,
+                    Uuid::parse_str("D8E5AF1CAF4F3CEB8731E6F240E8EA7D").unwrap()
+                );
+                assert_eq!(
+                    results[10].process_uuid,
+                    Uuid::parse_str("6C3ADF991F033C1C96C4ADFAA12D8CED").unwrap()
+                );
                 assert_eq!(results[10].raw_message, "%@ LOM isSupported : %s");
             }
 

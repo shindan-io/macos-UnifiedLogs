@@ -198,6 +198,8 @@ impl ChunksetChunk {
 
 #[cfg(test)]
 mod tests {
+    use uuid::Uuid;
+
     use super::ChunksetChunk;
     use crate::catalog::CatalogChunk;
     use crate::unified_log::UnifiedLogCatalogData;
@@ -2348,7 +2350,7 @@ mod tests {
         assert_eq!(unified_log.statedump[0].activity_id, 9223372036854776950);
         assert_eq!(
             unified_log.statedump[0].uuid,
-            "5CD8DDEE04383A38887710227C5A0A56"
+            Uuid::parse_str("5CD8DDEE04383A38887710227C5A0A56").unwrap()
         );
         assert_eq!(unified_log.statedump[0].chunk_data_size, 288);
     }
