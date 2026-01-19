@@ -109,7 +109,7 @@ pub(crate) fn non_empty_cstring(input: &[u8]) -> nom::IResult<&[u8], String> {
 }
 
 /// Extract strings that contain end of string characters
-pub(crate) fn extract_string(data: &[u8]) -> nom::IResult<&[u8], String> {
+pub(crate) fn extract_string(data: &[u8]) -> nom::IResult<&[u8], &str> {
     let last_value = data.last();
     match last_value {
         Some(value) => {
@@ -119,17 +119,17 @@ pub(crate) fn extract_string(data: &[u8]) -> nom::IResult<&[u8], String> {
                 let (input, path) = take(data.len())(data)?;
                 let path_string = from_utf8(path);
                 match path_string {
-                    Ok(results) => return Ok((input, results.to_string())),
+                    Ok(results) => return Ok((input, results)),
                     Err(err) => {
                         warn!("[macos-unifiedlogs] Failed to extract full string: {err:?}");
-                        return Ok((input, String::from("Could not extract string")));
+                        return Ok((input, "Could not extract string"));
                     }
                 }
             }
         }
         None => {
             error!("[macos-unifiedlogs] Cannot extract string. Empty input.");
-            return Ok((data, String::from("Cannot extract string. Empty input.")));
+            return Ok((data, "Cannot extract string. Empty input."));
         }
     }
 
@@ -137,13 +137,13 @@ pub(crate) fn extract_string(data: &[u8]) -> nom::IResult<&[u8], String> {
     let path_string = from_utf8(path);
     match path_string {
         Ok(results) => {
-            return Ok((input, results.to_string()));
+            return Ok((input, results));
         }
         Err(err) => {
             warn!("[macos-unifiedlogs] Failed to get string: {err:?}");
         }
     }
-    Ok((input, String::from("Could not extract string")))
+    Ok((input, "Could not extract string"))
 }
 
 /// Clean and format UUIDs to be pretty

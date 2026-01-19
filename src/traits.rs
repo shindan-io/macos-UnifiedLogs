@@ -2,7 +2,7 @@ use std::io::Error;
 
 use uuid::Uuid;
 
-use crate::{dsc::SharedCacheStrings, uuidtext::UUIDText};
+use crate::{dsc::SharedCacheStringsOwned, uuidtext::UUIDText};
 
 /// Implementing this trait allows library consumers to provide the files required by the parser in
 /// arbitrary formats, as long as they are provided as an iterator of items that implement \[Read\].
@@ -43,10 +43,10 @@ pub trait FileProvider {
     /// Reads a provided UUID file at runtime.
     /// The UUID is obtaind by parsing the `tracev3` files. Reads will fail if the UUID does not exist
     /// This avoids having to read all `SharedCacheStrings` files into memory.
-    fn read_dsc_uuid(&self, uuid: Uuid) -> Result<SharedCacheStrings, Error>;
+    fn read_dsc_uuid(&self, uuid: Uuid) -> Result<SharedCacheStringsOwned, Error>;
 
     /// Check our cached `SharedCacheStrings` for strings
-    fn cached_dsc(&self, uuid: Uuid) -> Option<&SharedCacheStrings>;
+    fn cached_dsc(&self, uuid: Uuid) -> Option<&SharedCacheStringsOwned>;
 
     /// Update our cached `SharedCacheStrings` data
     fn update_dsc(&mut self, uuid: Uuid, uuid2: Uuid);

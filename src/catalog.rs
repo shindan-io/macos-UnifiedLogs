@@ -232,9 +232,7 @@ impl CatalogChunk {
                 Uuid::nil()
             });
 
-        let dsc_uuid = uuids
-            .get(catalog_dsc_uuid_index as usize)
-            .copied();
+        let dsc_uuid = uuids.get(catalog_dsc_uuid_index as usize).copied();
 
         const SUBSYSTEM_SIZE: u64 = 6;
         let padding = anticipated_padding_size_8(number_subsystems.into(), SUBSYSTEM_SIZE);
@@ -401,8 +399,8 @@ impl CatalogChunk {
 
                     let (input, _) = take(subsystems.category_offset)(subsystem_data)?;
                     let (_, category_string) = extract_string(input)?;
-                    subsystem_info.subsystem = subsystem_string;
-                    subsystem_info.category = category_string;
+                    subsystem_info.subsystem = subsystem_string.to_owned();
+                    subsystem_info.category = category_string.to_owned();
                     return Ok((input, subsystem_info));
                 }
             }

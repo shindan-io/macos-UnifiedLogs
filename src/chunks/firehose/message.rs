@@ -75,7 +75,7 @@ impl MessageData {
             // Extract image path from second UUIDtext file
             let (_, process_string) =
                 MessageData::get_uuid_image_path(message_data.process_uuid, provider)?;
-            message_data.process = process_string;
+            message_data.process = process_string.to_owned();
 
             return Ok((&[], message_data));
         }
@@ -122,7 +122,7 @@ impl MessageData {
                     };
                     let (message_start, _) = take(offset)(string_data)?;
                     let (_, message_string) = extract_string(message_start)?;
-                    message_data.format_string = message_string;
+                    message_data.format_string = message_string.to_owned();
 
                     shared_string.uuids[ranges.unknown_uuid_index as usize]
                         .path_string
@@ -136,7 +136,7 @@ impl MessageData {
                     // Extract image path from second UUIDtext file
                     let (_, process_string) =
                         MessageData::get_uuid_image_path(message_data.process_uuid, provider)?;
-                    message_data.process = process_string;
+                    message_data.process = process_string.to_owned();
                     return Ok((&[], message_data));
                 }
             }
@@ -162,7 +162,7 @@ impl MessageData {
                 // Extract image path from second UUIDtext file
                 let (_, process_string) =
                     MessageData::get_uuid_image_path(message_data.process_uuid, provider)?;
-                message_data.process = process_string;
+                message_data.process = process_string.to_owned();
 
                 return Ok((&[], message_data));
             }
@@ -214,7 +214,7 @@ impl MessageData {
             let (_, process_string) =
                 MessageData::uuidtext_image_path(footer_data, &data.entry_descriptors)?;
             process_string.clone_into(&mut message_data.process);
-            message_data.library = process_string;
+            message_data.library = process_string.to_owned();
             message_data.format_string = String::from("%s");
 
             return Ok((&[], message_data));
@@ -249,10 +249,10 @@ impl MessageData {
                 let (_, process_string) =
                     MessageData::uuidtext_image_path(footer_data, &data.entry_descriptors)?;
 
-                message_data.format_string = message_string;
+                message_data.format_string = message_string.to_owned();
                 // Process and library path are the same for log entries with main_exe
                 process_string.clone_into(&mut message_data.process);
-                message_data.library = process_string;
+                message_data.library = process_string.to_owned();
 
                 return Ok((&[], message_data));
             }
@@ -268,7 +268,7 @@ impl MessageData {
             let (_, process_string) =
                 MessageData::uuidtext_image_path(footer_data, &data.entry_descriptors)?;
             process_string.clone_into(&mut message_data.process);
-            message_data.library = process_string;
+            message_data.library = process_string.to_owned();
             message_data.format_string = format!(
                 "Error: Invalid offset {string_offset} for UUID {}",
                 format_uuid(message_data.process_uuid)
@@ -361,12 +361,12 @@ impl MessageData {
             // Extract image path from current UUIDtext file
             let (_, library_string) =
                 MessageData::uuidtext_image_path(footer_data, &data.entry_descriptors)?;
-            message_data.library = library_string;
+            message_data.library = library_string.to_owned();
 
             // Extract image path from second UUIDtext file
             let (_, process_string) =
                 MessageData::get_uuid_image_path(message_data.process_uuid, provider)?;
-            message_data.process = process_string;
+            message_data.process = process_string.to_owned();
             message_data.format_string = String::from("%s");
 
             return Ok((&[], message_data));
@@ -419,13 +419,13 @@ impl MessageData {
                 // Extract image path from current UUIDtext file
                 let (_, library_string) =
                     MessageData::uuidtext_image_path(footer_data, &data.entry_descriptors)?;
-                message_data.format_string = message_string;
-                message_data.library = library_string;
+                message_data.format_string = message_string.to_owned();
+                message_data.library = library_string.to_owned();
 
                 // Extract image path from second UUIDtext file
                 let (_, process_string) =
                     MessageData::get_uuid_image_path(message_data.process_uuid, provider)?;
-                message_data.process = process_string;
+                message_data.process = process_string.to_owned();
                 return Ok((&[], message_data));
             }
         }
@@ -440,7 +440,7 @@ impl MessageData {
             // Extract image path from current UUIDtext file
             let (_, library_string) =
                 MessageData::uuidtext_image_path(footer_data, &data.entry_descriptors)?;
-            message_data.library = library_string;
+            message_data.library = library_string.to_owned();
             message_data.format_string = format!(
                 "Error: Invalid offset {string_offset} for absolute UUID {}",
                 format_uuid(message_data.library_uuid)
@@ -449,7 +449,7 @@ impl MessageData {
             // Extract image path from second UUIDtext file
             let (_, process_string) =
                 MessageData::get_uuid_image_path(message_data.process_uuid, provider)?;
-            message_data.process = process_string;
+            message_data.process = process_string.to_owned();
 
             return Ok((&[], message_data));
         }
@@ -514,12 +514,12 @@ impl MessageData {
             // Extract image path from current UUIDtext file
             let (_, library_string) =
                 MessageData::uuidtext_image_path(footer_data, &data.entry_descriptors)?;
-            message_data.library = library_string;
+            message_data.library = library_string.to_owned();
 
             // Extract image path from second UUIDtext file
             let (_, process_string) =
                 MessageData::get_uuid_image_path(message_data.process_uuid, provider)?;
-            message_data.process = process_string;
+            message_data.process = process_string.to_owned();
             message_data.format_string = String::from("%s");
 
             return Ok((&[], message_data));
@@ -554,10 +554,10 @@ impl MessageData {
                 // Extract image path from second UUIDtext file
                 let (_, process_string) =
                     MessageData::get_uuid_image_path(message_data.process_uuid, provider)?;
-                message_data.process = process_string;
+                message_data.process = process_string.to_owned();
 
-                message_data.format_string = message_string;
-                message_data.library = library_string;
+                message_data.format_string = message_string.to_owned();
+                message_data.library = library_string.to_owned();
                 return Ok((&[], message_data));
             }
         }
@@ -572,14 +572,14 @@ impl MessageData {
             // Extract image path from current UUIDtext file
             let (_, library_string) =
                 MessageData::uuidtext_image_path(footer_data, &data.entry_descriptors)?;
-            message_data.library = library_string;
+            message_data.library = library_string.to_owned();
             message_data.format_string =
                 format!("Error: Invalid offset {string_offset} for alternative UUID {uuid}");
 
             // Extract image path from second UUIDtext file
             let (_, process_string) =
                 MessageData::get_uuid_image_path(message_data.process_uuid, provider)?;
-            message_data.process = process_string;
+            message_data.process = process_string.to_owned();
 
             return Ok((&[], message_data));
         }
@@ -596,7 +596,7 @@ impl MessageData {
     fn uuidtext_image_path<'a>(
         data: &'a [u8],
         entries: &[UUIDTextEntry],
-    ) -> nom::IResult<&'a [u8], String> {
+    ) -> nom::IResult<&'a [u8], &'a str> {
         // Add up all entry range offset sizes to get image library offset
         let mut image_library_offest: u32 = 0;
         for entry in entries {
@@ -610,11 +610,11 @@ impl MessageData {
     fn get_uuid_image_path<'a>(
         main_uuid: Uuid,
         provider: &'a dyn FileProvider,
-    ) -> nom::IResult<&'a [u8], String> {
+    ) -> nom::IResult<&'a [u8], &'a str> {
         // An UUID of all zeros is possilbe in the Catalog, if this happens there is no process path
         if main_uuid.is_nil() {
             info!("[macos-unifiedlogs] Got UUID of all zeros fom Catalog");
-            return Ok((&[], String::new()));
+            return Ok((&[], ""));
         }
 
         if let Some(data) = provider.cached_uuidtext(main_uuid) {
@@ -627,7 +627,7 @@ impl MessageData {
 
         Ok((
             &[],
-            format!("Failed to get path string from UUIDText file for entry: {main_uuid}"),
+            "Failed to get path string from UUIDText file for entry",
         ))
     }
 

@@ -1,4 +1,4 @@
-use crate::dsc::SharedCacheStrings;
+use crate::dsc::{SharedCacheStrings, SharedCacheStringsOwned};
 use crate::traits::{FileProvider, SourceFile};
 use crate::util::format_uuid;
 use crate::uuidtext::UUIDText;
@@ -46,7 +46,7 @@ impl SourceFile for LocalFile {
 #[derive(Default, Debug)]
 pub struct LiveSystemProvider {
     pub(crate) uuidtext_cache: HashMap<Uuid, UUIDText>,
-    pub(crate) dsc_cache: HashMap<Uuid, SharedCacheStrings>,
+    pub(crate) dsc_cache: HashMap<Uuid, SharedCacheStringsOwned>,
 }
 
 impl LiveSystemProvider {
@@ -233,27 +233,11 @@ impl FileProvider for LiveSystemProvider {
         self.dsc_cache.insert(uuid, status);
     }
 
-    fn cached_dsc(&self, uuid: Uuid) -> Option<&SharedCacheStrings> {
+    fn cached_dsc(&self, uuid: Uuid) -> Option<&SharedCacheStringsOwned> {
         self.dsc_cache.get(&uuid)
     }
 
-    fn read_dsc_uuid(&self, uuid: Uuid) -> Result<SharedCacheStrings, Error> {
-        // let uuid_len = 32;
-        // let uuid = if uuid.len() == uuid_len - 1 {
-        //     // UUID starts with 0 which was not included in the string
-        //     &format!("0{uuid}")
-        // } else if uuid.len() == uuid_len - 2 {
-        //     // UUID starts with 00 which was not included in the string
-        //     &format!("00{uuid}")
-        // } else if uuid.len() == uuid_len {
-        //     uuid
-        // } else {
-        //     return Err(Error::new(
-        //         ErrorKind::NotFound,
-        //         format!("uuid length not correct: {uuid}"),
-        //     ));
-        // };
-
+    fn read_dsc_uuid(&self, uuid: Uuid) -> Result<SharedCacheStringsOwned, Error> {
         let mut path = PathBuf::from("/private/var/db/uuidtext/dsc");
         path.push(format_uuid(uuid));
 
@@ -262,7 +246,7 @@ impl FileProvider for LiveSystemProvider {
         file.reader().read_to_end(&mut buf)?;
 
         let uuid_text = match SharedCacheStrings::parse_dsc(&buf) {
-            Ok((_, results)) => results,
+            Ok((_, results)) => results.into_owned(),
             Err(err) => {
                 error!(
                     "[macos-unifiedlogs] Failed to parse dsc UUID file {}: {err:?}",
@@ -319,7 +303,7 @@ impl FileProvider for LiveSystemProvider {
 pub struct LogarchiveProvider {
     base: PathBuf,
     pub(crate) uuidtext_cache: HashMap<Uuid, UUIDText>,
-    pub(crate) dsc_cache: HashMap<Uuid, SharedCacheStrings>,
+    pub(crate) dsc_cache: HashMap<Uuid, SharedCacheStringsOwned>,
 }
 
 impl LogarchiveProvider {
@@ -419,7 +403,7 @@ impl FileProvider for LogarchiveProvider {
         Ok(uuid_text)
     }
 
-    fn read_dsc_uuid(&self, uuid: Uuid) -> Result<SharedCacheStrings, Error> {
+    fn read_dsc_uuid(&self, uuid: Uuid) -> Result<SharedCacheStringsOwned, Error> {
         // let uuid_len = 32;
         // let uuid = if uuid.len() == uuid_len - 1 {
         //     // UUID starts with 0 which was not included in the string
@@ -445,7 +429,7 @@ impl FileProvider for LogarchiveProvider {
         file.reader().read_to_end(&mut buf)?;
 
         let uuid_text = match SharedCacheStrings::parse_dsc(&buf) {
-            Ok((_, results)) => results,
+            Ok((_, results)) => results.into_owned(),
             Err(err) => {
                 error!(
                     "[macos-unifiedlogs] Failed to parse dsc UUID file {}: {err:?}",
@@ -465,7 +449,7 @@ impl FileProvider for LogarchiveProvider {
         self.uuidtext_cache.get(&uuid)
     }
 
-    fn cached_dsc(&self, uuid: Uuid) -> Option<&SharedCacheStrings> {
+    fn cached_dsc(&self, uuid: Uuid) -> Option<&SharedCacheStringsOwned> {
         self.dsc_cache.get(&uuid)
     }
 

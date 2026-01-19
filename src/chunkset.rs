@@ -177,7 +177,7 @@ impl ChunksetChunk {
         } else if chunk_type == statedump_chunk {
             let statedump_results = Statedump::parse_statedump(data);
             match statedump_results {
-                Ok((_, statedump)) => unified_log_data.statedump.push(statedump),
+                Ok((_, statedump)) => unified_log_data.statedump.push(statedump.into_owned()),
                 Err(err) => error!(
                     "[macos-unifiedlogs] Failed to parse statedump log entry (chunk): {err:?}"
                 ),
@@ -185,7 +185,7 @@ impl ChunksetChunk {
         } else if chunk_type == simpledump_chunk {
             let simpledump_results = SimpleDump::parse_simpledump(data);
             match simpledump_results {
-                Ok((_, simpledump)) => unified_log_data.simpledump.push(simpledump),
+                Ok((_, simpledump)) => unified_log_data.simpledump.push(simpledump.into_owned()),
                 Err(err) => error!(
                     "[macos-unifiedlogs] Failed to parse simpledump log entry (chunk): {err:?}"
                 ),

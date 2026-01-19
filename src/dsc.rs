@@ -14,16 +14,37 @@ use serde::{Deserialize, Serialize};
 use std::mem::size_of;
 use uuid::Uuid;
 
+pub type SharedCacheStringsStr<'a> = SharedCacheStrings<&'a str>;
+pub type SharedCacheStringsOwned = SharedCacheStrings<String>;
+
 #[derive(Debug, Serialize, Deserialize, Default)]
-pub struct SharedCacheStrings {
+pub struct SharedCacheStrings<S>
+where
+    S: Default + ToString,
+{
     pub signature: u32,
     pub major_version: u16, // Version 1 up to Big Sur. Monterey has Version 2!
     pub minor_version: u16,
     pub number_ranges: u32,
     pub number_uuids: u32,
     pub ranges: Vec<RangeDescriptor>,
-    pub uuids: Vec<UUIDDescriptor>,
+    pub uuids: Vec<UUIDDescriptor<S>>,
     pub dsc_uuid: Uuid,
+}
+
+impl<'a> SharedCacheStringsStr<'a> {
+    pub fn into_owned(self) -> SharedCacheStringsOwned {
+        SharedCacheStringsOwned {
+            signature: self.signature,
+            major_version: self.major_version,
+            minor_version: self.minor_version,
+            number_ranges: self.number_ranges,
+            number_uuids: self.number_uuids,
+            ranges: self.ranges,
+            uuids: self.uuids.into_iter().map(|u| u.into_owned()).collect(),
+            dsc_uuid: self.dsc_uuid,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -35,18 +56,36 @@ pub struct RangeDescriptor {
     pub strings: Vec<u8>,
 }
 
+pub type UUIDDescriptorStr<'a> = UUIDDescriptor<&'a str>;
+pub type UUIDDescriptorOwned = UUIDDescriptor<String>;
+
 #[derive(Debug, Serialize, Deserialize, Default)]
-pub struct UUIDDescriptor {
+pub struct UUIDDescriptor<S>
+where
+    S: Default + ToString,
+{
     pub text_offset: u64, // Size appears to be 8 bytes in Major version: 2. 4 bytes in Major Version 1
     pub text_size: u32,
     pub uuid: Uuid,
     pub path_offset: u32,
-    pub path_string: String, // Not part of format
+    pub path_string: S, // Not part of format
 }
 
-impl SharedCacheStrings {
+impl<'a> UUIDDescriptorStr<'a> {
+    pub fn into_owned(self) -> UUIDDescriptorOwned {
+        UUIDDescriptorOwned {
+            text_offset: self.text_offset,
+            text_size: self.text_size,
+            uuid: self.uuid,
+            path_offset: self.path_offset,
+            path_string: self.path_string.to_string(),
+        }
+    }
+}
+
+impl<'a> SharedCacheStringsStr<'a> {
     /// Parse shared strings data (the file(s) in /private/var/db/uuidtext/dsc)
-    pub fn parse_dsc(data: &[u8]) -> nom::IResult<&[u8], SharedCacheStrings> {
+    pub fn parse_dsc(data: &'a [u8]) -> nom::IResult<&'a [u8], Self> {
         let (input, sig) = take(size_of::<u32>())(data)?;
         let (_, signature) = le_u32(sig)?;
 
@@ -58,7 +97,7 @@ impl SharedCacheStrings {
             return Err(nom::Err::Incomplete(Needed::Unknown));
         }
 
-        let mut shared_cache_strings = SharedCacheStrings {
+        let mut shared_cache_strings = SharedCacheStringsStr {
             signature,
             ..Default::default()
         };
@@ -80,7 +119,7 @@ impl SharedCacheStrings {
 
         let mut range_count = 0;
         while range_count < shared_cache_strings.number_ranges {
-            let (range_input, range_data) = SharedCacheStrings::get_ranges(input, &dsc_major)?;
+            let (range_input, range_data) = SharedCacheStringsStr::get_ranges(input, dsc_major)?;
             input = range_input;
             shared_cache_strings.ranges.push(range_data);
             range_count += 1;
@@ -88,7 +127,7 @@ impl SharedCacheStrings {
 
         let mut uuid_count = 0;
         while uuid_count < shared_cache_strings.number_uuids {
-            let (uuid_input, uuid_data) = SharedCacheStrings::get_uuids(input, &dsc_major)?;
+            let (uuid_input, uuid_data) = SharedCacheStringsStr::get_uuids(input, dsc_major)?;
             input = uuid_input;
             shared_cache_strings.uuids.push(uuid_data);
             uuid_count += 1;
@@ -102,14 +141,14 @@ impl SharedCacheStrings {
         for range in &mut shared_cache_strings.ranges {
             let (_, strings) =
                 SharedCacheStrings::get_strings(data, range.data_offset, range.range_size)?;
-            range.strings = strings;
+            range.strings = strings.to_vec();
         }
 
         Ok((input, shared_cache_strings))
     }
 
     // Get range data, used by log entries to determine where the base string entry is located.
-    fn get_ranges<'a>(data: &'a [u8], version: &u16) -> nom::IResult<&'a [u8], RangeDescriptor> {
+    fn get_ranges(data: &'a [u8], version: u16) -> nom::IResult<&'a [u8], RangeDescriptor> {
         let version_number: u16 = 2;
         let mut input = data;
         let mut range_data = RangeDescriptor::default();
@@ -117,7 +156,7 @@ impl SharedCacheStrings {
         // Version 2 (Monterey and higher) changed the Range format a bit
         // range offset is now 8 bytes (vs 4 bytes) and starts at beginning
         // The uuid index was moved to end
-        range_data.range_offset = if version == &version_number {
+        range_data.range_offset = if version == version_number {
             let (data_input, value_range_offset) = take(size_of::<u64>())(input)?;
             input = data_input;
             let (_, dsc_range_offset) = le_u64(value_range_offset)?;
@@ -144,7 +183,7 @@ impl SharedCacheStrings {
         range_data.range_size = dsc_range_size;
 
         // UUID index is now located at the end of the format (instead of beginning)
-        if version == &version_number {
+        if version == version_number {
             let (version_two_input, unknown) = take(size_of::<u64>())(input)?;
             let (_, dsc_unknown) = le_u64(unknown)?;
             range_data.unknown_uuid_index = dsc_unknown;
@@ -154,12 +193,12 @@ impl SharedCacheStrings {
     }
 
     // Get UUID entries related to ranges
-    fn get_uuids<'a>(data: &'a [u8], version: &u16) -> nom::IResult<&'a [u8], UUIDDescriptor> {
+    fn get_uuids(data: &'a [u8], version: u16) -> nom::IResult<&'a [u8], UUIDDescriptorStr<'a>> {
         let mut uuid_data = UUIDDescriptor::default();
 
         let version_number: u16 = 2;
         let mut input = data;
-        if version == &version_number {
+        if version == version_number {
             let (version_two_input, text_offset) = take(size_of::<u64>())(input)?;
             let (_, dsc_text_offset) = le_u64(text_offset)?;
             uuid_data.text_offset = dsc_text_offset;
@@ -186,7 +225,7 @@ impl SharedCacheStrings {
         Ok((input, uuid_data))
     }
 
-    fn get_paths(data: &[u8], path_offset: u32) -> nom::IResult<&[u8], String> {
+    fn get_paths(data: &[u8], path_offset: u32) -> nom::IResult<&[u8], &str> {
         let (nom_path_offset, _) = take(path_offset)(data)?;
         let (_, path) = extract_string(nom_path_offset)?;
         Ok((nom_path_offset, path))
@@ -197,10 +236,10 @@ impl SharedCacheStrings {
         data: &[u8],
         string_offset: u32,
         string_range: u32,
-    ) -> nom::IResult<&[u8], Vec<u8>> {
+    ) -> nom::IResult<&[u8], &[u8]> {
         let (nom_string_offset, _) = take(string_offset)(data)?;
         let (_, strings) = take(string_range)(nom_string_offset)?;
-        Ok((&[], strings.to_vec()))
+        Ok((&[], strings))
     }
 }
 

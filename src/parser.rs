@@ -8,7 +8,7 @@
 use log::{error, info};
 use uuid::Uuid;
 
-use crate::dsc::SharedCacheStrings;
+use crate::dsc::{SharedCacheStrings, SharedCacheStringsOwned};
 use crate::error::ParserError;
 use crate::timesync::TimesyncBoot;
 use crate::traits::FileProvider;
@@ -130,8 +130,8 @@ pub fn collect_strings(provider: &dyn FileProvider) -> Result<Vec<UUIDText>, Par
 /// Parse all dsc uuid files in provided directory
 pub fn collect_shared_strings(
     provider: &dyn FileProvider,
-) -> Result<Vec<SharedCacheStrings>, ParserError> {
-    let mut shared_strings_vec: Vec<SharedCacheStrings> = Vec::new();
+) -> Result<Vec<SharedCacheStringsOwned>, ParserError> {
+    let mut shared_strings_vec: Vec<SharedCacheStringsOwned> = Vec::new();
     // Start process to read and parse uuid files related to dsc
     for mut source in provider.dsc_files() {
         let mut buf = Vec::new();
@@ -149,7 +149,7 @@ pub fn collect_shared_strings(
                     .flatten()
                     .unwrap_or_default();
                 results.dsc_uuid = dsc_uuid;
-                shared_strings_vec.push(results);
+                shared_strings_vec.push(results.into_owned());
             }
             Err(err) => {
                 error!("[macos-unifiedlogs] Failed to parse dsc file: {err:?}");

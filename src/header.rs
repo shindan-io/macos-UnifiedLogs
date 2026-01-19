@@ -91,7 +91,7 @@ impl<'a> HeaderChunkStr<'a> {
 
 impl<'a> HeaderChunkStr<'a> {
     /// Parse the Unified Log tracev3 header data
-    pub fn parse_header(data: &'a [u8]) -> nom::IResult<&[u8], Self> {
+    pub fn parse_header(data: &'a [u8]) -> nom::IResult<&'a [u8], Self> {
         let (input, chunk_tag) = take(size_of::<u32>())(data)?;
         let (input, chunk_sub_tag) = take(size_of::<u32>())(input)?;
         let (input, chunk_data_size) = take(size_of::<u64>())(input)?;

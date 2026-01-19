@@ -1,5 +1,5 @@
 use crate::{
-    header::{HeaderChunk, HeaderChunkOwned, HeaderChunkStr},
+    header::HeaderChunkOwned,
     preamble::LogPreamble,
     unified_log::{LogData, UnifiedLogCatalogData, UnifiedLogData},
     util::padding_size_8,

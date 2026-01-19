@@ -11,12 +11,18 @@ use nom::number::complete::{le_u16, le_u32, le_u64};
 use std::mem::size_of;
 use uuid::Uuid;
 
+pub type SimpleDumpStr<'a> = SimpleDump<&'a str>;
+pub type SimpleDumpOwned = SimpleDump<String>;
+
 /*
    Introduced in macOS Monterey (12).  Appears to be a "simpler" version of Statedump?
    So far appears to just contain a single string
 */
 #[derive(Debug, Clone, Default)]
-pub struct SimpleDump {
+pub struct SimpleDump<S>
+where
+    S: Default + ToString,
+{
     pub chunk_tag: u32,
     pub chunk_subtag: u32,
     pub chunk_data_size: u64,
@@ -32,13 +38,37 @@ pub struct SimpleDump {
     pub unknown_number_message_strings: u32,
     pub unknown_size_subsystem_string: u32,
     pub unknown_size_message_string: u32,
-    pub subsystem: String,
-    pub message_string: String,
+    pub subsystem: S,
+    pub message_string: S,
 }
 
-impl SimpleDump {
+impl<'a> SimpleDumpStr<'a> {
+    pub fn into_owned(self) -> SimpleDumpOwned {
+        SimpleDumpOwned {
+            chunk_tag: self.chunk_tag,
+            chunk_subtag: self.chunk_subtag,
+            chunk_data_size: self.chunk_data_size,
+            first_proc_id: self.first_proc_id,
+            second_proc_id: self.second_proc_id,
+            continous_time: self.continous_time,
+            thread_id: self.thread_id,
+            unknown_offset: self.unknown_offset,
+            unknown_ttl: self.unknown_ttl,
+            unknown_type: self.unknown_type,
+            sender_uuid: self.sender_uuid,
+            dsc_uuid: self.dsc_uuid,
+            unknown_number_message_strings: self.unknown_number_message_strings,
+            unknown_size_subsystem_string: self.unknown_size_subsystem_string,
+            unknown_size_message_string: self.unknown_size_message_string,
+            subsystem: self.subsystem.to_string(),
+            message_string: self.message_string.to_string(),
+        }
+    }
+}
+
+impl<'a> SimpleDumpStr<'a> {
     /// Parse Simpledump log entry.  Introduced in macOS Monterey (12)
-    pub fn parse_simpledump(data: &[u8]) -> nom::IResult<&[u8], SimpleDump> {
+    pub fn parse_simpledump(data: &'a [u8]) -> nom::IResult<&'a [u8], Self> {
         let mut simpledump_resuls = SimpleDump::default();
 
         let (input, chunk_tag) = take(size_of::<u32>())(data)?;
@@ -105,6 +135,7 @@ impl SimpleDump {
             let (_, simpledump_message_string) = extract_string(message_string)?;
             simpledump_resuls.message_string = simpledump_message_string;
         }
+
         Ok((input, simpledump_resuls))
     }
 }

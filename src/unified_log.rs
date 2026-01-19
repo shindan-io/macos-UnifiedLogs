@@ -18,8 +18,8 @@ use crate::chunks::firehose::nonactivity::FirehoseNonActivity;
 use crate::chunks::firehose::signpost::FirehoseSignpost;
 use crate::chunks::firehose::trace::FirehoseTrace;
 use crate::chunks::oversize::Oversize;
-use crate::chunks::simpledump::SimpleDump;
-use crate::chunks::statedump::Statedump;
+use crate::chunks::simpledump::SimpleDumpOwned;
+use crate::chunks::statedump::{Statedump, StatedumpOwned};
 use crate::chunkset::ChunksetChunk;
 use crate::header::{HeaderChunk, HeaderChunkOwned};
 use crate::message::format_firehose_log_message;
@@ -83,8 +83,8 @@ pub struct UnifiedLogData {
 pub struct UnifiedLogCatalogData {
     pub catalog: CatalogChunk,
     pub firehose: Vec<FirehosePreamble>,
-    pub simpledump: Vec<SimpleDump>,
-    pub statedump: Vec<Statedump>,
+    pub simpledump: Vec<SimpleDumpOwned>,
+    pub statedump: Vec<StatedumpOwned>,
     pub oversize: Vec<Oversize>,
 }
 
@@ -595,9 +595,9 @@ impl Iterator for LogIterator<'_> {
                             error!(
                                 "[macos-unifiedlogs] Failed to extract string from statedump: {err:?}"
                             );
-                            String::from("Failed to extract string from statedump")
+                            "Failed to extract string from statedump"
                         }
-                    }
+                    }.to_string()
                 }
             };
             let timestamp = TimesyncBoot::get_timestamp(

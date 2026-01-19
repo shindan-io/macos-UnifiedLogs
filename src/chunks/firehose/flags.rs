@@ -10,6 +10,7 @@ use nom::Needed;
 use nom::bytes::complete::take;
 use nom::number::complete::{be_u128, le_u16};
 use std::mem::size_of;
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Default)]
 pub struct FirehoseFormatters {
@@ -18,7 +19,7 @@ pub struct FirehoseFormatters {
     pub has_large_offset: u16,
     pub large_shared_cache: u16,
     pub absolute: bool,
-    pub uuid_relative: uuid::Uuid,
+    pub uuid_relative: Uuid,
     pub main_plugin: bool,       // Not seen yet
     pub pc_style: bool,          // Not seen yet
     pub main_exe_alt_index: u16, // If log entry uses an alternative uuid file index (ex: absolute). This value gets prepended to the unknown_pc_id/offset
@@ -195,6 +196,9 @@ mod tests {
         let test_flags = 0xa;
         let (_, results) =
             FirehoseFormatters::firehose_formatter_flags(&test_data, &test_flags).unwrap();
-        assert_eq!(results.uuid_relative, uuid::Uuid::parse_str("7B0D3775F1903E21BA130447C41B8743").unwrap());
+        assert_eq!(
+            results.uuid_relative,
+            uuid::Uuid::parse_str("7B0D3775F1903E21BA130447C41B8743").unwrap()
+        );
     }
 }
