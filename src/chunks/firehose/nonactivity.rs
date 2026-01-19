@@ -7,7 +7,7 @@
 
 use crate::catalog::CatalogChunk;
 use crate::chunks::firehose::flags::FirehoseFormatters;
-use crate::chunks::firehose::message::MessageData;
+use crate::chunks::firehose::message::{MessageData, MessageDataStr};
 use crate::traits::FileProvider;
 use log::{debug, error};
 use nom::Needed;
@@ -110,14 +110,17 @@ impl FirehoseNonActivity {
     }
 
     /// Get base log message string formatter from shared cache strings (dsc) or UUID text file for firehose non-activity log entries (chunks)
-    pub fn get_firehose_nonactivity_strings<'a>(
+    pub fn get_firehose_nonactivity_strings<'a, 'b>(
         firehose: &FirehoseNonActivity,
-        provider: &'a mut dyn FileProvider,
+        provider: &'b mut dyn FileProvider,
         string_offset: u64,
         first_proc_id: u64,
         second_proc_id: u32,
-        catalogs: &CatalogChunk,
-    ) -> nom::IResult<&'a [u8], MessageData> {
+        catalogs: &'a CatalogChunk,
+    ) -> nom::IResult<&'a [u8], MessageDataStr<'a>>
+    where
+        'b: 'a,
+    {
         if firehose.firehose_formatters.shared_cache
             || (firehose.firehose_formatters.large_shared_cache != 0)
         {

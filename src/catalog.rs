@@ -110,10 +110,16 @@ pub struct CatalogSubchunk {
     pub string_offsets: Vec<u16>,
 }
 
+pub type SubsystemInfoStr<'a> = SubsystemInfo<&'a str>;
+pub type SubsystemInfoOwned = SubsystemInfo<String>;
+
 #[derive(Debug)]
-pub struct SubsystemInfo {
-    pub subsystem: String,
-    pub category: String,
+pub struct SubsystemInfo<S>
+where
+    S: ToString,
+{
+    pub subsystem: S,
+    pub category: S,
 }
 
 impl CatalogChunk {
@@ -376,15 +382,15 @@ impl CatalogChunk {
     }
 
     /// Get subsystem and category based on the log entry `first_proc_id`, `second_proc_id`, log entry subsystem id and the associated Catalog
-    pub fn get_subsystem(
-        &self,
+    pub fn get_subsystem<'a>(
+        &'a self,
         subsystem_value: u16,
         first_proc_id: u64,
         second_proc_id: u32,
-    ) -> nom::IResult<&[u8], SubsystemInfo> {
-        let mut subsystem_info = SubsystemInfo {
-            subsystem: String::new(),
-            category: String::new(),
+    ) -> nom::IResult<&[u8], SubsystemInfoStr<'a>> {
+        let mut subsystem_info = SubsystemInfoStr::<'a> {
+            subsystem: "",
+            category: "",
         };
 
         if let Some(entry) = self
@@ -399,15 +405,15 @@ impl CatalogChunk {
 
                     let (input, _) = take(subsystems.category_offset)(subsystem_data)?;
                     let (_, category_string) = extract_string(input)?;
-                    subsystem_info.subsystem = subsystem_string.to_owned();
-                    subsystem_info.category = category_string.to_owned();
+                    subsystem_info.subsystem = subsystem_string;
+                    subsystem_info.category = category_string;
                     return Ok((input, subsystem_info));
                 }
             }
         }
 
         //log::warn!("[macos-unifiedlogs] Did not find subsystem in log entry");
-        subsystem_info.subsystem = String::from("Unknown subsystem");
+        subsystem_info.subsystem = "Unknown subsystem";
         Ok((&[], subsystem_info))
     }
 

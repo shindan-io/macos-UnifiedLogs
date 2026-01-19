@@ -1,7 +1,7 @@
 use crate::{
-    header::HeaderChunkOwned,
+    header::{HeaderChunkOwned, HeaderChunkStr},
     preamble::LogPreamble,
-    unified_log::{LogData, UnifiedLogCatalogData, UnifiedLogData},
+    unified_log::{LogData, UnifiedLogCatalogData, UnifiedLogData, UnifiedLogDataStr},
     util::padding_size_8,
 };
 use log::{error, warn};
@@ -9,19 +9,19 @@ use nom::bytes::complete::take;
 
 #[derive(Debug, Clone)]
 /// Iterator to loop through Chunks in the tracev3 file
-pub struct UnifiedLogIterator {
-    pub data: Vec<u8>,
-    pub header: Vec<HeaderChunkOwned>,
+pub struct UnifiedLogIterator<'a> {
+    pub data: &'a [u8],
+    pub header: Vec<HeaderChunkStr<'a>>,
 }
 
-impl Iterator for UnifiedLogIterator {
-    type Item = UnifiedLogData;
+impl<'a> Iterator for UnifiedLogIterator<'a> {
+    type Item = UnifiedLogDataStr<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.data.is_empty() {
             return None;
         }
-        let mut unified_log_data_true = UnifiedLogData {
+        let mut unified_log_data_true = UnifiedLogDataStr {
             header: self.header.clone(),
             catalog_data: Vec::new(),
             oversize: Vec::new(),
@@ -29,7 +29,7 @@ impl Iterator for UnifiedLogIterator {
 
         let mut catalog_data = UnifiedLogCatalogData::default();
 
-        let mut input = self.data.as_slice();
+        let mut input = self.data;
         let chunk_preamble_size = 16; // Include preamble size in total chunk size
 
         let header_chunk = 0x1000;
@@ -62,7 +62,7 @@ impl Iterator for UnifiedLogIterator {
                 LogData::get_header_data(chunk_data, &mut unified_log_data_true);
             } else if preamble.chunk_tag == catalog_chunk {
                 if catalog_data.catalog.chunk_tag != 0 {
-                    self.data = input.to_vec();
+                    self.data = input;
                     break;
                 }
 
@@ -82,7 +82,7 @@ impl Iterator for UnifiedLogIterator {
 
             let padding_size = padding_size_8(preamble.chunk_data_size);
             if self.data.len() < padding_size as usize {
-                self.data = Vec::new();
+                self.data = &[];
                 break;
             }
             let data_result = nom_bytes(data, &padding_size);
@@ -94,7 +94,7 @@ impl Iterator for UnifiedLogIterator {
                 }
             };
             if data.is_empty() {
-                self.data = Vec::new();
+                self.data = &[];
                 break;
             }
             input = data;
@@ -103,7 +103,7 @@ impl Iterator for UnifiedLogIterator {
                     "Not enough data for preamble header, needed 16 bytes. Got: {}",
                     input.len()
                 );
-                self.data = Vec::new();
+                self.data = &[];
                 break;
             }
         }
@@ -152,6 +152,7 @@ mod tests {
 
         test_path.push("Persist/0000000000000002.tracev3");
         let buffer_results = fs::read(test_path.to_str().unwrap()).unwrap();
+        let buffer_results = buffer_results.as_slice();
 
         let log_iterator = UnifiedLogIterator {
             data: buffer_results,
@@ -190,6 +191,7 @@ mod tests {
 
         test_path.push("Persist/0000000000000002.tracev3");
         let buffer_results = fs::read(test_path.to_str().unwrap()).unwrap();
+        let buffer_results = buffer_results.as_slice();
 
         let log_iterator = UnifiedLogIterator {
             data: buffer_results,

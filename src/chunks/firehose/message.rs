@@ -14,30 +14,36 @@ use log::{debug, error, info, warn};
 use nom::bytes::complete::take;
 use uuid::Uuid;
 
+pub type MessageDataStr<'a> = MessageData<&'a str>;
+pub type MessageDataOwned = MessageData<String>;
+
 #[derive(Debug, Default)]
-pub struct MessageData {
-    pub library: String,
-    pub format_string: String,
-    pub process: String,
+pub struct MessageData<S>
+where
+    S: Default + ToString,
+{
+    pub library: S,
+    pub format_string: S,
+    pub process: S,
     pub library_uuid: Uuid,
     pub process_uuid: Uuid,
 }
 
 // Functions to help extract base format string based on flags associated with log entries
 // Ex: "%s start"
-impl MessageData {
+impl<'a> MessageDataStr<'a> {
     /// Extract string from the Shared Strings Cache (dsc data)
     /// Shared strings contain library and message string
-    pub fn extract_shared_strings<'a>(
+    pub fn extract_shared_strings(
         provider: &'a mut dyn FileProvider,
         string_offset: u64,
         first_proc_id: u64,
         second_proc_id: u32,
-        catalogs: &CatalogChunk,
+        catalogs: &'a CatalogChunk,
         original_offset: u64,
-    ) -> nom::IResult<&'a [u8], MessageData> {
+    ) -> nom::IResult<&'a [u8], Self> {
         debug!("[macos-unifiedlogs] Extracting format string from shared cache file (dsc)");
-        let mut message_data = MessageData::default();
+        let mut message_data = Self::default();
         // Get shared string file (DSC) associated with log entry from Catalog
         let (dsc_uuid, main_uuid) =
             MessageData::get_catalog_dsc(catalogs, first_proc_id, second_proc_id);
@@ -62,20 +68,17 @@ impl MessageData {
             && let Some(shared_string) = provider.cached_dsc(dsc_uuid)
             && let Some(ranges) = shared_string.ranges.first()
         {
-            shared_string.uuids[ranges.unknown_uuid_index as usize]
-                .path_string
-                .clone_into(&mut message_data.library);
-
-            shared_string.uuids[ranges.unknown_uuid_index as usize]
-                .uuid
-                .clone_into(&mut message_data.library_uuid);
-            message_data.format_string = String::from("%s");
+            message_data.library =
+                shared_string.uuids[ranges.unknown_uuid_index as usize].path_string;
+            message_data.library_uuid =
+                shared_string.uuids[ranges.unknown_uuid_index as usize].uuid;
+            message_data.format_string = "%s";
             message_data.process_uuid = main_uuid;
 
             // Extract image path from second UUIDtext file
             let (_, process_string) =
                 MessageData::get_uuid_image_path(message_data.process_uuid, provider)?;
-            message_data.process = process_string.to_owned();
+            message_data.process = process_string;
 
             return Ok((&[], message_data));
         }
@@ -120,23 +123,21 @@ impl MessageData {
                             )));
                         }
                     };
+
                     let (message_start, _) = take(offset)(string_data)?;
                     let (_, message_string) = extract_string(message_start)?;
-                    message_data.format_string = message_string.to_owned();
+                    message_data.format_string = message_string;
 
-                    shared_string.uuids[ranges.unknown_uuid_index as usize]
-                        .path_string
-                        .clone_into(&mut message_data.library);
-
-                    shared_string.uuids[ranges.unknown_uuid_index as usize]
-                        .uuid
-                        .clone_into(&mut message_data.library_uuid);
+                    message_data.library =
+                        shared_string.uuids[ranges.unknown_uuid_index as usize].path_string;
+                    message_data.library_uuid =
+                        shared_string.uuids[ranges.unknown_uuid_index as usize].uuid;
                     message_data.process_uuid = main_uuid;
 
                     // Extract image path from second UUIDtext file
                     let (_, process_string) =
                         MessageData::get_uuid_image_path(message_data.process_uuid, provider)?;
-                    message_data.process = process_string.to_owned();
+                    message_data.process = process_string;
                     return Ok((&[], message_data));
                 }
             }
@@ -149,49 +150,49 @@ impl MessageData {
         {
             // Still get the image path/library for the log entry
             if let Some(ranges) = shared_string.ranges.first() {
-                shared_string.uuids[ranges.unknown_uuid_index as usize]
-                    .path_string
-                    .clone_into(&mut message_data.library);
+                message_data.library =
+                    shared_string.uuids[ranges.unknown_uuid_index as usize].path_string;
+                message_data.library_uuid =
+                    shared_string.uuids[ranges.unknown_uuid_index as usize].uuid;
 
-                shared_string.uuids[ranges.unknown_uuid_index as usize]
-                    .uuid
-                    .clone_into(&mut message_data.library_uuid);
-                message_data.format_string = String::from("Error: Invalid shared string offset");
+                message_data.format_string = "Error: Invalid shared string offset";
                 message_data.process_uuid = main_uuid;
 
                 // Extract image path from second UUIDtext file
                 let (_, process_string) =
                     MessageData::get_uuid_image_path(message_data.process_uuid, provider)?;
-                message_data.process = process_string.to_owned();
+                message_data.process = process_string;
 
                 return Ok((&[], message_data));
             }
         }
 
         warn!("[macos-unifiedlogs] Failed to get message string from Shared Strings DSC file");
-        message_data.format_string = String::from("Unknown shared string message");
+        message_data.format_string = "Unknown shared string message";
 
         Ok((&[], message_data))
     }
 
     /// Extract strings from the `UUIDText` file associated with log entry
     /// `UUIDText` file contains process and message string
-    pub fn extract_format_strings<'a>(
+    pub fn extract_format_strings(
         provider: &'a mut dyn FileProvider,
         string_offset: u64,
         first_proc_id: u64,
         second_proc_id: u32,
         catalogs: &CatalogChunk,
         original_offset: u64,
-    ) -> nom::IResult<&'a [u8], MessageData> {
+    ) -> nom::IResult<&'a [u8], MessageDataStr<'a>> {
         debug!("[macos-unifiedlogs] Extracting format string from UUID file");
         let (_, main_uuid) = MessageData::get_catalog_dsc(catalogs, first_proc_id, second_proc_id);
 
         // log entries with main_exe flag do not use dsc cache uuid file
         let mut message_data = MessageData {
-            library_uuid: main_uuid.to_owned(),
+            library_uuid: main_uuid,
             process_uuid: main_uuid,
-            ..Default::default()
+            library: "",
+            format_string: "",
+            process: "",
         };
 
         // Ensure our cache is up to date
@@ -213,9 +214,9 @@ impl MessageData {
 
             let (_, process_string) =
                 MessageData::uuidtext_image_path(footer_data, &data.entry_descriptors)?;
-            process_string.clone_into(&mut message_data.process);
-            message_data.library = process_string.to_owned();
-            message_data.format_string = String::from("%s");
+            message_data.process = process_string;
+            message_data.library = process_string;
+            message_data.format_string = "%s";
 
             return Ok((&[], message_data));
         }
@@ -249,10 +250,10 @@ impl MessageData {
                 let (_, process_string) =
                     MessageData::uuidtext_image_path(footer_data, &data.entry_descriptors)?;
 
-                message_data.format_string = message_string.to_owned();
+                message_data.format_string = message_string;
                 // Process and library path are the same for log entries with main_exe
-                process_string.clone_into(&mut message_data.process);
-                message_data.library = process_string.to_owned();
+                message_data.process = process_string;
+                message_data.library = process_string;
 
                 return Ok((&[], message_data));
             }
@@ -267,12 +268,10 @@ impl MessageData {
 
             let (_, process_string) =
                 MessageData::uuidtext_image_path(footer_data, &data.entry_descriptors)?;
-            process_string.clone_into(&mut message_data.process);
-            message_data.library = process_string.to_owned();
-            message_data.format_string = format!(
-                "Error: Invalid offset {string_offset} for UUID {}",
-                format_uuid(message_data.process_uuid)
-            );
+
+            message_data.process = process_string;
+            message_data.library = process_string;
+            message_data.format_string = "Error: Invalid offset for UUID"; // format!("Error: Invalid offset {string_offset} for UUID {}", format_uuid(message_data.process_uuid));
 
             return Ok((&[], message_data));
         }
@@ -281,16 +280,13 @@ impl MessageData {
             "[macos-unifiedlogs] Failed to get message string from UUIDText file: {}",
             message_data.process_uuid
         );
-        message_data.format_string = format!(
-            "Failed to get string message from UUIDText file: {}",
-            message_data.process_uuid
-        );
+        message_data.format_string = "Failed to get string message from UUIDText file"; // format!("Failed to get string message from UUIDText file: {}", message_data.process_uuid);
         Ok((&[], message_data))
     }
 
     /// Extract strings from the `UUIDText` file associated with log entry that have `absolute` flag set
     /// `UUIDText` file contains process and message string
-    pub fn extract_absolute_strings<'a>(
+    pub fn extract_absolute_strings(
         provider: &'a mut dyn FileProvider,
         absolute_offset: u64,
         string_offset: u64,
@@ -298,7 +294,7 @@ impl MessageData {
         second_proc_id: u32,
         catalogs: &CatalogChunk,
         original_offset: u64,
-    ) -> nom::IResult<&'a [u8], MessageData> {
+    ) -> nom::IResult<&'a [u8], MessageDataStr<'a>> {
         debug!(
             "[macos-unifiedlogs] Extracting format string from UUID file for log entry with Absolute flag"
         );
@@ -327,10 +323,10 @@ impl MessageData {
         // The UUID for log entries with absolute flag dont use the dsc uuid files
         let (_, main_uuid) = MessageData::get_catalog_dsc(catalogs, first_proc_id, second_proc_id);
 
-        let mut message_data = MessageData {
-            library: String::new(),
-            format_string: String::new(),
-            process: String::new(),
+        let mut message_data = MessageDataStr {
+            library: "",
+            format_string: "",
+            process: "",
             library_uuid: uuid,
             process_uuid: main_uuid,
         };
@@ -361,13 +357,13 @@ impl MessageData {
             // Extract image path from current UUIDtext file
             let (_, library_string) =
                 MessageData::uuidtext_image_path(footer_data, &data.entry_descriptors)?;
-            message_data.library = library_string.to_owned();
+            message_data.library = library_string;
 
             // Extract image path from second UUIDtext file
             let (_, process_string) =
                 MessageData::get_uuid_image_path(message_data.process_uuid, provider)?;
-            message_data.process = process_string.to_owned();
-            message_data.format_string = String::from("%s");
+            message_data.process = process_string;
+            message_data.format_string = "%s";
 
             return Ok((&[], message_data));
         }
@@ -419,13 +415,13 @@ impl MessageData {
                 // Extract image path from current UUIDtext file
                 let (_, library_string) =
                     MessageData::uuidtext_image_path(footer_data, &data.entry_descriptors)?;
-                message_data.format_string = message_string.to_owned();
-                message_data.library = library_string.to_owned();
+                message_data.format_string = message_string;
+                message_data.library = library_string;
 
                 // Extract image path from second UUIDtext file
                 let (_, process_string) =
                     MessageData::get_uuid_image_path(message_data.process_uuid, provider)?;
-                message_data.process = process_string.to_owned();
+                message_data.process = process_string;
                 return Ok((&[], message_data));
             }
         }
@@ -440,16 +436,13 @@ impl MessageData {
             // Extract image path from current UUIDtext file
             let (_, library_string) =
                 MessageData::uuidtext_image_path(footer_data, &data.entry_descriptors)?;
-            message_data.library = library_string.to_owned();
-            message_data.format_string = format!(
-                "Error: Invalid offset {string_offset} for absolute UUID {}",
-                format_uuid(message_data.library_uuid)
-            );
+            message_data.library = library_string;
+            message_data.format_string = "Error: Invalid offset {string_offset} for absolute UUID"; //format!("Error: Invalid offset {string_offset} for absolute UUID {}", format_uuid(message_data.library_uuid));
 
             // Extract image path from second UUIDtext file
             let (_, process_string) =
                 MessageData::get_uuid_image_path(message_data.process_uuid, provider)?;
-            message_data.process = process_string.to_owned();
+            message_data.process = process_string;
 
             return Ok((&[], message_data));
         }
@@ -458,16 +451,13 @@ impl MessageData {
             "[macos-unifiedlogs] Failed to get message string from absolute UUIDText file: {}",
             message_data.library_uuid
         );
-        message_data.format_string = format!(
-            "Failed to get string message from absolute UUIDText file: {}",
-            format_uuid(message_data.library_uuid)
-        );
+        message_data.format_string = "Failed to get string message from absolute UUIDText file"; // format!("Failed to get string message from absolute UUIDText file: {}", format_uuid(message_data.library_uuid));
         Ok((&[], message_data))
     }
 
     /// Extract strings from an alt `UUIDText` file specified within the log entry that have `uuid_relative` flag set
     /// `UUIDText` files contains library and process and message string
-    pub fn extract_alt_uuid_strings<'a>(
+    pub fn extract_alt_uuid_strings(
         provider: &'a mut dyn FileProvider,
         string_offset: u64,
         uuid: Uuid,
@@ -475,15 +465,15 @@ impl MessageData {
         second_proc_id: u32,
         catalogs: &CatalogChunk,
         original_offset: u64,
-    ) -> nom::IResult<&'a [u8], MessageData> {
+    ) -> nom::IResult<&'a [u8], MessageDataStr<'a>> {
         debug!("[macos-unifiedlogs] Extracting format string from alt uuid");
         // Log entries with uuid_relative flags set have the UUID in the log itself. They do not use the dsc UUID files
         let (_, main_uuid) = MessageData::get_catalog_dsc(catalogs, first_proc_id, second_proc_id);
 
         let mut message_data = MessageData {
-            library: String::new(),
-            format_string: String::new(),
-            process: String::new(),
+            library: "",
+            format_string: "",
+            process: "",
             library_uuid: uuid,
             process_uuid: main_uuid,
         };
@@ -514,13 +504,13 @@ impl MessageData {
             // Extract image path from current UUIDtext file
             let (_, library_string) =
                 MessageData::uuidtext_image_path(footer_data, &data.entry_descriptors)?;
-            message_data.library = library_string.to_owned();
+            message_data.library = library_string;
 
             // Extract image path from second UUIDtext file
             let (_, process_string) =
                 MessageData::get_uuid_image_path(message_data.process_uuid, provider)?;
-            message_data.process = process_string.to_owned();
-            message_data.format_string = String::from("%s");
+            message_data.process = process_string;
+            message_data.format_string = "%s";
 
             return Ok((&[], message_data));
         }
@@ -554,10 +544,10 @@ impl MessageData {
                 // Extract image path from second UUIDtext file
                 let (_, process_string) =
                     MessageData::get_uuid_image_path(message_data.process_uuid, provider)?;
-                message_data.process = process_string.to_owned();
+                message_data.process = process_string;
+                message_data.format_string = message_string;
+                message_data.library = library_string;
 
-                message_data.format_string = message_string.to_owned();
-                message_data.library = library_string.to_owned();
                 return Ok((&[], message_data));
             }
         }
@@ -572,14 +562,13 @@ impl MessageData {
             // Extract image path from current UUIDtext file
             let (_, library_string) =
                 MessageData::uuidtext_image_path(footer_data, &data.entry_descriptors)?;
-            message_data.library = library_string.to_owned();
-            message_data.format_string =
-                format!("Error: Invalid offset {string_offset} for alternative UUID {uuid}");
+            message_data.library = library_string;
+            message_data.format_string = "Invalid offset for alternative UUID"; // format!("Error: Invalid offset {string_offset} for alternative UUID {uuid}");
 
             // Extract image path from second UUIDtext file
             let (_, process_string) =
                 MessageData::get_uuid_image_path(message_data.process_uuid, provider)?;
-            message_data.process = process_string.to_owned();
+            message_data.process = process_string;
 
             return Ok((&[], message_data));
         }
@@ -587,13 +576,12 @@ impl MessageData {
         warn!(
             "[macos-unifiedlogs] Failed to get message string from alternative UUIDText file: {uuid}"
         );
-        message_data.format_string =
-            format!("Failed to get string message from alternative UUIDText file: {uuid}");
+        message_data.format_string = "Failed to get string message from alternative UUIDText file"; //format!("Failed to get string message from alternative UUIDText file: {uuid}");
         Ok((&[], message_data))
     }
 
     /// Get the image path at the end of the `UUIDText` file
-    fn uuidtext_image_path<'a>(
+    fn uuidtext_image_path(
         data: &'a [u8],
         entries: &[UUIDTextEntry],
     ) -> nom::IResult<&'a [u8], &'a str> {
@@ -607,7 +595,7 @@ impl MessageData {
     }
 
     /// Get the image path from provided `main_uuid` entry
-    fn get_uuid_image_path<'a>(
+    fn get_uuid_image_path(
         main_uuid: Uuid,
         provider: &'a dyn FileProvider,
     ) -> nom::IResult<&'a [u8], &'a str> {

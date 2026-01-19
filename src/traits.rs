@@ -2,7 +2,10 @@ use std::io::Error;
 
 use uuid::Uuid;
 
-use crate::{dsc::SharedCacheStringsOwned, uuidtext::UUIDText};
+use crate::{
+    dsc::{SharedCacheStringsOwned, SharedCacheStringsStr},
+    uuidtext::UUIDText,
+};
 
 /// Implementing this trait allows library consumers to provide the files required by the parser in
 /// arbitrary formats, as long as they are provided as an iterator of items that implement \[Read\].
@@ -46,7 +49,7 @@ pub trait FileProvider {
     fn read_dsc_uuid(&self, uuid: Uuid) -> Result<SharedCacheStringsOwned, Error>;
 
     /// Check our cached `SharedCacheStrings` for strings
-    fn cached_dsc(&self, uuid: Uuid) -> Option<&SharedCacheStringsOwned>;
+    fn cached_dsc<'a>(&'a self, uuid: Uuid) -> Option<SharedCacheStringsStr<'a>>;
 
     /// Update our cached `SharedCacheStrings` data
     fn update_dsc(&mut self, uuid: Uuid, uuid2: Uuid);

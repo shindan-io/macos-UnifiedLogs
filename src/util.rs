@@ -6,7 +6,7 @@
 // See the License for the specific language governing permissions and limitations under the License.
 
 use base64::{DecodeError, Engine, engine::general_purpose};
-use chrono::{SecondsFormat, TimeZone, Utc};
+use chrono::{DateTime, SecondsFormat, TimeZone, Utc};
 use log::{error, warn};
 use nom::{
     Parser,
@@ -167,9 +167,13 @@ pub(crate) fn decode_standard(data: &str) -> Result<Vec<u8>, DecodeError> {
 }
 
 /// Convert `UnixEpoch` time to ISO RFC 3339
-pub(crate) fn unixepoch_to_iso(timestamp: &i64) -> String {
-    let date_time_result = Utc.timestamp_nanos(*timestamp);
+pub(crate) fn unixepoch_to_iso(timestamp: i64) -> String {
+    let date_time_result = Utc.timestamp_nanos(timestamp);
     date_time_result.to_rfc3339_opts(SecondsFormat::Nanos, true)
+}
+
+pub(crate) fn unixepoch_to_datetime(timestamp: i64) -> DateTime<Utc> {
+    Utc.timestamp_nanos(timestamp)
 }
 
 pub(crate) fn u64_to_usize(n: u64) -> Option<usize> {
@@ -236,7 +240,7 @@ mod tests {
 
     #[test]
     fn test_unixepoch_to_iso() {
-        let result = unixepoch_to_iso(&1650767813342574583);
+        let result = unixepoch_to_iso(1650767813342574583);
         assert_eq!(result, "2022-04-24T02:36:53.342574583Z");
     }
 

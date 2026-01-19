@@ -7,7 +7,7 @@
 
 use crate::catalog::CatalogChunk;
 use crate::chunks::firehose::firehose_log::{FirehoseItemData, FirehoseItemInfo};
-use crate::chunks::firehose::message::MessageData;
+use crate::chunks::firehose::message::{MessageData, MessageDataStr};
 use crate::traits::FileProvider;
 use log::{error, warn};
 use nom::bytes::complete::take;
@@ -140,7 +140,7 @@ impl FirehoseTrace {
         first_proc_id: u64,
         second_proc_id: u32,
         catalogs: &CatalogChunk,
-    ) -> nom::IResult<&'a [u8], MessageData> {
+    ) -> nom::IResult<&'a [u8], MessageDataStr<'a>> {
         // Only main_exe flag has been seen for format strings
         MessageData::extract_format_strings(
             provider,

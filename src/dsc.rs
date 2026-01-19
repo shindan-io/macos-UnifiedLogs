@@ -45,9 +45,31 @@ impl<'a> SharedCacheStringsStr<'a> {
             dsc_uuid: self.dsc_uuid,
         }
     }
+    pub fn from_owned<'b>(owned: &'b SharedCacheStringsOwned) -> SharedCacheStringsStr<'b> {
+        SharedCacheStringsStr::<'b> {
+            signature: owned.signature,
+            major_version: owned.major_version,
+            minor_version: owned.minor_version,
+            number_ranges: owned.number_ranges,
+            number_uuids: owned.number_uuids,
+            ranges: owned.ranges.clone(),
+            uuids: owned
+                .uuids
+                .iter()
+                .map(|u| UUIDDescriptorStr {
+                    text_offset: u.text_offset,
+                    text_size: u.text_size,
+                    uuid: u.uuid,
+                    path_offset: u.path_offset,
+                    path_string: u.path_string.as_str(),
+                })
+                .collect(),
+            dsc_uuid: owned.dsc_uuid,
+        }
+    }
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct RangeDescriptor {
     pub range_offset: u64, // In Major version 2 this is 8 bytes, in version 1 its 4 bytes
     pub data_offset: u32,

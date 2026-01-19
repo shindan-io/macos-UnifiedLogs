@@ -30,7 +30,7 @@ const STRING_TYPES: [&str; 6] = ["c", "s", "@", "S", "C", "P"];
 
 /// Format the Unified Log message entry based on the parsed log items. Formatting follows the C lang prinf formatting process
 pub fn format_firehose_log_message(
-    format_string: String,
+    format_string: &str,
     item_message: &Vec<FirehoseItemInfo>,
     message_re: &Regex,
 ) -> String {
@@ -239,16 +239,16 @@ pub fn format_firehose_log_message(
         format_and_message_vec.push(format_and_message);
     }
 
-    let mut log_message_vec: Vec<String> = Vec::new();
-    for values in format_and_message_vec {
+    let mut log_message_vec: Vec<&str> = Vec::new();
+    for values in &format_and_message_vec {
         // Split the values by printf formatter
         // We have to do this instead of using replace because our replacement string may also contain a printf formatter
         let message_results = log_message.split_once(&values.formatter);
         match message_results {
             Some((message_part, remaining_message)) => {
-                log_message_vec.push(message_part.to_string());
-                log_message_vec.push(values.message);
-                log_message = remaining_message.to_string();
+                log_message_vec.push(message_part);
+                log_message_vec.push(values.message.as_str());
+                log_message = remaining_message;
             }
             None => error!(
                 "Failed to split log message ({log_message}) by printf formatter: {}",

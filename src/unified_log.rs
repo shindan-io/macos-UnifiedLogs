@@ -18,17 +18,19 @@ use crate::chunks::firehose::nonactivity::FirehoseNonActivity;
 use crate::chunks::firehose::signpost::FirehoseSignpost;
 use crate::chunks::firehose::trace::FirehoseTrace;
 use crate::chunks::oversize::Oversize;
-use crate::chunks::simpledump::SimpleDumpOwned;
+use crate::chunks::simpledump::SimpleDump;
 use crate::chunks::statedump::{Statedump, StatedumpOwned};
 use crate::chunkset::ChunksetChunk;
-use crate::header::{HeaderChunk, HeaderChunkOwned};
+use crate::header::{HeaderChunk, HeaderChunkOwned, HeaderChunkStr};
 use crate::message::format_firehose_log_message;
 use crate::preamble::LogPreamble;
 use crate::timesync::TimesyncBoot;
 use crate::traits::FileProvider;
 use crate::util::{
-    encode_standard, extract_string, padding_size_8, u64_to_usize, unixepoch_to_iso,
+    encode_standard, extract_string, padding_size_8, u64_to_usize, unixepoch_to_datetime,
+    unixepoch_to_iso,
 };
+use chrono::{DateTime, Utc};
 use log::{error, warn};
 use nom::bytes::complete::take;
 use regex::Regex;
@@ -71,25 +73,37 @@ pub enum EventType {
     Loss,
 }
 
+pub type UnifiedLogDataStr<'a> = UnifiedLogData<&'a str>;
+pub type UnifiedLogDataOwned = UnifiedLogData<String>;
+
 #[derive(Debug, Clone, Default)]
-pub struct UnifiedLogData {
-    pub header: Vec<HeaderChunkOwned>,
-    pub catalog_data: Vec<UnifiedLogCatalogData>,
+pub struct UnifiedLogData<S>
+where
+    S: Default + ToString,
+{
+    pub header: Vec<HeaderChunk<S>>,
+    pub catalog_data: Vec<UnifiedLogCatalogData<S>>,
     /// Keep a global cache of oversize string
     pub oversize: Vec<Oversize>,
 }
 
+pub type UnifiedLogCatalogDataStr<'a> = UnifiedLogCatalogData<&'a str>;
+pub type UnifiedLogCatalogDataOwned = UnifiedLogCatalogData<String>;
+
 #[derive(Debug, Clone, Default)]
-pub struct UnifiedLogCatalogData {
+pub struct UnifiedLogCatalogData<S>
+where
+    S: Default + ToString,
+{
     pub catalog: CatalogChunk,
     pub firehose: Vec<FirehosePreamble>,
-    pub simpledump: Vec<SimpleDumpOwned>,
-    pub statedump: Vec<StatedumpOwned>,
+    pub simpledump: Vec<SimpleDump<S>>,
+    pub statedump: Vec<Statedump<S>>,
     pub oversize: Vec<Oversize>,
 }
 
 struct LogIterator<'a> {
-    unified_log_data: &'a UnifiedLogData,
+    unified_log_data: &'a UnifiedLogDataStr<'a>,
     provider: &'a mut dyn FileProvider,
     timesync_data: &'a HashMap<Uuid, TimesyncBoot>,
     exclude_missing: bool,
@@ -99,7 +113,7 @@ struct LogIterator<'a> {
 
 impl<'a> LogIterator<'a> {
     fn new(
-        unified_log_data: &'a UnifiedLogData,
+        unified_log_data: &'a UnifiedLogDataStr<'a>,
         provider: &'a mut dyn FileProvider,
         timesync_data: &'a HashMap<Uuid, TimesyncBoot>,
         exclude_missing: bool,
@@ -149,8 +163,8 @@ impl<'a> LogIterator<'a> {
     }
 }
 
-impl Iterator for LogIterator<'_> {
-    type Item = (Vec<LogData>, UnifiedLogData);
+impl<'a> Iterator for LogIterator<'a> {
+    type Item = (Vec<LogDataStr<'a>>, UnifiedLogDataStr<'a>);
 
     /// `catalog_data_index` == 0
     fn next(&mut self) -> Option<Self::Item> {
@@ -158,9 +172,10 @@ impl Iterator for LogIterator<'_> {
             .unified_log_data
             .catalog_data
             .get(self.catalog_data_iterator_index)?;
-        let mut log_data_vec: Vec<LogData> = Vec::new();
+
+        let mut log_data_vec: Vec<LogDataStr<'a>> = Vec::new();
         // Need to keep track of any log entries that fail to find Oversize strings (sometimes the strings may be in other log files that have not been parsed yet)
-        let mut missing_unified_log_data_vec = UnifiedLogData {
+        let mut missing_unified_log_data_vec = UnifiedLogDataStr::<'a> {
             header: Vec::new(),
             catalog_data: Vec::new(),
             oversize: Vec::new(),
@@ -184,23 +199,23 @@ impl Iterator for LogIterator<'_> {
                 );
 
                 // Our struct format to hold and show the log data
-                let mut log_data = LogData {
-                    subsystem: String::new(),
+                let mut log_data = LogDataStr::<'a> {
+                    subsystem: "",
                     thread_id: firehose.thread_id,
                     pid: catalog_data.catalog.get_pid(
                         preamble.first_number_proc_id,
                         preamble.second_number_proc_id,
                     ),
-                    library: String::new(),
+                    library: "",
                     activity_id: 0,
                     time: timestamp,
-                    timestamp: unixepoch_to_iso(&(timestamp as i64)),
-                    category: String::new(),
+                    timestamp: unixepoch_to_datetime(timestamp as i64),
+                    category: "",
                     log_type: LogData::get_log_type(
                         firehose.unknown_log_type,
                         firehose.unknown_log_activity_type,
                     ),
-                    process: String::new(),
+                    process: "",
                     message: String::new(),
                     event_type: LogData::get_event_type(firehose.unknown_log_activity_type),
                     euid: catalog_data.catalog.get_euid(
@@ -210,13 +225,14 @@ impl Iterator for LogIterator<'_> {
                     boot_uuid: self.unified_log_data.header[0].boot_uuid,
                     timezone_name: self.unified_log_data.header[0]
                         .timezone_path
+                        .to_string()
                         .split('/')
                         .next_back()
                         .unwrap_or("Unknown Timezone Name")
                         .to_string(),
                     library_uuid: Uuid::nil(),
                     process_uuid: Uuid::nil(),
-                    raw_message: String::new(),
+                    raw_message: "",
                     message_entries: firehose.message.item_info.to_owned(),
                 };
 
@@ -244,7 +260,7 @@ impl Iterator for LogIterator<'_> {
                                 log_data.library_uuid = results.library_uuid;
                                 log_data.process = results.process;
                                 log_data.process_uuid = results.process_uuid;
-                                results.format_string.clone_into(&mut log_data.raw_message);
+                                log_data.raw_message = results.format_string;
 
                                 // If the non-activity log entry has a data ref value then the message strings are stored in an oversize log entry
                                 let log_message =
@@ -340,7 +356,7 @@ impl Iterator for LogIterator<'_> {
                                 log_data.library_uuid = results.library_uuid;
                                 log_data.process = results.process;
                                 log_data.process_uuid = results.process_uuid;
-                                results.format_string.clone_into(&mut log_data.raw_message);
+                                log_data.raw_message = results.format_string;
 
                                 let log_message = format_firehose_log_message(
                                     results.format_string,
@@ -395,7 +411,7 @@ impl Iterator for LogIterator<'_> {
                                 log_data.library_uuid = results.library_uuid;
                                 log_data.process = results.process;
                                 log_data.process_uuid = results.process_uuid;
-                                results.format_string.clone_into(&mut log_data.raw_message);
+                                log_data.raw_message = results.format_string;
 
                                 let mut log_message =
                                     if firehose.firehose_non_activity.data_ref_value != 0 {
@@ -525,6 +541,7 @@ impl Iterator for LogIterator<'_> {
                         error!("[macos-unifiedlogs] Parsed unknown log firehose data: {firehose:?}",)
                     }
                 }
+
                 log_data_vec.push(log_data);
             }
         }
@@ -537,30 +554,31 @@ impl Iterator for LogIterator<'_> {
                 simpledump.continous_time,
                 no_firehose_preamble,
             );
-            let log_data = LogData {
-                subsystem: simpledump.subsystem.to_owned(),
+            let log_data = LogDataStr::<'a> {
+                subsystem: simpledump.subsystem,
                 thread_id: simpledump.thread_id,
                 pid: simpledump.first_proc_id,
-                library: String::new(),
+                library: "",
                 activity_id: 0,
                 time: timestamp,
-                timestamp: unixepoch_to_iso(&(timestamp as i64)),
-                category: String::new(),
+                timestamp: unixepoch_to_datetime(timestamp as i64),
+                category: "",
                 log_type: LogType::Simpledump,
-                process: String::new(),
+                process: "",
                 message: simpledump.message_string.to_owned(),
                 event_type: EventType::Simpledump,
                 euid: 0,
                 boot_uuid: self.unified_log_data.header[0].boot_uuid,
                 timezone_name: self.unified_log_data.header[0]
                     .timezone_path
+                    .to_string()
                     .split('/')
                     .next_back()
                     .unwrap_or("Unknown Timezone Name")
                     .to_string(),
                 library_uuid: simpledump.sender_uuid,
                 process_uuid: simpledump.dsc_uuid,
-                raw_message: String::new(),
+                raw_message: "",
                 message_entries: Vec::new(),
             };
             log_data_vec.push(log_data);
@@ -606,17 +624,17 @@ impl Iterator for LogIterator<'_> {
                 statedump.continuous_time,
                 no_firehose_preamble,
             );
-            let log_data = LogData {
-                subsystem: String::new(),
+            let log_data = LogDataStr::<'a> {
+                subsystem: "",
                 thread_id: 0,
                 pid: statedump.first_proc_id,
-                library: String::new(),
+                library: "",
                 activity_id: statedump.activity_id,
                 time: timestamp,
-                timestamp: unixepoch_to_iso(&(timestamp as i64)),
-                category: String::new(),
+                timestamp: unixepoch_to_datetime(timestamp as i64),
+                category: "",
                 event_type: EventType::Statedump,
-                process: String::new(),
+                process: "",
                 message: format!(
                     "title: {}\nObject Type: {}\nObject Type: {}\n{data_string}",
                     statedump.title_name, statedump.decoder_library, statedump.decoder_type,
@@ -632,43 +650,50 @@ impl Iterator for LogIterator<'_> {
                     .to_string(),
                 library_uuid: Uuid::nil(),
                 process_uuid: Uuid::nil(),
-                raw_message: String::new(),
+                raw_message: "",
                 message_entries: Vec::new(),
             };
             log_data_vec.push(log_data);
         }
 
         self.catalog_data_iterator_index += 1;
+
         Some((log_data_vec, missing_unified_log_data_vec))
     }
 }
 
+pub type LogDataStr<'a> = LogData<&'a str>;
+pub type LogDataOwned = LogData<String>;
+
 #[derive(Debug, Serialize)]
-pub struct LogData {
-    pub subsystem: String,
+pub struct LogData<S>
+where
+    S: Default + ToString,
+{
+    pub subsystem: S,
     pub thread_id: u64,
     pub pid: u64,
     pub euid: u32,
-    pub library: String,
+    pub library: S,
     pub library_uuid: Uuid,
     pub activity_id: u64,
     pub time: f64,
-    pub category: String,
+    pub category: S,
     pub event_type: EventType,
     pub log_type: LogType,
-    pub process: String,
+    pub process: S,
     pub process_uuid: Uuid,
-    pub message: String,
-    pub raw_message: String,
+    pub message: String, // todo: replace by a render_message() function
+    pub raw_message: S,
     pub boot_uuid: Uuid,
-    pub timezone_name: String,
+    pub timezone_name: String, // todo: something with no alloc ?
     pub message_entries: Vec<FirehoseItemInfo>,
-    pub timestamp: String,
+    pub timestamp: DateTime<Utc>,
 }
 
-impl LogData {
+impl<'a> LogDataStr<'a> {
     /// Parse the Unified log data read from a tracev3 file
-    pub fn parse_unified_log(data: &[u8]) -> nom::IResult<&[u8], UnifiedLogData> {
+    pub fn parse_unified_log(data: &'a [u8]) -> nom::IResult<&[u8], UnifiedLogDataStr<'a>> {
         let mut unified_log_data_true = UnifiedLogData {
             header: Vec::new(),
             catalog_data: Vec::new(),
@@ -761,14 +786,14 @@ impl LogData {
     /// Reconstruct Unified Log entries using the binary strings data, cached strings data, timesync data, and unified log. Provide bool to ignore log entries that are not able to be recontructed (additional tracev3 files needed)
     /// Return a reconstructed log entries and any leftover Unified Log entries that could not be reconstructed (data may be stored in other tracev3 files)
     pub fn build_log(
-        unified_log_data: &UnifiedLogData,
-        provider: &mut dyn FileProvider,
-        timesync_data: &HashMap<Uuid, TimesyncBoot>,
+        unified_log_data: &'a UnifiedLogDataStr<'a>,
+        provider: &'a mut dyn FileProvider,
+        timesync_data: &'a HashMap<Uuid, TimesyncBoot>,
         exclude_missing: bool,
-    ) -> (Vec<LogData>, UnifiedLogData) {
-        let mut log_data_vec: Vec<LogData> = Vec::new();
+    ) -> (Vec<LogDataStr<'a>>, UnifiedLogDataStr<'a>) {
+        let mut log_data_vec: Vec<LogDataStr<'a>> = Vec::new();
         // Need to keep track of any log entries that fail to find Oversize strings (sometimes the strings may be in other log files that have not been parsed yet)
-        let mut missing_unified_log_data_vec = UnifiedLogData {
+        let mut missing_unified_log_data_vec = UnifiedLogDataStr::<'a> {
             header: Vec::new(),
             catalog_data: Vec::new(),
             oversize: Vec::new(),
@@ -836,16 +861,19 @@ impl LogData {
     }
 
     /// Get the header of the Unified Log data (tracev3 file)
-    pub(crate) fn get_header_data(data: &[u8], unified_log_data: &mut UnifiedLogData) {
+    pub(crate) fn get_header_data(data: &'a [u8], unified_log_data: &mut UnifiedLogDataStr<'a>) {
         let header_results = HeaderChunk::parse_header(data);
         match header_results {
-            Ok((_, header_data)) => unified_log_data.header.push(header_data.into_owned()),
+            Ok((_, header_data)) => unified_log_data.header.push(header_data),
             Err(err) => error!("[macos-unifiedlogs] Failed to parse header data: {err:?}"),
         }
     }
 
     /// Get the Catalog of the Unified Log data (tracev3 file)
-    pub(crate) fn get_catalog_data(data: &[u8], unified_log_data: &mut UnifiedLogCatalogData) {
+    pub(crate) fn get_catalog_data(
+        data: &'a [u8],
+        unified_log_data: &mut UnifiedLogCatalogDataStr<'a>,
+    ) {
         let catalog_results = CatalogChunk::parse_catalog(data);
         match catalog_results {
             Ok((_, catalog_data)) => unified_log_data.catalog = catalog_data,
@@ -855,9 +883,9 @@ impl LogData {
 
     /// Get the Chunkset of the Unified Log data (tracev3)
     pub(crate) fn get_chunkset_data(
-        data: &[u8],
-        catalog_data: &mut UnifiedLogCatalogData,
-        unified_log_data: &mut UnifiedLogData,
+        data: &'a [u8],
+        catalog_data: &mut UnifiedLogCatalogDataStr<'a>,
+        unified_log_data: &mut UnifiedLogDataStr<'a>,
     ) {
         // Parse and decompress the chunkset entries
         let chunkset_data_results = ChunksetChunk::parse_chunkset(data);
@@ -901,11 +929,11 @@ impl LogData {
 
     /// Add all missing log entries to log data tracker. Log data may be in another file. Mainly related to logs with that have Oversize data
     fn add_missing(
-        catalog_data: &UnifiedLogCatalogData,
+        catalog_data: &UnifiedLogCatalogDataStr<'a>,
         preamble_index: usize,
         firehose_index: usize,
-        header: &[HeaderChunkOwned],
-        missing_unified_log_data_vec: &mut UnifiedLogData,
+        header: &[HeaderChunkStr<'a>],
+        missing_unified_log_data_vec: &mut UnifiedLogDataStr<'a>,
         preamble: &FirehosePreamble,
     ) {
         let missing_firehose = LogData::track_missing(
@@ -914,7 +942,7 @@ impl LogData {
             catalog_data.firehose[preamble_index].base_continous_time,
             preamble.public_data[firehose_index].to_owned(),
         );
-        let mut missing_unified_log_data = UnifiedLogCatalogData {
+        let mut missing_unified_log_data = UnifiedLogCatalogDataStr::<'a> {
             catalog: catalog_data.catalog.to_owned(),
             firehose: Vec::new(),
             simpledump: Vec::new(),
@@ -933,6 +961,7 @@ impl LogData {
 
 #[cfg(test)]
 mod tests {
+    use chrono::{DateTime, Utc};
     use uuid::Uuid;
 
     use super::{LogData, UnifiedLogData};
@@ -1060,7 +1089,10 @@ mod tests {
         );
         assert_eq!(results[0].timezone_name, "Pacific");
         assert_eq!(results[0].raw_message, "LOMD Start");
-        assert_eq!(results[0].timestamp, "2022-01-16T03:05:26.434850816Z")
+        assert_eq!(
+            results[0].timestamp,
+            DateTime::parse_from_rfc3339("2022-01-16T03:05:26.434850816Z").unwrap()
+        )
     }
 
     #[test]

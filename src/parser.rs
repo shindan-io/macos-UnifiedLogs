@@ -12,7 +12,7 @@ use crate::dsc::{SharedCacheStrings, SharedCacheStringsOwned};
 use crate::error::ParserError;
 use crate::timesync::TimesyncBoot;
 use crate::traits::FileProvider;
-use crate::unified_log::{LogData, UnifiedLogData};
+use crate::unified_log::{LogData, LogDataStr, UnifiedLogData, UnifiedLogDataStr};
 use crate::uuidtext::UUIDText;
 use std::collections::HashMap;
 use std::io::Read;
@@ -85,12 +85,12 @@ pub fn parse_log(mut reader: impl Read) -> Result<UnifiedLogData, ParserError> {
 ///      break;
 ///    }
 /// ```
-pub fn build_log(
-    unified_data: &UnifiedLogData,
-    provider: &mut dyn FileProvider,
-    timesync_data: &HashMap<Uuid, TimesyncBoot>,
+pub fn build_log<'a>(
+    unified_data: &'a UnifiedLogDataStr<'a>,
+    provider: &'a mut dyn FileProvider,
+    timesync_data: &'a HashMap<Uuid, TimesyncBoot>,
     exclude_missing: bool,
-) -> (Vec<LogData>, UnifiedLogData) {
+) -> (Vec<LogDataStr<'a>>, UnifiedLogDataStr<'a>) {
     LogData::build_log(unified_data, provider, timesync_data, exclude_missing)
 }
 

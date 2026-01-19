@@ -7,7 +7,7 @@
 
 use crate::catalog::CatalogChunk;
 use crate::chunks::firehose::flags::FirehoseFormatters;
-use crate::chunks::firehose::message::MessageData;
+use crate::chunks::firehose::message::{MessageData, MessageDataStr};
 use crate::traits::FileProvider;
 use log::{debug, error};
 use nom::Needed;
@@ -107,8 +107,8 @@ impl FirehoseActivity {
         string_offset: u64,
         first_proc_id: u64,
         second_proc_id: u32,
-        catalogs: &CatalogChunk,
-    ) -> nom::IResult<&'a [u8], MessageData> {
+        catalogs: &'a CatalogChunk,
+    ) -> nom::IResult<&'a [u8], MessageDataStr<'a>> {
         if firehose.firehose_formatters.shared_cache
             || (firehose.firehose_formatters.large_shared_cache != 0
                 && firehose.firehose_formatters.has_large_offset != 0)

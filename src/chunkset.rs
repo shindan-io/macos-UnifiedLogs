@@ -15,12 +15,10 @@ use nom::{
     number::complete::{le_u32, le_u64},
 };
 
-use crate::chunks::simpledump::SimpleDump;
 use crate::chunks::statedump::Statedump;
 use crate::{chunks::firehose::firehose_log::FirehosePreamble, util::u64_to_usize};
-use crate::{
-    chunks::oversize::Oversize, preamble::LogPreamble, unified_log::UnifiedLogCatalogData,
-};
+use crate::{chunks::oversize::Oversize, preamble::LogPreamble};
+use crate::{chunks::simpledump::SimpleDump, unified_log::UnifiedLogCatalogDataStr};
 
 #[derive(Debug, Default)]
 pub struct ChunksetChunk {
@@ -104,8 +102,8 @@ impl ChunksetChunk {
 
     /// Parse each log (chunk) in the decompressed Chunkset data
     pub fn parse_chunkset_data<'a>(
-        data: &'a [u8],
-        unified_log_data: &mut UnifiedLogCatalogData,
+        data: &[u8],
+        unified_log_data: &mut UnifiedLogCatalogDataStr<'a>,
     ) -> nom::IResult<&'a [u8], ()> {
         let mut input = data;
         let chunk_preamble_size = 16; // Include preamble size in total chunk size
@@ -127,7 +125,7 @@ impl ChunksetChunk {
                 }
             };
             let (data, chunk_data) = take(chunk_size + chunk_preamble_size)(input)?;
-            ChunksetChunk::get_chunkset_data(chunk_data, preamble.chunk_tag, unified_log_data);
+            Self::get_chunkset_data(chunk_data, preamble.chunk_tag, unified_log_data);
 
             // Nom all zero padding
             let (remaining_data, _) = take_while(|b: u8| b == 0)(data)?;
@@ -148,10 +146,10 @@ impl ChunksetChunk {
     }
 
     // Parse the log entry (chunk) chunk based on type
-    fn get_chunkset_data(
-        data: &[u8],
+    fn get_chunkset_data<'a>(
+        data: &'a [u8],
         chunk_type: u32,
-        unified_log_data: &mut UnifiedLogCatalogData,
+        unified_log_data: &mut UnifiedLogCatalogDataStr<'a>,
     ) {
         let firehose_chunk = 0x6001;
         let oversize_chunk = 0x6002;
@@ -177,7 +175,7 @@ impl ChunksetChunk {
         } else if chunk_type == statedump_chunk {
             let statedump_results = Statedump::parse_statedump(data);
             match statedump_results {
-                Ok((_, statedump)) => unified_log_data.statedump.push(statedump.into_owned()),
+                Ok((_, statedump)) => unified_log_data.statedump.push(statedump),
                 Err(err) => error!(
                     "[macos-unifiedlogs] Failed to parse statedump log entry (chunk): {err:?}"
                 ),
@@ -185,7 +183,7 @@ impl ChunksetChunk {
         } else if chunk_type == simpledump_chunk {
             let simpledump_results = SimpleDump::parse_simpledump(data);
             match simpledump_results {
-                Ok((_, simpledump)) => unified_log_data.simpledump.push(simpledump.into_owned()),
+                Ok((_, simpledump)) => unified_log_data.simpledump.push(simpledump),
                 Err(err) => error!(
                     "[macos-unifiedlogs] Failed to parse simpledump log entry (chunk): {err:?}"
                 ),
