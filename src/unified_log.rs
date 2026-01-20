@@ -10,6 +10,7 @@
 //! Provides a simple library to parse the macOS Unified Log format.
 
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use crate::catalog::CatalogChunk;
 use crate::chunks::firehose::activity::FirehoseActivity;
@@ -74,7 +75,7 @@ pub enum EventType {
 }
 
 pub type UnifiedLogDataStr<'a> = UnifiedLogData<&'a str>;
-pub type UnifiedLogDataOwned = UnifiedLogData<String>;
+pub type UnifiedLogDataOwned = UnifiedLogData<Rc<String>>;
 
 #[derive(Debug, Clone, Default)]
 pub struct UnifiedLogData<S>
@@ -88,7 +89,31 @@ where
 }
 
 pub type UnifiedLogCatalogDataStr<'a> = UnifiedLogCatalogData<&'a str>;
-pub type UnifiedLogCatalogDataOwned = UnifiedLogCatalogData<String>;
+pub type UnifiedLogCatalogDataOwned = UnifiedLogCatalogData<Rc<String>>;
+
+impl<'a> UnifiedLogDataStr<'a> {
+    pub fn into_owned(self) -> UnifiedLogDataOwned {
+        UnifiedLogDataOwned {
+            header: self.header.into_iter().map(|h| h.into_owned()).collect(),
+            catalog_data: self
+                .catalog_data
+                .into_iter()
+                .map(|c| c.into_owned())
+                .collect(),
+            oversize: self.oversize,
+        }
+    }
+}
+
+impl UnifiedLogDataOwned {
+    pub fn as_ref<'a>(&'a self) -> UnifiedLogDataStr<'a> {
+        UnifiedLogDataStr {
+            header: self.header.iter().map(|h| h.as_ref()).collect(),
+            catalog_data: self.catalog_data.iter().map(|c| c.as_ref()).collect(),
+            oversize: self.oversize.clone(),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct UnifiedLogCatalogData<S>
@@ -111,6 +136,33 @@ struct LogIterator<'a> {
     catalog_data_iterator_index: usize,
 }
 
+impl<'a> UnifiedLogCatalogDataStr<'a> {
+    pub fn into_owned(self) -> UnifiedLogCatalogDataOwned {
+        UnifiedLogCatalogDataOwned {
+            catalog: self.catalog,
+            firehose: self.firehose,
+            simpledump: self
+                .simpledump
+                .into_iter()
+                .map(|s| s.into_owned())
+                .collect(),
+            statedump: self.statedump.into_iter().map(|s| s.into_owned()).collect(),
+            oversize: self.oversize,
+        }
+    }
+}
+
+impl UnifiedLogCatalogDataOwned {
+    pub fn as_ref<'a>(&'a self) -> UnifiedLogCatalogDataStr<'a> {
+        UnifiedLogCatalogDataStr {
+            catalog: self.catalog.clone(),
+            firehose: self.firehose.clone(),
+            simpledump: self.simpledump.iter().map(|s| s.as_ref()).collect(),
+            statedump: self.statedump.iter().map(|s| s.as_ref()).collect(),
+            oversize: self.oversize.clone(),
+        }
+    }
+}
 impl<'a> LogIterator<'a> {
     fn new(
         unified_log_data: &'a UnifiedLogDataStr<'a>,
@@ -216,23 +268,25 @@ impl<'a> Iterator for LogIterator<'a> {
                         firehose.unknown_log_activity_type,
                     ),
                     process: "",
-                    message: String::new(),
+                    message: Rc::new(String::new()),
                     event_type: LogData::get_event_type(firehose.unknown_log_activity_type),
                     euid: catalog_data.catalog.get_euid(
                         preamble.first_number_proc_id,
                         preamble.second_number_proc_id,
                     ),
                     boot_uuid: self.unified_log_data.header[0].boot_uuid,
-                    timezone_name: self.unified_log_data.header[0]
-                        .timezone_path
-                        .to_string()
-                        .split('/')
-                        .next_back()
-                        .unwrap_or("Unknown Timezone Name")
-                        .to_string(),
+                    timezone_name: Rc::new(
+                        self.unified_log_data.header[0]
+                            .timezone_path
+                            .to_string()
+                            .split('/')
+                            .next_back()
+                            .unwrap_or("Unknown Timezone Name")
+                            .to_string(),
+                    ),
                     library_uuid: Uuid::nil(),
                     process_uuid: Uuid::nil(),
-                    raw_message: "",
+                    raw_message: Rc::new(String::new()),
                     message_entries: firehose.message.item_info.to_owned(),
                 };
 
@@ -260,7 +314,7 @@ impl<'a> Iterator for LogIterator<'a> {
                                 log_data.library_uuid = results.library_uuid;
                                 log_data.process = results.process;
                                 log_data.process_uuid = results.process_uuid;
-                                log_data.raw_message = results.format_string;
+                                log_data.raw_message = results.format_string.clone();
 
                                 // If the non-activity log entry has a data ref value then the message strings are stored in an oversize log entry
                                 let log_message =
@@ -273,14 +327,14 @@ impl<'a> Iterator for LogIterator<'a> {
                                         );
                                         // Format and map the log strings with the message format string found UUIDText or shared string file
                                         format_firehose_log_message(
-                                            results.format_string,
+                                            results.format_string.as_str(),
                                             &oversize_strings,
                                             &self.message_re,
                                         )
                                     } else {
                                         // Format and map the log strings with the message format string found UUIDText or shared string file
                                         format_firehose_log_message(
-                                            results.format_string,
+                                            results.format_string.as_str(),
                                             &firehose.message.item_info,
                                             &self.message_re,
                                         )
@@ -301,13 +355,13 @@ impl<'a> Iterator for LogIterator<'a> {
                                 }
 
                                 if !firehose.message.backtrace_strings.is_empty() {
-                                    log_data.message = format!(
+                                    log_data.message = Rc::new(format!(
                                         "Backtrace:\n{}\n{}",
                                         firehose.message.backtrace_strings.join("\n"),
                                         log_message
-                                    );
+                                    ));
                                 } else {
-                                    log_data.message = log_message;
+                                    log_data.message = Rc::new(log_message);
                                 }
                             }
                             Err(err) => {
@@ -356,10 +410,10 @@ impl<'a> Iterator for LogIterator<'a> {
                                 log_data.library_uuid = results.library_uuid;
                                 log_data.process = results.process;
                                 log_data.process_uuid = results.process_uuid;
-                                log_data.raw_message = results.format_string;
+                                log_data.raw_message = results.format_string.clone();
 
                                 let log_message = format_firehose_log_message(
-                                    results.format_string,
+                                    results.format_string.as_str(),
                                     &firehose.message.item_info,
                                     &self.message_re,
                                 );
@@ -378,13 +432,13 @@ impl<'a> Iterator for LogIterator<'a> {
                                     continue;
                                 }
                                 if !firehose.message.backtrace_strings.is_empty() {
-                                    log_data.message = format!(
+                                    log_data.message = Rc::new(format!(
                                         "Backtrace:\n{}\n{}",
                                         firehose.message.backtrace_strings.join("\n"),
                                         log_message
-                                    );
+                                    ));
                                 } else {
-                                    log_data.message = log_message;
+                                    log_data.message = Rc::new(log_message);
                                 }
                             }
                             Err(err) => {
@@ -411,7 +465,7 @@ impl<'a> Iterator for LogIterator<'a> {
                                 log_data.library_uuid = results.library_uuid;
                                 log_data.process = results.process;
                                 log_data.process_uuid = results.process_uuid;
-                                log_data.raw_message = results.format_string;
+                                log_data.raw_message = results.format_string.clone();
 
                                 let mut log_message =
                                     if firehose.firehose_non_activity.data_ref_value != 0 {
@@ -423,14 +477,14 @@ impl<'a> Iterator for LogIterator<'a> {
                                         );
                                         // Format and map the log strings with the message format string found UUIDText or shared string file
                                         format_firehose_log_message(
-                                            results.format_string,
+                                            results.format_string.as_str(),
                                             &oversize_strings,
                                             &self.message_re,
                                         )
                                     } else {
                                         // Format and map the log strings with the message format string found UUIDText or shared string file
                                         format_firehose_log_message(
-                                            results.format_string,
+                                            results.format_string.as_str(),
                                             &firehose.message.item_info,
                                             &self.message_re,
                                         )
@@ -456,12 +510,12 @@ impl<'a> Iterator for LogIterator<'a> {
                                 );
 
                                 if !firehose.message.backtrace_strings.is_empty() {
-                                    log_data.message = format!(
+                                    log_data.message = Rc::new(format!(
                                         "Backtrace:\n{}\n{log_message}",
                                         firehose.message.backtrace_strings.join("\n"),
-                                    );
+                                    ));
                                 } else {
-                                    log_data.message = log_message;
+                                    log_data.message = Rc::new(log_message);
                                 }
                             }
                             Err(err) => {
@@ -503,7 +557,7 @@ impl<'a> Iterator for LogIterator<'a> {
                                 log_data.process_uuid = results.process_uuid;
 
                                 let log_message = format_firehose_log_message(
-                                    results.format_string,
+                                    results.format_string.as_str(),
                                     &firehose.message.item_info,
                                     &self.message_re,
                                 );
@@ -522,12 +576,12 @@ impl<'a> Iterator for LogIterator<'a> {
                                     continue;
                                 }
                                 if !firehose.message.backtrace_strings.is_empty() {
-                                    log_data.message = format!(
+                                    log_data.message = Rc::new(format!(
                                         "Backtrace:\n{}\n{log_message}",
                                         firehose.message.backtrace_strings.join("\n"),
-                                    );
+                                    ));
                                 } else {
-                                    log_data.message = log_message;
+                                    log_data.message = Rc::new(log_message);
                                 }
                             }
                             Err(err) => {
@@ -565,20 +619,22 @@ impl<'a> Iterator for LogIterator<'a> {
                 category: "",
                 log_type: LogType::Simpledump,
                 process: "",
-                message: simpledump.message_string.to_owned(),
+                message: Rc::new(simpledump.message_string.to_owned()),
                 event_type: EventType::Simpledump,
                 euid: 0,
                 boot_uuid: self.unified_log_data.header[0].boot_uuid,
-                timezone_name: self.unified_log_data.header[0]
-                    .timezone_path
-                    .to_string()
-                    .split('/')
-                    .next_back()
-                    .unwrap_or("Unknown Timezone Name")
-                    .to_string(),
+                timezone_name: Rc::new(
+                    self.unified_log_data.header[0]
+                        .timezone_path
+                        .to_string()
+                        .split('/')
+                        .next_back()
+                        .unwrap_or("Unknown Timezone Name")
+                        .to_string(),
+                ),
                 library_uuid: simpledump.sender_uuid,
                 process_uuid: simpledump.dsc_uuid,
-                raw_message: "",
+                raw_message: Rc::new("".to_string()),
                 message_entries: Vec::new(),
             };
             log_data_vec.push(log_data);
@@ -635,22 +691,24 @@ impl<'a> Iterator for LogIterator<'a> {
                 category: "",
                 event_type: EventType::Statedump,
                 process: "",
-                message: format!(
+                message: Rc::new(format!(
                     "title: {}\nObject Type: {}\nObject Type: {}\n{data_string}",
                     statedump.title_name, statedump.decoder_library, statedump.decoder_type,
-                ),
+                )),
                 log_type: LogType::Statedump,
                 euid: 0,
                 boot_uuid: self.unified_log_data.header[0].boot_uuid.to_owned(),
-                timezone_name: self.unified_log_data.header[0]
-                    .timezone_path
-                    .split('/')
-                    .next_back()
-                    .unwrap_or("Unknown Timezone Name")
-                    .to_string(),
+                timezone_name: Rc::new(
+                    self.unified_log_data.header[0]
+                        .timezone_path
+                        .split('/')
+                        .next_back()
+                        .unwrap_or("Unknown Timezone Name")
+                        .to_string(),
+                ),
                 library_uuid: Uuid::nil(),
                 process_uuid: Uuid::nil(),
-                raw_message: "",
+                raw_message: Rc::new("".to_string()),
                 message_entries: Vec::new(),
             };
             log_data_vec.push(log_data);
@@ -663,7 +721,7 @@ impl<'a> Iterator for LogIterator<'a> {
 }
 
 pub type LogDataStr<'a> = LogData<&'a str>;
-pub type LogDataOwned = LogData<String>;
+pub type LogDataOwned = LogData<Rc<String>>;
 
 #[derive(Debug, Serialize)]
 pub struct LogData<S>
@@ -683,24 +741,24 @@ where
     pub log_type: LogType,
     pub process: S,
     pub process_uuid: Uuid,
-    pub message: String, // todo: replace by a render_message() function
-    pub raw_message: S,
+    pub message: Rc<String>, // todo: replace by a render_message() function
+    pub raw_message: Rc<String>,
     pub boot_uuid: Uuid,
-    pub timezone_name: String, // todo: something with no alloc ?
+    pub timezone_name: Rc<String>, // todo: something with no alloc ?
     pub message_entries: Vec<FirehoseItemInfo>,
     pub timestamp: DateTime<Utc>,
 }
 
 impl<'a> LogDataStr<'a> {
     /// Parse the Unified log data read from a tracev3 file
-    pub fn parse_unified_log(data: &'a [u8]) -> nom::IResult<&[u8], UnifiedLogDataStr<'a>> {
-        let mut unified_log_data_true = UnifiedLogData {
+    pub fn parse_unified_log(data: &'a [u8]) -> nom::IResult<&[u8], UnifiedLogDataOwned> {
+        let mut unified_log_data_true = UnifiedLogDataOwned {
             header: Vec::new(),
             catalog_data: Vec::new(),
             oversize: Vec::new(),
         };
 
-        let mut catalog_data = UnifiedLogCatalogData::default();
+        let mut catalog_data = UnifiedLogCatalogDataOwned::default();
 
         let mut input = data;
         let chunk_preamble_size = 16; // Include preamble size in total chunk size
@@ -861,10 +919,10 @@ impl<'a> LogDataStr<'a> {
     }
 
     /// Get the header of the Unified Log data (tracev3 file)
-    pub(crate) fn get_header_data(data: &'a [u8], unified_log_data: &mut UnifiedLogDataStr<'a>) {
+    pub(crate) fn get_header_data(data: &'a [u8], unified_log_data: &mut UnifiedLogDataOwned) {
         let header_results = HeaderChunk::parse_header(data);
         match header_results {
-            Ok((_, header_data)) => unified_log_data.header.push(header_data),
+            Ok((_, header_data)) => unified_log_data.header.push(header_data.into_owned()),
             Err(err) => error!("[macos-unifiedlogs] Failed to parse header data: {err:?}"),
         }
     }
@@ -872,7 +930,7 @@ impl<'a> LogDataStr<'a> {
     /// Get the Catalog of the Unified Log data (tracev3 file)
     pub(crate) fn get_catalog_data(
         data: &'a [u8],
-        unified_log_data: &mut UnifiedLogCatalogDataStr<'a>,
+        unified_log_data: &mut UnifiedLogCatalogDataOwned,
     ) {
         let catalog_results = CatalogChunk::parse_catalog(data);
         match catalog_results {
@@ -884,8 +942,8 @@ impl<'a> LogDataStr<'a> {
     /// Get the Chunkset of the Unified Log data (tracev3)
     pub(crate) fn get_chunkset_data(
         data: &'a [u8],
-        catalog_data: &mut UnifiedLogCatalogDataStr<'a>,
-        unified_log_data: &mut UnifiedLogDataStr<'a>,
+        catalog_data: &mut UnifiedLogCatalogDataOwned,
+        unified_log_data: &mut UnifiedLogDataOwned,
     ) {
         // Parse and decompress the chunkset entries
         let chunkset_data_results = ChunksetChunk::parse_chunkset(data);
@@ -1059,8 +1117,9 @@ mod tests {
         let log_data = parse_log(reader).unwrap();
 
         let exclude_missing = false;
+        let log_ref = log_data.as_ref();
         let (results, _) =
-            LogData::build_log(&log_data, &mut provider, &timesync_data, exclude_missing);
+            LogData::build_log(&log_ref, &mut provider, &timesync_data, exclude_missing);
 
         assert_eq!(results.len(), 207366);
         assert_eq!(results[0].process, "/usr/libexec/lightsoutmanagementd");
@@ -1076,7 +1135,7 @@ mod tests {
             results[0].process_uuid,
             Uuid::parse_str("6C3ADF991F033C1C96C4ADFAA12D8CED").unwrap()
         );
-        assert_eq!(results[0].message, "LOMD Start");
+        assert_eq!(results[0].message.as_str(), "LOMD Start");
         assert_eq!(results[0].pid, 45);
         assert_eq!(results[0].thread_id, 588);
         assert_eq!(results[0].category, "device");
@@ -1087,8 +1146,8 @@ mod tests {
             results[0].boot_uuid,
             Uuid::parse_str("80D194AF56A34C54867449D2130D41BB").unwrap()
         );
-        assert_eq!(results[0].timezone_name, "Pacific");
-        assert_eq!(results[0].raw_message, "LOMD Start");
+        assert_eq!(results[0].timezone_name.as_str(), "Pacific");
+        assert_eq!(results[0].raw_message.as_str(), "LOMD Start");
         assert_eq!(
             results[0].timestamp,
             DateTime::parse_from_rfc3339("2022-01-16T03:05:26.434850816Z").unwrap()
@@ -1270,12 +1329,13 @@ mod tests {
         let reader = std::fs::File::open(test_path).unwrap();
 
         let log_data = parse_log(reader).unwrap();
+        let log_data_ref = log_data.as_ref();
 
         LogData::add_missing(
-            &log_data.catalog_data[0],
+            &log_data_ref.catalog_data[0],
             0,
             0,
-            &log_data.header,
+            &log_data_ref.header,
             &mut missing_unified_log_data_vec,
             &log_data.catalog_data[0].firehose[0],
         );

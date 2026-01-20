@@ -15,10 +15,10 @@ use nom::{
     number::complete::{le_u32, le_u64},
 };
 
-use crate::chunks::statedump::Statedump;
 use crate::{chunks::firehose::firehose_log::FirehosePreamble, util::u64_to_usize};
 use crate::{chunks::oversize::Oversize, preamble::LogPreamble};
 use crate::{chunks::simpledump::SimpleDump, unified_log::UnifiedLogCatalogDataStr};
+use crate::{chunks::statedump::Statedump, unified_log::UnifiedLogCatalogDataOwned};
 
 #[derive(Debug, Default)]
 pub struct ChunksetChunk {
@@ -102,8 +102,8 @@ impl ChunksetChunk {
 
     /// Parse each log (chunk) in the decompressed Chunkset data
     pub fn parse_chunkset_data<'a>(
-        data: &[u8],
-        unified_log_data: &mut UnifiedLogCatalogDataStr<'a>,
+        data: &'a [u8],
+        unified_log_data: &mut UnifiedLogCatalogDataOwned,
     ) -> nom::IResult<&'a [u8], ()> {
         let mut input = data;
         let chunk_preamble_size = 16; // Include preamble size in total chunk size
@@ -149,7 +149,7 @@ impl ChunksetChunk {
     fn get_chunkset_data<'a>(
         data: &'a [u8],
         chunk_type: u32,
-        unified_log_data: &mut UnifiedLogCatalogDataStr<'a>,
+        unified_log_data: &mut UnifiedLogCatalogDataOwned,
     ) {
         let firehose_chunk = 0x6001;
         let oversize_chunk = 0x6002;
@@ -175,7 +175,7 @@ impl ChunksetChunk {
         } else if chunk_type == statedump_chunk {
             let statedump_results = Statedump::parse_statedump(data);
             match statedump_results {
-                Ok((_, statedump)) => unified_log_data.statedump.push(statedump),
+                Ok((_, statedump)) => unified_log_data.statedump.push(statedump.into_owned()),
                 Err(err) => error!(
                     "[macos-unifiedlogs] Failed to parse statedump log entry (chunk): {err:?}"
                 ),
@@ -183,7 +183,7 @@ impl ChunksetChunk {
         } else if chunk_type == simpledump_chunk {
             let simpledump_results = SimpleDump::parse_simpledump(data);
             match simpledump_results {
-                Ok((_, simpledump)) => unified_log_data.simpledump.push(simpledump),
+                Ok((_, simpledump)) => unified_log_data.simpledump.push(simpledump.into_owned()),
                 Err(err) => error!(
                     "[macos-unifiedlogs] Failed to parse simpledump log entry (chunk): {err:?}"
                 ),
@@ -2327,7 +2327,7 @@ mod tests {
         ChunksetChunk::get_chunkset_data(&buffer, statedump_chunk, &mut unified_log);
         assert_eq!(unified_log.statedump.len(), 1);
         assert_eq!(
-            unified_log.statedump[0].title_name,
+            unified_log.statedump[0].title_name.as_str(),
             "CLDaemonStatusStateTracker"
         );
         assert_eq!(
@@ -2338,10 +2338,13 @@ mod tests {
             ]
         );
         assert_eq!(
-            unified_log.statedump[0].decoder_type,
+            unified_log.statedump[0].decoder_type.as_str(),
             "_CLDaemonStatusStateTrackerState"
         );
-        assert_eq!(unified_log.statedump[0].decoder_library, "location");
+        assert_eq!(
+            unified_log.statedump[0].decoder_library.as_str(),
+            "location"
+        );
         assert_eq!(unified_log.statedump[0].continuous_time, 3906319117);
         assert_eq!(unified_log.statedump[0].first_proc_id, 113);
         assert_eq!(unified_log.statedump[0].second_proc_id, 464);
@@ -2366,7 +2369,7 @@ mod tests {
         ChunksetChunk::get_chunkset_data(&buffer, simpledump_chunk, &mut unified_log);
         assert_eq!(unified_log.simpledump.len(), 1);
         assert_eq!(
-            unified_log.simpledump[0].message_string,
+            unified_log.simpledump[0].message_string.as_str(),
             "service exited: dirty = 0, supported pressured-exit = 1"
         );
         assert_eq!(unified_log.simpledump[0].first_proc_id, 1);
@@ -2377,7 +2380,7 @@ mod tests {
         assert_eq!(unified_log.simpledump[0].unknown_size_subsystem_string, 79);
         assert_eq!(unified_log.simpledump[0].unknown_offset, 95862);
         assert_eq!(
-            unified_log.simpledump[0].subsystem,
+            unified_log.simpledump[0].subsystem.as_str(),
             "user/501/com.apple.mdworker.shared.0B000000-0000-0000-0000-000000000000 [4229]"
         );
         assert_eq!(unified_log.simpledump[0].first_proc_id, 1);

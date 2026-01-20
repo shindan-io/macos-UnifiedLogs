@@ -226,7 +226,10 @@ mod tests {
                             &catalog_data.catalog,
                         )
                         .unwrap();
-                        assert_eq!(message_data.format_string, "starting metadata download");
+                        assert_eq!(
+                            message_data.format_string.as_str(),
+                            "starting metadata download"
+                        );
                         assert_eq!(message_data.library, "/usr/libexec/mobileassetd");
                         assert_eq!(message_data.process, "/usr/libexec/mobileassetd");
                         assert_eq!(

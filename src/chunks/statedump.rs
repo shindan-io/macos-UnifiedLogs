@@ -12,10 +12,11 @@ use nom::bytes::complete::take;
 use nom::number::complete::{le_u8, le_u32, le_u64};
 use plist::Value;
 use std::mem::size_of;
+use std::rc::Rc;
 use uuid::Uuid;
 
 pub type StatedumpStr<'a> = Statedump<&'a str>;
-pub type StatedumpOwned = Statedump<String>;
+pub type StatedumpOwned = Statedump<Rc<String>>;
 
 #[derive(Debug, Clone, Default)]
 pub struct Statedump<S>
@@ -55,10 +56,33 @@ impl<'a> StatedumpStr<'a> {
             uuid: self.uuid,
             unknown_data_type: self.unknown_data_type,
             unknown_data_size: self.unknown_data_size,
-            decoder_library: self.decoder_library.to_string(),
-            decoder_type: self.decoder_type.to_string(),
-            title_name: self.title_name.to_string(),
+            decoder_library: Rc::new(self.decoder_library.to_string()),
+            decoder_type: Rc::new(self.decoder_type.to_string()),
+            title_name: Rc::new(self.title_name.to_string()),
             statedump_data: self.statedump_data,
+        }
+    }
+}
+
+impl StatedumpOwned {
+    pub fn as_ref<'a>(&'a self) -> StatedumpStr<'a> {
+        StatedumpStr {
+            chunk_tag: self.chunk_tag,
+            chunk_subtag: self.chunk_subtag,
+            chunk_data_size: self.chunk_data_size,
+            first_proc_id: self.first_proc_id,
+            second_proc_id: self.second_proc_id,
+            ttl: self.ttl,
+            unknown_reserved: self.unknown_reserved.clone(),
+            continuous_time: self.continuous_time,
+            activity_id: self.activity_id,
+            uuid: self.uuid,
+            unknown_data_type: self.unknown_data_type,
+            unknown_data_size: self.unknown_data_size,
+            decoder_library: self.decoder_library.as_ref(),
+            decoder_type: self.decoder_type.as_ref(),
+            title_name: self.title_name.as_ref(),
+            statedump_data: self.statedump_data.clone(),
         }
     }
 }

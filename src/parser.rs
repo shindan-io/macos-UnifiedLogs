@@ -12,14 +12,16 @@ use crate::dsc::{SharedCacheStrings, SharedCacheStringsOwned};
 use crate::error::ParserError;
 use crate::timesync::TimesyncBoot;
 use crate::traits::FileProvider;
-use crate::unified_log::{LogData, LogDataStr, UnifiedLogData, UnifiedLogDataStr};
+use crate::unified_log::{
+    LogData, LogDataStr, UnifiedLogData, UnifiedLogDataOwned, UnifiedLogDataStr,
+};
 use crate::uuidtext::UUIDText;
 use std::collections::HashMap;
 use std::io::Read;
 use std::path::PathBuf;
 
 /// Parse a tracev3 file and return the deconstructed log data
-pub fn parse_log(mut reader: impl Read) -> Result<UnifiedLogData, ParserError> {
+pub fn parse_log(mut reader: impl Read) -> Result<UnifiedLogDataOwned, ParserError> {
     let mut buf = Vec::new();
     if let Err(err) = reader.read_to_end(&mut buf) {
         error!("[macos-unifiedlogs] Failed to read the tracev3 file: {err:?}");
@@ -411,7 +413,9 @@ mod tests {
         let timesync_data = collect_timesync(&provider).unwrap();
 
         let exclude_missing = false;
-        let (results, _) = build_log(&log_data, &mut provider, &timesync_data, exclude_missing);
+        let log_ref = log_data.as_ref();
+
+        let (results, _) = build_log(&log_ref, &mut provider, &timesync_data, exclude_missing);
         assert_eq!(results.len(), 207366);
         assert_eq!(results[10].process, "/usr/libexec/lightsoutmanagementd");
         assert_eq!(results[10].subsystem, "com.apple.lom");
@@ -421,7 +425,10 @@ mod tests {
             results[10].library,
             "/System/Library/PrivateFrameworks/AppleLOM.framework/Versions/A/AppleLOM"
         );
-        assert_eq!(results[10].message, "<private> LOM isSupported : No");
+        assert_eq!(
+            results[10].message.as_str(),
+            "<private> LOM isSupported : No"
+        );
         assert_eq!(results[10].pid, 45);
         assert_eq!(results[10].thread_id, 588);
         assert_eq!(results[10].category, "device");
@@ -432,7 +439,7 @@ mod tests {
             results[10].boot_uuid,
             Uuid::parse_str("80D194AF56A34C54867449D2130D41BB").unwrap()
         );
-        assert_eq!(results[10].timezone_name, "Pacific");
+        assert_eq!(results[10].timezone_name.as_str(), "Pacific");
         assert_eq!(
             results[10].library_uuid,
             Uuid::parse_str("D8E5AF1CAF4F3CEB8731E6F240E8EA7D").unwrap()
@@ -441,6 +448,6 @@ mod tests {
             results[10].process_uuid,
             Uuid::parse_str("6C3ADF991F033C1C96C4ADFAA12D8CED").unwrap()
         );
-        assert_eq!(results[10].raw_message, "%@ LOM isSupported : %s");
+        assert_eq!(results[10].raw_message.as_str(), "%@ LOM isSupported : %s");
     }
 }

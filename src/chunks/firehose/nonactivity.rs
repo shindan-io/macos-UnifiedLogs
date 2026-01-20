@@ -302,7 +302,7 @@ mod tests {
                             )
                             .unwrap();
                         assert_eq!(
-                            message_data.format_string,
+                            message_data.format_string.as_str(),
                             "opendirectoryd (build %{public}s) launched..."
                         );
                         assert_eq!(message_data.library, "/usr/libexec/opendirectoryd");

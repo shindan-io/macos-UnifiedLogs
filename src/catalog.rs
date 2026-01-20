@@ -5,7 +5,7 @@
 // is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and limitations under the License.
 
-use std::collections::HashMap;
+use std::{collections::HashMap, rc::Rc};
 
 use crate::{preamble::LogPreamble, util::*};
 use log::error;
@@ -111,7 +111,7 @@ pub struct CatalogSubchunk {
 }
 
 pub type SubsystemInfoStr<'a> = SubsystemInfo<&'a str>;
-pub type SubsystemInfoOwned = SubsystemInfo<String>;
+pub type SubsystemInfoOwned = SubsystemInfo<Rc<String>>;
 
 #[derive(Debug)]
 pub struct SubsystemInfo<S>

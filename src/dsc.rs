@@ -12,10 +12,11 @@ use nom::bytes::complete::take;
 use nom::number::complete::{be_u128, le_u16, le_u32, le_u64};
 use serde::{Deserialize, Serialize};
 use std::mem::size_of;
+use std::rc::Rc;
 use uuid::Uuid;
 
 pub type SharedCacheStringsStr<'a> = SharedCacheStrings<&'a str>;
-pub type SharedCacheStringsOwned = SharedCacheStrings<String>;
+pub type SharedCacheStringsOwned = SharedCacheStrings<Rc<String>>;
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct SharedCacheStrings<S>
@@ -79,7 +80,7 @@ pub struct RangeDescriptor {
 }
 
 pub type UUIDDescriptorStr<'a> = UUIDDescriptor<&'a str>;
-pub type UUIDDescriptorOwned = UUIDDescriptor<String>;
+pub type UUIDDescriptorOwned = UUIDDescriptor<Rc<String>>;
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct UUIDDescriptor<S>
@@ -100,7 +101,7 @@ impl<'a> UUIDDescriptorStr<'a> {
             text_size: self.text_size,
             uuid: self.uuid,
             path_offset: self.path_offset,
-            path_string: self.path_string.to_string(),
+            path_string: Rc::new(self.path_string.to_string()),
         }
     }
 }

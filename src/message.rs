@@ -1011,7 +1011,7 @@ mod tests {
         }];
         let message_re = Regex::new(r"(%(?:(?:\{[^}]+}?)(?:[-+0#]{0,5})(?:\d+|\*)?(?:\.(?:\d+|\*))?(?:h|hh|l|ll|w|I|z|t|q|I32|I64)?[cmCdiouxXeEfgGaAnpsSZP@%}]|(?:[-+0 #]{0,5})(?:\d+|\*)?(?:\.(?:\d+|\*))?(?:h|hh|l||q|t|ll|w|I|z|I32|I64)?[cmCdiouxXeEfgGaAnpsSZP@%]))").unwrap();
 
-        let log_string = format_firehose_log_message(test_data, &item_message, &message_re);
+        let log_string = format_firehose_log_message(&test_data, &item_message, &message_re);
         assert_eq!(log_string, "opendirectoryd (build 796.100) launched...")
     }
 
@@ -1060,7 +1060,7 @@ mod tests {
             },
         ];
 
-        let log_string = format_firehose_log_message(message, &items, &message_re);
+        let log_string = format_firehose_log_message(&message, &items, &message_re);
         // The printf format options are bad/wrong for this message. We log warning and return 0 default
         // Apple records as: <decode: mismatch for [%u] got [STRING sz:3]
         assert_eq!(

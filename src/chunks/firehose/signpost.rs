@@ -310,7 +310,7 @@ mod tests {
                             &catalog_data.catalog,
                         )
                         .unwrap();
-                        assert_eq!(message_data.format_string, "");
+                        assert_eq!(message_data.format_string.as_str(), "");
                         assert_eq!(message_data.library, "/usr/libexec/kernelmanagerd");
                         assert_eq!(message_data.process, "/usr/libexec/kernelmanagerd");
                         assert_eq!(

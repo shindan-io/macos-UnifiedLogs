@@ -5,7 +5,7 @@
 // is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and limitations under the License.
 
-use std::{mem::size_of, str::from_utf8};
+use std::{mem::size_of, rc::Rc, str::from_utf8};
 
 use log::warn;
 use nom::{
@@ -17,7 +17,7 @@ use uuid::Uuid;
 use crate::util::INVALID_UTF8;
 
 pub type HeaderChunkStr<'a> = HeaderChunk<&'a str>;
-pub type HeaderChunkOwned = HeaderChunk<String>;
+pub type HeaderChunkOwned = HeaderChunk<Rc<String>>;
 
 #[derive(Debug, Clone, Default)]
 pub struct HeaderChunk<S>
@@ -57,9 +57,44 @@ where
 impl<'a> HeaderChunkStr<'a> {
     pub fn into_owned(self) -> HeaderChunkOwned {
         HeaderChunkOwned {
-            build_version_string: self.build_version_string.to_string(),
-            hardware_model_string: self.hardware_model_string.to_string(),
-            timezone_path: self.timezone_path.to_string(),
+            build_version_string: Rc::new(self.build_version_string.to_string()),
+            hardware_model_string: Rc::new(self.hardware_model_string.to_string()),
+            timezone_path: Rc::new(self.timezone_path.to_string()),
+            chunk_tag: self.chunk_tag,
+            chunk_sub_tag: self.chunk_sub_tag,
+            chunk_data_size: self.chunk_data_size,
+            mach_time_numerator: self.mach_time_numerator,
+            mach_time_denominator: self.mach_time_denominator,
+            continous_time: self.continous_time,
+            unknown_time: self.unknown_time,
+            unknown: self.unknown,
+            bias_min: self.bias_min,
+            daylight_savings: self.daylight_savings,
+            unknown_flags: self.unknown_flags,
+            sub_chunk_tag: self.sub_chunk_tag,
+            sub_chunk_data_size: self.sub_chunk_data_size,
+            sub_chunk_continous_time: self.sub_chunk_continous_time,
+            sub_chunk_tag_2: self.sub_chunk_tag_2,
+            sub_chunk_tag_data_size_2: self.sub_chunk_tag_data_size_2,
+            unknown_2: self.unknown_2,
+            unknown_3: self.unknown_3,
+            sub_chunk_tag_3: self.sub_chunk_tag_3,
+            sub_chunk_tag_data_size_3: self.sub_chunk_tag_data_size_3,
+            boot_uuid: self.boot_uuid,
+            logd_pid: self.logd_pid,
+            logd_exit_status: self.logd_exit_status,
+            sub_chunk_tag_4: self.sub_chunk_tag_4,
+            sub_chunk_tag_data_size_4: self.sub_chunk_tag_data_size_4,
+        }
+    }
+}
+
+impl HeaderChunkOwned {
+    pub fn as_ref<'a>(&'a self) -> HeaderChunkStr<'a> {
+        HeaderChunkStr {
+            build_version_string: self.build_version_string.as_str(),
+            hardware_model_string: self.hardware_model_string.as_str(),
+            timezone_path: self.timezone_path.as_str(),
             chunk_tag: self.chunk_tag,
             chunk_sub_tag: self.chunk_sub_tag,
             chunk_data_size: self.chunk_data_size,

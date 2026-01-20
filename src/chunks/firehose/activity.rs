@@ -281,7 +281,7 @@ mod tests {
                         )
                         .unwrap();
                         assert_eq!(
-                            message_data.format_string,
+                            message_data.format_string.as_str(),
                             "Internal: Check the state of a node"
                         );
                         assert_eq!(message_data.library, "/usr/libexec/opendirectoryd");

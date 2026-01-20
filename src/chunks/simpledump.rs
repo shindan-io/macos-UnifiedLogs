@@ -9,10 +9,11 @@ use crate::util::{clean_uuid, extract_string};
 use nom::bytes::complete::take;
 use nom::number::complete::{le_u16, le_u32, le_u64};
 use std::mem::size_of;
+use std::rc::Rc;
 use uuid::Uuid;
 
 pub type SimpleDumpStr<'a> = SimpleDump<&'a str>;
-pub type SimpleDumpOwned = SimpleDump<String>;
+pub type SimpleDumpOwned = SimpleDump<Rc<String>>;
 
 /*
    Introduced in macOS Monterey (12).  Appears to be a "simpler" version of Statedump?
@@ -60,8 +61,32 @@ impl<'a> SimpleDumpStr<'a> {
             unknown_number_message_strings: self.unknown_number_message_strings,
             unknown_size_subsystem_string: self.unknown_size_subsystem_string,
             unknown_size_message_string: self.unknown_size_message_string,
-            subsystem: self.subsystem.to_string(),
-            message_string: self.message_string.to_string(),
+            subsystem: Rc::new(self.subsystem.to_string()),
+            message_string: Rc::new(self.message_string.to_string()),
+        }
+    }
+}
+
+impl SimpleDumpOwned {
+    pub fn as_ref<'a>(&'a self) -> SimpleDumpStr<'a> {
+        SimpleDumpStr {
+            chunk_tag: self.chunk_tag,
+            chunk_subtag: self.chunk_subtag,
+            chunk_data_size: self.chunk_data_size,
+            first_proc_id: self.first_proc_id,
+            second_proc_id: self.second_proc_id,
+            continous_time: self.continous_time,
+            thread_id: self.thread_id,
+            unknown_offset: self.unknown_offset,
+            unknown_ttl: self.unknown_ttl,
+            unknown_type: self.unknown_type,
+            sender_uuid: self.sender_uuid,
+            dsc_uuid: self.dsc_uuid,
+            unknown_number_message_strings: self.unknown_number_message_strings,
+            unknown_size_subsystem_string: self.unknown_size_subsystem_string,
+            unknown_size_message_string: self.unknown_size_message_string,
+            subsystem: self.subsystem.as_str(),
+            message_string: self.message_string.as_str(),
         }
     }
 }

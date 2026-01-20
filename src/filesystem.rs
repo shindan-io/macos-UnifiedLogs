@@ -529,10 +529,8 @@ impl FileProvider for LogarchiveProvider {
 
 #[cfg(test)]
 mod tests {
-    use super::{LogFileType, LogarchiveProvider};
-    use crate::traits::FileProvider;
+    use super::LogFileType;
     use std::path::PathBuf;
-    use uuid::Uuid;
 
     #[test]
     fn test_only_hex() {

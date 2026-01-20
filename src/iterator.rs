@@ -1,7 +1,7 @@
 use crate::{
-    header::{HeaderChunkOwned, HeaderChunkStr},
+    header::HeaderChunkStr,
     preamble::LogPreamble,
-    unified_log::{LogData, UnifiedLogCatalogData, UnifiedLogData, UnifiedLogDataStr},
+    unified_log::{LogData, UnifiedLogCatalogData, UnifiedLogDataStr},
     util::padding_size_8,
 };
 use log::{error, warn};
@@ -213,7 +213,10 @@ mod tests {
                     results[10].library,
                     "/System/Library/PrivateFrameworks/AppleLOM.framework/Versions/A/AppleLOM"
                 );
-                assert_eq!(results[10].message, "<private> LOM isSupported : No");
+                assert_eq!(
+                    results[10].message.as_str(),
+                    "<private> LOM isSupported : No"
+                );
                 assert_eq!(results[10].pid, 45);
                 assert_eq!(results[10].thread_id, 588);
                 assert_eq!(results[10].category, "device");
@@ -224,7 +227,7 @@ mod tests {
                     results[10].boot_uuid,
                     Uuid::parse_str("80D194AF56A34C54867449D2130D41BB").unwrap()
                 );
-                assert_eq!(results[10].timezone_name, "Pacific");
+                assert_eq!(results[10].timezone_name.as_str(), "Pacific");
                 assert_eq!(
                     results[10].library_uuid,
                     Uuid::parse_str("D8E5AF1CAF4F3CEB8731E6F240E8EA7D").unwrap()
@@ -233,7 +236,7 @@ mod tests {
                     results[10].process_uuid,
                     Uuid::parse_str("6C3ADF991F033C1C96C4ADFAA12D8CED").unwrap()
                 );
-                assert_eq!(results[10].raw_message, "%@ LOM isSupported : %s");
+                assert_eq!(results[10].raw_message.as_str(), "%@ LOM isSupported : %s");
             }
 
             total += results.len();
