@@ -39,10 +39,6 @@ enum FormatableType {
     Octal,
     String,
 }
-enum Alignment {
-    Left,
-    Right,
-}
 
 fn get_formatable_type(type_data: &str) -> Option<FormatableType> {
     if FLOAT_TYPES.contains(&type_data) {
