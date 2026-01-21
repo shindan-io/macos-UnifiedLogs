@@ -1232,42 +1232,46 @@ mod tests {
         assert_eq!(results, "signpost.description:begin_time");
     }
 
-    #[test]
-    fn test_format_alignment_left() {
-        let test_type = FormatableType::Integer;
-        let test_width = 4;
-        let test_precision = 0;
-        let test_format = rc_string!("2");
-        let plus_minus = false;
-        let hashtag = false;
-        let formatted_results = format_alignment_left(
-            test_format,
-            test_width,
-            test_precision,
-            test_type,
-            plus_minus,
-            hashtag,
-        );
-        assert_eq!(formatted_results.as_str(), "2000");
+    #[test_case("2", FormatableType::Integer, 0, 4, false, false, "2000"; "WAT ?")]
+    #[test_case("2", FormatableType::Integer, 0, 5, false, false, "20000";"WATT ?")]
+    #[test_case("2", FormatableType::Integer, 0, 3, true, false, "+20"; "WATTT ?")]
+    #[test_case("2", FormatableType::Integer, 0, 0, true, false, "+2")]
+    #[test_case("plop", FormatableType::Integer, 0, 3, false, false, "000"; "error case => defaults to 0")]
+    #[test_case(F, FormatableType::Float, 4, 10, true, false, "+2.1000000")]
+    fn test_format_alignment_left(
+        message: &str,
+        formatable: FormatableType,
+        precision: usize,
+        width: usize,
+        plus_minus: bool,
+        hashtag: bool,
+        expected: &str,
+    ) {
+        let message = rc_string!(message);
+        let result =
+            format_alignment_left(message, width, precision, formatable, plus_minus, hashtag);
+        assert_eq!(result.as_str(), expected);
     }
 
-    #[test]
-    fn test_format_alignment_right() {
-        let test_type = FormatableType::Integer;
-        let test_width = 4;
-        let test_precision = 0;
-        let test_format = rc_string!("2");
-        let plus_minus = false;
-        let hashtag = false;
-        let formatted_results = format_alignment_right(
-            test_format,
-            test_width,
-            test_precision,
-            test_type,
-            plus_minus,
-            hashtag,
-        );
-        assert_eq!(formatted_results.as_str(), "0002");
+    #[test_case("2", FormatableType::Integer, 0, 4, false, false, "0002")]
+    #[test_case("2", FormatableType::Integer, 0, 5, false, false, "00002")]
+    #[test_case("2", FormatableType::Integer, 0, 3, true, false, "+02")]
+    #[test_case("2", FormatableType::Integer, 0, 0, true, false, "+2")]
+    #[test_case("plop", FormatableType::Integer, 0, 3, false, false, "000"; "error case => defaults to 0")]
+    #[test_case(F, FormatableType::Float, 4, 10, true, false, "+0002.1000")]
+    fn test_format_alignment_right(
+        message: &str,
+        formatable: FormatableType,
+        precision: usize,
+        width: usize,
+        plus_minus: bool,
+        hashtag: bool,
+        expected: &str,
+    ) {
+        let message = rc_string!(message);
+        let result =
+            format_alignment_right(message, width, precision, formatable, plus_minus, hashtag);
+        assert_eq!(result.as_str(), expected);
     }
 
     #[test_case("2", FormatableType::Integer, 0, 4, false, false, "2   ")]
@@ -1282,7 +1286,6 @@ mod tests {
     #[test_case("22", FormatableType::Octal, 0, 6, true, true, "+0o26 ")]
     #[test_case("22", FormatableType::Octal, 0, 0, false, false, "26")]
     #[test_case("plop", FormatableType::String, 0, 6, true, true, "+plop ")]
-
     fn test_format_alignment_left_space(
         message: &str,
         formatable: FormatableType,
