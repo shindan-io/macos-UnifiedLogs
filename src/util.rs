@@ -14,7 +14,7 @@ use nom::{
     combinator::opt,
     error::ErrorKind,
 };
-use std::str::from_utf8;
+use std::str::{FromStr, from_utf8};
 use uuid::Uuid;
 
 pub(crate) const INVALID_UTF8: &str = "<Invalid UTF-8>";
@@ -156,6 +156,23 @@ pub(crate) fn format_uuid(uuid: Uuid) -> String {
     format!("{:X}", uuid.simple())
 }
 
+pub(crate) fn parse_uuid_from_str(uuid_str: &str) -> Result<Uuid, uuid::Error> {
+    const UUID_LEN: usize = 32;
+
+    let first_error = match Uuid::from_str(uuid_str) {
+        Ok(u) => return Ok(u),
+        Err(e) => e,
+    };
+
+    if uuid_str.len() == UUID_LEN - 2 {
+        // UUID starts with 00 which was not included in the string
+        let formatted_uuid = format!("00{uuid_str}");
+        return Uuid::from_str(&formatted_uuid);
+    }
+
+    Err(first_error)
+}
+
 /// Base64 encode data use the STANDARD engine (alphabet along with "+" and "/")
 pub(crate) fn encode_standard(data: &[u8]) -> String {
     general_purpose::STANDARD.encode(data)
@@ -180,6 +197,16 @@ pub(crate) fn u64_to_usize(n: u64) -> Option<usize> {
 mod tests {
     use super::*;
     use test_case::test_case;
+
+    #[test]
+    fn parse_uuid_from_str_test() -> anyhow::Result<()> {
+        assert_eq!(
+            parse_uuid_from_str("004EAF1C2B310DA0383BE3D60B80E8")?,
+            Uuid::parse_str("00004EAF1C2B310DA0383BE3D60B80E8")?
+        );
+
+        Ok(())
+    }
 
     #[test_case(0, 8, 8 => 0)]
     #[test_case(1, 8, 8 => 0)]

@@ -140,22 +140,6 @@ impl FileProvider for LiveSystemProvider {
     }
 
     fn read_uuidtext(&self, uuid: Uuid) -> Result<UUIDText, Error> {
-        // let uuid_len = 32;
-        // let uuid = if uuid.len() == uuid_len - 1 {
-        //     // UUID starts with 0 which was not included in the string
-        //     &format!("0{uuid}")
-        // } else if uuid.len() == uuid_len - 2 {
-        //     // UUID starts with 00 which was not included in the string
-        //     &format!("00{uuid}")
-        // } else if uuid.len() == uuid_len {
-        //     uuid
-        // } else {
-        //     return Err(Error::new(
-        //         ErrorKind::NotFound,
-        //         format!("uuid length not correct: {uuid}"),
-        //     ));
-        // };
-
         let uuid = format_uuid(uuid);
         let dir_name = format!("{}{}", &uuid[0..1], &uuid[1..2]);
         let filename = &uuid[2..];
@@ -567,7 +551,7 @@ mod tests {
             .read_uuidtext(Uuid::parse_str("25A8CFC3A9C035F19DBDC16F994EA948").unwrap())
             .unwrap();
         assert_eq!(uuid.entry_descriptors.len(), 2);
-        assert_eq!(uuid.uuid, "");
+        assert_eq!(uuid.uuid, Uuid::nil());
         assert_eq!(uuid.footer_data.len(), 76544);
         assert_eq!(uuid.signature, 1719109785);
         assert_eq!(uuid.unknown_major_version, 2);

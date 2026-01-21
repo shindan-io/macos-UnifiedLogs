@@ -13,6 +13,7 @@ use crate::error::ParserError;
 use crate::timesync::TimesyncBoot;
 use crate::traits::FileProvider;
 use crate::unified_log::{LogData, UnifiedLogData};
+use crate::util::parse_uuid_from_str;
 use crate::uuidtext::UUIDText;
 use std::collections::HashMap;
 use std::io::Read;
@@ -119,9 +120,12 @@ pub fn collect_strings(provider: &dyn FileProvider) -> Result<Vec<UUIDText>, Par
 
         uuidtext_data.uuid = PathBuf::from(path)
             .file_name()
-            .map(|f| f.to_string_lossy())
-            .unwrap_or_default()
-            .to_string();
+            .map(|fname| fname.to_str())
+            .flatten()
+            .map(|f| parse_uuid_from_str(f).ok())
+            .flatten()
+            .unwrap_or_default();
+
         uuidtext_vec.push(uuidtext_data)
     }
     Ok(uuidtext_vec)
@@ -144,8 +148,9 @@ pub fn collect_shared_strings(
             Ok((_, mut results)) => {
                 let dsc_uuid = PathBuf::from(source.source_path())
                     .file_name()
-                    .map(|fname| fname.to_string_lossy())
-                    .map(|fname| Uuid::parse_str(&fname).ok())
+                    .map(|fname| fname.to_str())
+                    .flatten()
+                    .map(|f| Uuid::parse_str(f).ok())
                     .flatten()
                     .unwrap_or_default();
                 results.dsc_uuid = dsc_uuid;
@@ -362,17 +367,26 @@ mod tests {
         strings_results.sort_by(|a, b| a.uuid.cmp(&b.uuid));
 
         assert_eq!(strings_results[0].signature, 1719109785);
-        assert_eq!(strings_results[0].uuid, "004EAF1C2B310DA0383BE3D60B80E8");
+        assert_eq!(
+            strings_results[0].uuid,
+            Uuid::parse_str("00004EAF1C2B310DA0383BE3D60B80E8").unwrap()
+        );
         assert_eq!(strings_results[0].entry_descriptors.len(), 1);
         assert_eq!(strings_results[0].footer_data.len(), 2847);
         assert_eq!(strings_results[0].number_entries, 1);
         assert_eq!(strings_results[0].unknown_minor_version, 1);
         assert_eq!(strings_results[0].unknown_major_version, 2);
 
-        assert_eq!(strings_results[1].uuid, "00B3D870FB3AE8BDC1BA3A60D0B9A0");
+        assert_eq!(
+            strings_results[1].uuid,
+            Uuid::parse_str("0000B3D870FB3AE8BDC1BA3A60D0B9A0").unwrap()
+        );
         assert_eq!(strings_results[1].footer_data.len(), 2164);
 
-        assert_eq!(strings_results[2].uuid, "014C44534A3A748476ABD88D376918");
+        assert_eq!(
+            strings_results[2].uuid,
+            Uuid::parse_str("00014C44534A3A748476ABD88D376918").unwrap()
+        );
         assert_eq!(strings_results[2].footer_data.len(), 19011);
     }
 
