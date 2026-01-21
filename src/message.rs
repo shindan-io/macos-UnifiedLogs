@@ -22,12 +22,43 @@ struct FormatAndMessage {
     message: RcString,
 }
 
-const FLOAT_TYPES: [&str; 6] = ["f", "F", "e", "E", "g", "G"];
-const INT_TYPES: [&str; 4] = ["d", "D", "i", "u"];
-const HEX_TYPES: [&str; 5] = ["x", "X", "a", "A", "p"];
-const OCTAL_TYPES: [&str; 2] = ["o", "O"];
-const ERROR_TYPES: [&str; 1] = ["m"];
-const STRING_TYPES: [&str; 6] = ["c", "s", "@", "S", "C", "P"];
+const FLOAT_TYPES: &[&str] = &["f", "F", "e", "E", "g", "G"];
+const INT_TYPES: &[&str] = &["d", "D", "i", "u"];
+const HEX_TYPES: &[&str] = &["x", "X", "a", "A", "p"];
+const OCTAL_TYPES: &[&str] = &["o", "O"];
+const ERROR_TYPES: &[&str] = &["m"];
+const STRING_TYPES: &[&str] = &["c", "s", "@", "S", "C", "P"];
+
+const PLUS: &'static str = "+";
+
+#[derive(Debug, Clone, Copy)]
+enum FormatableType {
+    Float,
+    Integer,
+    Hex,
+    Octal,
+    String,
+}
+enum Alignment {
+    Left,
+    Right,
+}
+
+fn get_formatable_type(type_data: &str) -> Option<FormatableType> {
+    if FLOAT_TYPES.contains(&type_data) {
+        Some(FormatableType::Float)
+    } else if INT_TYPES.contains(&type_data) {
+        Some(FormatableType::Integer)
+    } else if STRING_TYPES.contains(&type_data) {
+        Some(FormatableType::String)
+    } else if HEX_TYPES.contains(&type_data) {
+        Some(FormatableType::Hex)
+    } else if OCTAL_TYPES.contains(&type_data) {
+        Some(FormatableType::Octal)
+    } else {
+        None
+    }
+}
 
 /// Format the Unified Log message entry based on the parsed log items. Formatting follows the C lang prinf formatting process
 pub fn format_firehose_log_message(
@@ -35,7 +66,7 @@ pub fn format_firehose_log_message(
     item_message: &Vec<FirehoseItemInfo>,
     message_re: &Regex,
 ) -> RcString {
-    let mut log_message = format_string;
+    let log_message = format_string;
     let mut format_and_message_vec: Vec<FormatAndMessage> = Vec::new();
     info!("Unified log base message: {log_message:?}");
     info!("Unified log entry strings: {item_message:?}");
@@ -408,60 +439,65 @@ fn parse_formatter<'a>(
         return Ok(("", message));
     }
 
-    if !width.is_empty() {
-        let mut width_value = 0;
-        let width_results = width.parse::<usize>();
-        match width_results {
-            Ok(value) => width_value = value,
-            Err(err) => error!("[macos-unifiedlogs] Failed to parse format width value: {err:?}"),
-        }
-        if pad_zero {
-            // Pad using zeros instead of spaces
-            if left_justify {
-                message = format_alignment_left(
-                    message,
-                    width_value,
-                    precision_value,
-                    type_data,
-                    plus_minus,
-                    hashtag,
-                )
-            } else {
-                message = format_alignment_right(
-                    message,
-                    width_value,
-                    precision_value,
-                    type_data,
-                    plus_minus,
-                    hashtag,
-                )
+    if let Some(formatable) = get_formatable_type(type_data) {
+        if !width.is_empty() {
+            let mut width_value = 0;
+            let width_results = width.parse::<usize>();
+            match width_results {
+                Ok(value) => width_value = value,
+                Err(err) => {
+                    error!("[macos-unifiedlogs] Failed to parse format width value: {err:?}")
+                }
             }
+
+            if pad_zero {
+                // Pad using zeros instead of spaces
+                if left_justify {
+                    message = format_alignment_left(
+                        message,
+                        width_value,
+                        precision_value,
+                        formatable,
+                        plus_minus,
+                        hashtag,
+                    )
+                } else {
+                    message = format_alignment_right(
+                        message,
+                        width_value,
+                        precision_value,
+                        formatable,
+                        plus_minus,
+                        hashtag,
+                    )
+                }
+            } else {
+                // Pad spaces instead of zeros
+                if left_justify {
+                    message = format_alignment_left_space(
+                        message,
+                        width_value,
+                        precision_value,
+                        formatable,
+                        plus_minus,
+                        hashtag,
+                    )
+                } else {
+                    message = format_alignment_right_space(
+                        message,
+                        width_value,
+                        precision_value,
+                        formatable,
+                        plus_minus,
+                        hashtag,
+                    )
+                }
+            }
+        } else if left_justify {
+            message = format_left(message, precision_value, formatable, plus_minus, hashtag);
         } else {
-            // Pad spaces instead of zeros
-            if left_justify {
-                message = format_alignment_left_space(
-                    message,
-                    width_value,
-                    precision_value,
-                    type_data,
-                    plus_minus,
-                    hashtag,
-                )
-            } else {
-                message = format_alignment_right_space(
-                    message,
-                    width_value,
-                    precision_value,
-                    type_data,
-                    plus_minus,
-                    hashtag,
-                )
-            }
+            message = format_right(message, precision_value, formatable, plus_minus, hashtag);
         }
-    } else if left_justify {
-        message = format_left(message, precision_value, type_data, plus_minus, hashtag);
-    } else {
-        message = format_right(message, precision_value, type_data, plus_minus, hashtag);
     }
 
     Ok(("", message))
@@ -515,461 +551,346 @@ fn format_alignment_left(
     format_message: RcString,
     format_width: usize,
     format_precision: usize,
-    type_data: &str,
+    formatable: FormatableType,
     plus_minus: bool,
     hashtag: bool,
 ) -> RcString {
     let mut message = format_message;
-    let mut precision_value = format_precision;
-    let mut plus_option = String::new();
+    let mut precision = format_precision;
 
-    let mut adjust_width = 0;
-    if plus_minus {
-        plus_option = String::from("+");
-        adjust_width = 1;
-    }
+    let (plus_symbol, width) = if plus_minus {
+        (PLUS, format_width - 1)
+    } else {
+        ("", format_width)
+    };
 
-    if FLOAT_TYPES.contains(&type_data) {
-        let float_message = parse_float(&message);
-        if precision_value == 0 {
-            let message_float = float_message.to_string();
-            let float_precision: Vec<&str> = message_float.split('.').collect();
-            if float_precision.len() == 2 {
-                precision_value = float_precision[1].len();
+    match formatable {
+        FormatableType::Float => {
+            let float_message = parse_float(&message);
+            if precision == 0 {
+                let message_float = float_message.to_string();
+                let float_precision: Vec<&str> = message_float.split('.').collect();
+                if float_precision.len() == 2 {
+                    precision = float_precision[1].len();
+                }
+            }
+            message = rc_string!(format!("{plus_symbol}{float_message:0<width$.precision$}"));
+        }
+        FormatableType::Integer => {
+            let int_message = parse_int(&message);
+            message = rc_string!(format!("{plus_symbol}{int_message:0<width$.precision$}"));
+        }
+        FormatableType::Hex => {
+            let hex_message = parse_int(&message);
+            if hashtag {
+                message = rc_string!(format!("{plus_symbol}{hex_message:0<#width$.precision$X}"));
+            } else {
+                message = rc_string!(format!("{plus_symbol}{hex_message:0<width$.precision$X}"));
             }
         }
-        message = rc_string!(format!(
-            "{plus_symbol}{float_message:0<width$.precision$}",
-            width = format_width - adjust_width,
-            precision = precision_value,
-            plus_symbol = plus_option
-        ));
-    } else if INT_TYPES.contains(&type_data) {
-        let int_message = parse_int(&message);
-        message = rc_string!(format!(
-            "{plus_symbol}{int_message:0<width$.precision$}",
-            width = format_width - adjust_width,
-            precision = precision_value,
-            plus_symbol = plus_option
-        ));
-    } else if STRING_TYPES.contains(&type_data) {
-        if precision_value == 0 {
-            precision_value = message.len()
+        FormatableType::Octal => {
+            let octal_message = parse_int(&message);
+            if hashtag {
+                message = rc_string!(format!(
+                    "{plus_symbol}{octal_message:0<#width$.precision$o}",
+                ));
+            } else {
+                message = rc_string!(format!("{plus_symbol}{octal_message:0<width$.precision$o}"));
+            }
         }
-        message = rc_string!(format!(
-            "{plus_symbol}{message:0<width$.precision$}",
-            width = format_width - adjust_width,
-            precision = precision_value,
-            plus_symbol = plus_option
-        ));
-    } else if HEX_TYPES.contains(&type_data) {
-        let hex_message = parse_int(&message);
-        if hashtag {
-            message = rc_string!(format!(
-                "{plus_symbol}{hex_message:0<#width$.precision$X}",
-                width = format_width - adjust_width,
-                precision = precision_value,
-                plus_symbol = plus_option
-            ));
-        } else {
-            message = rc_string!(format!(
-                "{plus_symbol}{hex_message:0<width$.precision$X}",
-                width = format_width - adjust_width,
-                precision = precision_value,
-                plus_symbol = plus_option
-            ));
-        }
-    } else if OCTAL_TYPES.contains(&type_data) {
-        let octal_message = parse_int(&message);
-        if hashtag {
-            message = rc_string!(format!(
-                "{plus_symbol}{octal_message:0<#width$.precision$o}",
-                width = format_width - adjust_width,
-                precision = precision_value,
-                plus_symbol = plus_option
-            ));
-        } else {
-            message = rc_string!(format!(
-                "{plus_symbol}{octal_message:0<width$.precision$o}",
-                width = format_width - adjust_width,
-                precision = precision_value,
-                plus_symbol = plus_option
-            ));
+        FormatableType::String => {
+            if precision == 0 {
+                precision = message.len()
+            }
+            message = rc_string!(format!("{plus_symbol}{message:0<width$.precision$}"));
         }
     }
+
     message
 }
 
 // Align the message to the right and pad using zeros instead of spaces
 fn format_alignment_right(
-    format_message: RcString,
+    message: RcString,
     format_width: usize,
-    format_precision: usize,
-    type_data: &str,
+    precision: usize,
+    formatable: FormatableType,
     plus_minus: bool,
     hashtag: bool,
 ) -> RcString {
-    let mut message = format_message;
-    let mut precision_value = format_precision;
-    let mut plus_option = String::new();
+    let mut precision = precision;
 
-    let mut adjust_width = 0;
-    if plus_minus {
-        plus_option = String::from("+");
-        adjust_width = 1;
-    }
+    let (plus_symbol, width) = if plus_minus {
+        (PLUS, format_width - 1)
+    } else {
+        ("", format_width)
+    };
 
-    if FLOAT_TYPES.contains(&type_data) {
-        let float_message = parse_float(&message);
-        if precision_value == 0 {
-            let message_float = float_message.to_string();
-            let float_precision: Vec<&str> = message_float.split('.').collect();
-            if float_precision.len() == 2 {
-                precision_value = float_precision[1].len();
+    match formatable {
+        FormatableType::Float => {
+            let float_message = parse_float(&message);
+            if precision == 0 {
+                let message_float = float_message.to_string();
+                let float_precision: Vec<&str> = message_float.split('.').collect();
+                if float_precision.len() == 2 {
+                    precision = float_precision[1].len();
+                }
+            }
+            rc_string!(format!("{plus_symbol}{float_message:0>width$.precision$}"))
+        }
+        FormatableType::Integer => {
+            let int_message = parse_int(&message);
+            rc_string!(format!("{plus_symbol}{int_message:0>width$.precision$}"))
+        }
+        FormatableType::Hex => {
+            let hex_message = parse_int(&message);
+            if hashtag {
+                rc_string!(format!("{plus_symbol}{hex_message:0>#width$.precision$X}"))
+            } else {
+                rc_string!(format!("{plus_symbol}{hex_message:0>width$.precision$X}"))
             }
         }
-        message = rc_string!(format!(
-            "{plus_symbol}{float_message:0>width$.precision$}",
-            width = format_width - adjust_width,
-            precision = precision_value,
-            plus_symbol = plus_option
-        ));
-    } else if INT_TYPES.contains(&type_data) {
-        let int_message = parse_int(&message);
-        message = rc_string!(format!(
-            "{plus_symbol}{int_message:0>width$.precision$}",
-            width = format_width - adjust_width,
-            precision = precision_value,
-            plus_symbol = plus_option
-        ));
-    } else if STRING_TYPES.contains(&type_data) {
-        if precision_value == 0 {
-            precision_value = message.len()
+        FormatableType::Octal => {
+            let octal_message = parse_int(&message);
+            if hashtag {
+                rc_string!(format!(
+                    "{plus_symbol}{octal_message:0>#width$.precision$o}",
+                ))
+            } else {
+                rc_string!(format!("{plus_symbol}{octal_message:0>width$.precision$o}"))
+            }
         }
-        message = rc_string!(format!(
-            "{plus_symbol}{message:0>width$.precision$}",
-            width = format_width - adjust_width,
-            precision = precision_value,
-            plus_symbol = plus_option
-        ));
-    } else if HEX_TYPES.contains(&type_data) {
-        let hex_message = parse_int(&message);
-        if hashtag {
-            message = rc_string!(format!(
-                "{plus_symbol}{hex_message:0>#width$.precision$X}",
-                width = format_width - adjust_width,
-                precision = precision_value,
-                plus_symbol = plus_option
-            ));
-        } else {
-            message = rc_string!(format!(
-                "{plus_symbol}{hex_message:0>width$.precision$X}",
-                width = format_width - adjust_width,
-                precision = precision_value,
-                plus_symbol = plus_option
-            ));
-        }
-    } else if OCTAL_TYPES.contains(&type_data) {
-        let octal_message = parse_int(&message);
-        if hashtag {
-            message = rc_string!(format!(
-                "{plus_symbol}{octal_message:0>#width$.precision$o}",
-                width = format_width - adjust_width,
-                precision = precision_value,
-                plus_symbol = plus_option
-            ));
-        } else {
-            message = rc_string!(format!(
-                "{plus_symbol}{octal_message:0>width$.precision$o}",
-                width = format_width - adjust_width,
-                precision = precision_value,
-                plus_symbol = plus_option
-            ));
+        FormatableType::String => {
+            if precision == 0 {
+                precision = message.len()
+            }
+            rc_string!(format!("{plus_symbol}{message:0>width$.precision$}"))
         }
     }
-    message
 }
 
 // Align the message to the left and pad using spaces
 fn format_alignment_left_space(
-    format_message: RcString,
+    message: RcString,
     format_width: usize,
     format_precision: usize,
-    type_data: &str,
+    formatable: FormatableType,
     plus_minus: bool,
     hashtag: bool,
 ) -> RcString {
-    let mut message = format_message;
-    let mut precision_value = format_precision;
-    let mut plus_option = String::new();
+    let mut precision = format_precision;
 
-    let mut adjust_width = 0;
-    if plus_minus {
-        plus_option = String::from("+");
-        adjust_width = 1;
-    }
+    let (plus_symbol, width) = if plus_minus {
+        (PLUS, format_width - 1)
+    } else {
+        ("", format_width)
+    };
 
-    if FLOAT_TYPES.contains(&type_data) {
-        let float_message = parse_float(&message);
-        if precision_value == 0 {
-            let message_float = float_message.to_string();
-            let float_precision: Vec<&str> = message_float.split('.').collect();
-            if float_precision.len() == 2 {
-                precision_value = float_precision[1].len();
+    match formatable {
+        FormatableType::Float => {
+            let float_message = parse_float(&message);
+            if precision == 0 {
+                let message_float = float_message.to_string();
+                let float_precision: Vec<&str> = message_float.split('.').collect();
+                if float_precision.len() == 2 {
+                    precision = float_precision[1].len();
+                }
+            }
+            rc_string!(format!("{plus_symbol}{float_message:<width$.precision$}"))
+        }
+        FormatableType::Integer => {
+            let int_message = parse_int(&message);
+            rc_string!(format!("{plus_symbol}{int_message:<width$.precision$}"))
+        }
+        FormatableType::Hex => {
+            let hex_message = parse_int(&message);
+            if hashtag {
+                rc_string!(format!("{plus_symbol}{hex_message:<#width$.precision$X}"))
+            } else {
+                rc_string!(format!("{plus_symbol}{hex_message:<width$.precision$X}"))
             }
         }
-        message = rc_string!(format!(
-            "{plus_symbol}{float_message:<width$.precision$}",
-            width = format_width - adjust_width,
-            precision = precision_value,
-            plus_symbol = plus_option
-        ));
-    } else if INT_TYPES.contains(&type_data) {
-        let int_message = parse_int(&message);
-        message = rc_string!(format!(
-            "{plus_symbol}{int_message:<width$.precision$}",
-            width = format_width - adjust_width,
-            precision = precision_value,
-            plus_symbol = plus_option
-        ));
-    } else if STRING_TYPES.contains(&type_data) {
-        if precision_value == 0 {
-            precision_value = message.len()
+        FormatableType::Octal => {
+            let octal_message = parse_int(&message);
+            if hashtag {
+                rc_string!(format!("{plus_symbol}{octal_message:<#width$.precision$o}"))
+            } else {
+                rc_string!(format!("{plus_symbol}{octal_message:<width$.precision$o}"))
+            }
         }
-        message = rc_string!(format!(
-            "{plus_symbol}{message:<width$.precision$}",
-            width = format_width - adjust_width,
-            precision = precision_value,
-            plus_symbol = plus_option
-        ));
-    } else if HEX_TYPES.contains(&type_data) {
-        let hex_message = parse_int(&message);
-        if hashtag {
-            message = rc_string!(format!(
-                "{plus_symbol}{hex_message:<#width$.precision$X}",
-                width = format_width - adjust_width,
-                precision = precision_value,
-                plus_symbol = plus_option
-            ));
-        } else {
-            message = rc_string!(format!(
-                "{plus_symbol}{hex_message:<width$.precision$X}",
-                width = format_width - adjust_width,
-                precision = precision_value,
-                plus_symbol = plus_option
-            ));
-        }
-    } else if OCTAL_TYPES.contains(&type_data) {
-        let octal_message = parse_int(&message);
-        if hashtag {
-            message = rc_string!(format!(
-                "{plus_symbol}{octal_message:<#width$.precision$o}",
-                width = format_width - adjust_width,
-                precision = precision_value,
-                plus_symbol = plus_option
-            ));
-        } else {
-            message = rc_string!(format!(
-                "{plus_symbol}{octal_message:<width$.precision$o}",
-                width = format_width - adjust_width,
-                precision = precision_value,
-                plus_symbol = plus_option
-            ));
+        FormatableType::String => {
+            if precision == 0 {
+                precision = message.len()
+            }
+            rc_string!(format!(
+                "{plus_symbol}{message:<width$.precision$}",
+                width = width,
+                precision = precision,
+                plus_symbol = plus_symbol
+            ))
         }
     }
-    message
 }
 
 // Align the message to the right and pad using spaces
 fn format_alignment_right_space(
-    format_message: RcString,
+    message: RcString,
     format_width: usize,
     format_precision: usize,
-    type_data: &str,
+    formatable: FormatableType,
     plus_minus: bool,
     hashtag: bool,
 ) -> RcString {
-    let mut message = format_message;
-    let mut precision_value = format_precision;
-    let mut plus_option = String::new();
+    let mut precision = format_precision;
 
-    let mut adjust_width = 0;
-    if plus_minus {
-        plus_option = String::from("+");
-        adjust_width = 1;
-    }
+    let (plus_symbol, width) = if plus_minus {
+        (PLUS, format_width - 1)
+    } else {
+        ("", format_width)
+    };
 
-    if FLOAT_TYPES.contains(&type_data) {
-        let float_message = parse_float(&message);
-        if precision_value == 0 {
-            let message_float = float_message.to_string();
-            let float_precision: Vec<&str> = message_float.split('.').collect();
-            if float_precision.len() == 2 {
-                precision_value = float_precision[1].len();
+    match formatable {
+        FormatableType::Float => {
+            let float_message = parse_float(&message);
+            if precision == 0 {
+                let message_float = float_message.to_string();
+                let float_precision: Vec<&str> = message_float.split('.').collect();
+                if float_precision.len() == 2 {
+                    precision = float_precision[1].len();
+                }
+            }
+            rc_string!(format!("{plus_symbol}{float_message:>width$.precision$}"))
+        }
+        FormatableType::Integer => {
+            let int_message = parse_int(&message);
+            rc_string!(format!("{plus_symbol}{int_message:>width$.precision$}"))
+        }
+        FormatableType::Hex => {
+            let hex_message = parse_int(&message);
+            if hashtag {
+                rc_string!(format!("{plus_symbol}{hex_message:>#width$.precision$X}"))
+            } else {
+                rc_string!(format!("{plus_symbol}{hex_message:>width$.precision$X}"))
             }
         }
-        message = rc_string!(format!(
-            "{plus_symbol}{float_message:>width$.precision$}",
-            width = format_width - adjust_width,
-            precision = precision_value,
-            plus_symbol = plus_option
-        ));
-    } else if INT_TYPES.contains(&type_data) {
-        let int_message = parse_int(&message);
-        message = rc_string!(format!(
-            "{plus_symbol}{int_message:>width$.precision$}",
-            width = format_width - adjust_width,
-            precision = precision_value,
-            plus_symbol = plus_option
-        ));
-    } else if STRING_TYPES.contains(&type_data) {
-        if precision_value == 0 {
-            precision_value = message.len()
+        FormatableType::Octal => {
+            let octal_message = parse_int(&message);
+            if hashtag {
+                rc_string!(format!("{plus_symbol}{octal_message:>#width$.precision$o}"))
+            } else {
+                rc_string!(format!("{plus_symbol}{octal_message:>width$.precision$o}"))
+            }
         }
-        message = rc_string!(format!(
-            "{plus_symbol}{message:>width$.precision$}",
-            width = format_width - adjust_width,
-            precision = precision_value,
-            plus_symbol = plus_option
-        ));
-    } else if HEX_TYPES.contains(&type_data) {
-        let hex_message = parse_int(&message);
-        if hashtag {
-            message = rc_string!(format!(
-                "{plus_symbol}{hex_message:>#width$.precision$X}",
-                width = format_width - adjust_width,
-                precision = precision_value,
-                plus_symbol = plus_option
-            ));
-        } else {
-            message = rc_string!(format!(
-                "{plus_symbol}{hex_message:>width$.precision$X}",
-                width = format_width - adjust_width,
-                precision = precision_value,
-                plus_symbol = plus_option
-            ));
-        }
-    } else if OCTAL_TYPES.contains(&type_data) {
-        let octal_message = parse_int(&message);
-        if hashtag {
-            message = rc_string!(format!(
-                "{plus_symbol}{octal_message:>#width$.precision$o}",
-                width = format_width - adjust_width,
-                precision = precision_value,
-                plus_symbol = plus_option
-            ));
-        } else {
-            message = rc_string!(format!(
-                "{plus_symbol}{octal_message:>width$.precision$o}",
-                width = format_width - adjust_width,
-                precision = precision_value,
-                plus_symbol = plus_option
-            ));
+        FormatableType::String => {
+            if precision == 0 {
+                precision = message.len()
+            }
+            rc_string!(format!("{plus_symbol}{message:>width$.precision$}"))
         }
     }
-    message
 }
 
 // Align the message to the left
 fn format_left(
-    format_message: RcString,
+    message: RcString,
     format_precision: usize,
-    type_data: &str,
+    formatable: FormatableType,
     plus_minus: bool,
     hashtag: bool,
 ) -> RcString {
-    let mut message = format_message;
     let mut precision_value = format_precision;
-    let mut plus_option = String::new();
+    let plus_symbol = plus_minus.then_some(PLUS).unwrap_or_default();
 
-    if plus_minus {
-        plus_option = String::from("+");
-    }
+    match formatable {
+        FormatableType::Float => {
+            let float_message = parse_float(&message);
+            if precision_value == 0 {
+                let message_float = float_message.to_string();
+                let float_precision: Vec<&str> = message_float.split('.').collect();
+                if float_precision.len() == 2 {
+                    precision_value = float_precision[1].len();
+                }
+            }
 
-    if FLOAT_TYPES.contains(&type_data) {
-        let float_message = parse_float(&message);
-        if precision_value == 0 {
-            let message_float = float_message.to_string();
-            let float_precision: Vec<&str> = message_float.split('.').collect();
-            if float_precision.len() == 2 {
-                precision_value = float_precision[1].len();
+            rc_string!(format!("{plus_symbol}{float_message:<.precision_value$}"))
+        }
+        FormatableType::Integer => {
+            let int_message = parse_int(&message);
+            rc_string!(format!("{plus_symbol}{int_message:<.precision_value$}"))
+        }
+        FormatableType::Hex => {
+            let hex_message = parse_int(&message);
+            if hashtag {
+                rc_string!(format!("{plus_symbol}{hex_message:<#.precision_value$X}"))
+            } else {
+                rc_string!(format!("{plus_symbol}{hex_message:<.precision_value$X}"))
             }
         }
-
-        message = rc_string!(format!("{plus_option}{float_message:<.precision_value$}"));
-    } else if INT_TYPES.contains(&type_data) {
-        let int_message = parse_int(&message);
-        message = rc_string!(format!("{plus_option}{int_message:<.precision_value$}"));
-    } else if STRING_TYPES.contains(&type_data) {
-        if precision_value == 0 {
-            precision_value = message.len()
+        FormatableType::Octal => {
+            let octal_message = parse_int(&message);
+            if hashtag {
+                rc_string!(format!("{plus_symbol}{octal_message:<#.precision_value$o}"))
+            } else {
+                rc_string!(format!("{plus_symbol}{octal_message:<.precision_value$o}"))
+            }
         }
-        message = rc_string!(format!("{plus_option}{message:<.precision_value$}"));
-    } else if HEX_TYPES.contains(&type_data) {
-        let hex_message = parse_int(&message);
-        if hashtag {
-            message = rc_string!(format!("{plus_option}{hex_message:<#.precision_value$X}"));
-        } else {
-            message = rc_string!(format!("{plus_option}{hex_message:<.precision_value$X}"));
-        }
-    } else if OCTAL_TYPES.contains(&type_data) {
-        let octal_message = parse_int(&message);
-        if hashtag {
-            message = rc_string!(format!("{plus_option}{octal_message:<#.precision_value$o}"));
-        } else {
-            message = rc_string!(format!("{plus_option}{octal_message:<.precision_value$o}"));
+        FormatableType::String => {
+            if precision_value == 0 {
+                precision_value = message.len()
+            }
+            rc_string!(format!("{plus_symbol}{message:<.precision_value$}"))
         }
     }
-    message
 }
 
 // Align the message to the right (default)
 fn format_right(
-    format_message: RcString,
+    message: RcString,
     format_precision: usize,
-    type_data: &str,
+    formatable: FormatableType,
     plus_minus: bool,
     hashtag: bool,
 ) -> RcString {
-    let mut message = format_message;
     let mut precision_value = format_precision;
-    let mut plus_option = String::new();
 
-    if plus_minus {
-        plus_option = String::from("+");
-    }
+    let plus_symbol = plus_minus.then_some(PLUS).unwrap_or_default();
 
-    if FLOAT_TYPES.contains(&type_data) {
-        let float_message = parse_float(&message);
-        if precision_value == 0 {
-            let message_float = float_message.to_string();
-            let float_precision: Vec<&str> = message_float.split('.').collect();
-            if float_precision.len() == 2 {
-                precision_value = float_precision[1].len();
+    match formatable {
+        FormatableType::Float => {
+            let float_message = parse_float(&message);
+            if precision_value == 0 {
+                let message_float = float_message.to_string();
+                let float_precision: Vec<&str> = message_float.split('.').collect();
+                if float_precision.len() == 2 {
+                    precision_value = float_precision[1].len();
+                }
+            }
+
+            rc_string!(format!("{plus_symbol}{float_message:>.precision_value$}"))
+        }
+        FormatableType::Integer => {
+            let int_message = parse_int(&message);
+            rc_string!(format!("{plus_symbol}{int_message:>.precision_value$}"))
+        }
+        FormatableType::Hex => {
+            let hex_message = parse_int(&message);
+            if hashtag {
+                rc_string!(format!("{plus_symbol}{hex_message:>#.precision_value$X}"))
+            } else {
+                rc_string!(format!("{plus_symbol}{hex_message:>.precision_value$X}"))
             }
         }
-
-        message = rc_string!(format!("{plus_option}{float_message:>.precision_value$}"));
-    } else if INT_TYPES.contains(&type_data) {
-        let int_message = parse_int(&message);
-        message = rc_string!(format!("{plus_option}{int_message:>.precision_value$}"));
-    } else if STRING_TYPES.contains(&type_data) {
-        if precision_value == 0 {
-            precision_value = message.len()
+        FormatableType::Octal => {
+            let octal_message = parse_int(&message);
+            rc_string!(format!("{plus_symbol}{octal_message:>#.precision_value$o}"))
         }
-        message = rc_string!(format!("{plus_option}{message:>.precision_value$}"));
-    } else if HEX_TYPES.contains(&type_data) {
-        let hex_message = parse_int(&message);
-        if hashtag {
-            message = rc_string!(format!("{plus_option}{hex_message:>#.precision_value$X}"));
-        } else {
-            message = rc_string!(format!("{plus_option}{hex_message:>.precision_value$X}"));
+        FormatableType::String => {
+            if precision_value == 0 {
+                precision_value = message.len()
+            }
+            rc_string!(format!("{plus_symbol}{message:>.precision_value$}"))
         }
-    } else if OCTAL_TYPES.contains(&type_data) {
-        let octal_message = parse_int(&message);
-        message = rc_string!(format!("{plus_option}{octal_message:>#.precision_value$o}"));
     }
-    message
 }
 
 // Parse the float string log message to float value
@@ -1322,7 +1243,7 @@ mod tests {
 
     #[test]
     fn test_format_alignment_left() {
-        let test_type = "d";
+        let test_type = FormatableType::Integer;
         let test_width = 4;
         let test_precision = 0;
         let test_format = rc_string!("2");
@@ -1341,7 +1262,7 @@ mod tests {
 
     #[test]
     fn test_format_alignment_right() {
-        let test_type = "d";
+        let test_type = FormatableType::Integer;
         let test_width = 4;
         let test_precision = 0;
         let test_format = rc_string!("2");
@@ -1360,7 +1281,7 @@ mod tests {
 
     #[test]
     fn test_format_alignment_left_space() {
-        let test_type = "d";
+        let test_type = FormatableType::Integer;
         let test_width = 4;
         let test_precision = 0;
         let test_format = rc_string!("2");
@@ -1379,7 +1300,7 @@ mod tests {
 
     #[test]
     fn test_format_alignment_right_space() {
-        let test_type = "d";
+        let test_type = FormatableType::Integer;
         let test_width = 4;
         let test_precision = 0;
         let test_format = rc_string!("2");
@@ -1398,7 +1319,7 @@ mod tests {
 
     #[test]
     fn test_format_left() {
-        let test_type = "d";
+        let test_type = FormatableType::Integer;
         let test_precision = 0;
         let test_format = rc_string!("2");
         let plus_minus = false;
@@ -1410,7 +1331,7 @@ mod tests {
 
     #[test]
     fn test_format_right() {
-        let test_type = "d";
+        let test_type = FormatableType::Integer;
         let test_precision = 0;
         let test_format = rc_string!("2");
         let plus_minus = false;
