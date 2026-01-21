@@ -6,7 +6,7 @@
 // See the License for the specific language governing permissions and limitations under the License.
 
 use super::network::{get_ip_four, get_ip_six};
-use crate::util::{encode_standard, extract_string};
+use crate::util::{encode_standard, extract_string, join_strs};
 use log::warn;
 use nom::{
     bytes::complete::take,
@@ -502,10 +502,7 @@ fn assemble_network_interface(
         names.insert(entry.name);
     }
 
-    message += &format!(
-        "Network interfaces: {}\n",
-        names.into_iter().collect::<Vec<_>>().join(", ")
-    );
+    message += &format!("Network interfaces: {}\n", join_strs(names, ", ", None));
 
     message
 }
