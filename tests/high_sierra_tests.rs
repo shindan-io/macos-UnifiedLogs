@@ -60,18 +60,18 @@ fn test_build_log_high_sierra() {
     let exclude_missing = false;
     let (results, _) = build_log(&log_data, &mut provider, &timesync_data, exclude_missing);
     assert_eq!(results.len(), 162402);
-    assert_eq!(results[0].process, "/usr/libexec/opendirectoryd");
-    assert_eq!(results[0].subsystem, "com.apple.opendirectoryd");
+    assert_eq!(results[0].process.as_str(), "/usr/libexec/opendirectoryd");
+    assert_eq!(results[0].subsystem.as_str(), "com.apple.opendirectoryd");
     assert_eq!(results[0].time, 1624134811546060433.0);
     assert_eq!(results[0].activity_id, 0);
-    assert_eq!(results[0].library, "/usr/libexec/opendirectoryd");
+    assert_eq!(results[0].library.as_str(), "/usr/libexec/opendirectoryd");
     assert_eq!(
-        results[0].message,
+        results[0].message.as_str(),
         "opendirectoryd (build 483.700) launched..."
     );
     assert_eq!(results[0].pid, 59);
     assert_eq!(results[0].thread_id, 622);
-    assert_eq!(results[0].category, "default");
+    assert_eq!(results[0].category.as_str(), "default");
     assert_eq!(results[0].log_type, LogType::Default);
     assert_eq!(results[0].event_type, EventType::Log);
     assert_eq!(results[0].euid, 0);
@@ -79,7 +79,7 @@ fn test_build_log_high_sierra() {
         results[0].boot_uuid,
         Uuid::parse_str("30774817CF1549B0920E1A8E17D47AB5").unwrap()
     );
-    assert_eq!(results[0].timezone_name, "Pacific");
+    assert_eq!(results[0].timezone_name.as_str(), "Pacific");
     assert_eq!(
         results[0].process_uuid,
         Uuid::parse_str("AD43C574A9F73311A4E995237667082A").unwrap()
@@ -89,7 +89,7 @@ fn test_build_log_high_sierra() {
         Uuid::parse_str("AD43C574A9F73311A4E995237667082A").unwrap()
     );
     assert_eq!(
-        results[0].raw_message,
+        results[0].raw_message.as_str(),
         "opendirectoryd (build %{public}s) launched..."
     );
 }
@@ -112,28 +112,28 @@ fn test_build_log_complex_format_high_sierra() {
     assert_eq!(results.len(), 162402);
 
     for result in &results {
-        if result.message
+        if result.message.as_str()
             == "<PCPersistentTimer: 0x7f8b72c722f0> Calculated minimum fire date [2021-06-19 19:47:59 -0700] (75%) with fire date [2021-06-19 21:51:14 -0700], start date [2021-06-19 13:38:14 -0700], minimum early fire proportion 0.75, power state detection supported: no, in high power state: no, early fire constant interval 0"
         {
             assert_eq!(
-                result.process,
+                result.process.as_str(),
                 "/System/Library/PrivateFrameworks/CalendarNotification.framework/Versions/A/XPCServices/CalNCService.xpc/Contents/MacOS/CalNCService"
             );
-            assert_eq!(result.subsystem, "com.apple.PersistentConnection");
+            assert_eq!(result.subsystem.as_str(), "com.apple.PersistentConnection");
             assert_eq!(result.time, 1624135094694359040.0);
             assert_eq!(result.activity_id, 0);
             assert_eq!(
-                result.library,
+                result.library.as_str(),
                 "/System/Library/PrivateFrameworks/PersistentConnection.framework/Versions/A/PersistentConnection"
             );
             assert_eq!(
-                result.message,
+                result.message.as_str(),
                 "<PCPersistentTimer: 0x7f8b72c722f0> Calculated minimum fire date [2021-06-19 19:47:59 -0700] (75%) with fire date [2021-06-19 21:51:14 -0700], start date [2021-06-19 13:38:14 -0700], minimum early fire proportion 0.75, power state detection supported: no, in high power state: no, early fire constant interval 0"
             );
             assert_eq!(result.pid, 580);
             assert_eq!(result.thread_id, 8759);
             assert_eq!(
-                result.category,
+                result.category.as_str(),
                 "persistentTimer.com.apple.CalendarNotification.EKTravelEngine.periodicRefreshTimer"
             );
             assert_eq!(result.log_type, LogType::Default);
@@ -143,7 +143,7 @@ fn test_build_log_complex_format_high_sierra() {
                 result.boot_uuid,
                 Uuid::parse_str("30774817CF1549B0920E1A8E17D47AB5").unwrap()
             );
-            assert_eq!(result.timezone_name, "Pacific");
+            assert_eq!(result.timezone_name.as_str(), "Pacific");
             assert_eq!(
                 result.process_uuid,
                 Uuid::parse_str("3E78A65047873F8AAFB10EA606B84B5D").unwrap()
@@ -153,7 +153,7 @@ fn test_build_log_complex_format_high_sierra() {
                 Uuid::parse_str("761AF71A7FBE3374A4A48A38E0D59B6B").unwrap()
             );
             assert_eq!(
-                result.raw_message,
+                result.raw_message.as_str(),
                 "%{public}@ Calculated minimum fire date [%{public}@] (%g%%) with fire date [%{public}@], start date [%{public}@], minimum early fire proportion %g, power state detection supported: %{public}s, in high power state: %{public}s, early fire constant interval %f"
             );
             return;
@@ -180,11 +180,11 @@ fn test_build_log_negative_number_high_sierra() {
     assert_eq!(results.len(), 12058);
 
     for result in &results {
-        if result.message
+        if result.message.as_str()
             == "[BTUserEventAgentController messageTracerEventDriven] PowerSource -2 -2\n"
         {
             assert_eq!(
-                result.raw_message,
+                result.raw_message.as_str(),
                 "[BTUserEventAgentController messageTracerEventDriven] PowerSource %f %f\n"
             );
             return;
@@ -224,27 +224,27 @@ fn test_parse_all_logs_high_sierra() {
         if logs.message.is_empty() {
             empty_counter += 1;
 
-            if logs.process
+            if logs.process.as_str()
                 == "/System/Library/PrivateFrameworks/TelephonyUtilities.framework/callservicesd"
             {
                 empty_callservicesd += 1;
-            } else if logs.process
+            } else if logs.process.as_str()
                 == "/System/Library/PrivateFrameworks/IDS.framework/identityservicesd.app/Contents/MacOS/identityservicesd"
             {
                 empty_identityservicesd += 1;
-            } else if logs.process == "/usr/libexec/configd" {
+            } else if logs.process.as_str() == "/usr/libexec/configd" {
                 empty_configd += 1;
-            } else if logs.process == "/usr/libexec/coreduetd" {
+            } else if logs.process.as_str() == "/usr/libexec/coreduetd" {
                 empty_coreduetd += 1;
             }
         } else if logs.message.contains("<private>") {
             private_entries += logs.message.matches("<private>").count();
         }
         if logs.message.contains("bytes in/out: 818/542, packets in/out: 2/2, rtt: 0.020s, retransmitted packets: 1, out-of-order packets: 2") {
-            assert_eq!(logs.message, "[11 <private> stream, pid: 344] cancelled\n\t[11.1 334B42D96E654481B31C3A452BFB96B7 <private>.49154<-><private>]\n\tConnected Path: satisfied (Path is satisfied), interface: en0, ipv4, dns\n\tDuration: 0.115s, DNS @0.000s took 0.002s, TCP @0.002s took 0.014s\n\tbytes in/out: 818/542, packets in/out: 2/2, rtt: 0.020s, retransmitted packets: 1, out-of-order packets: 2");
-            assert_eq!(logs.raw_message, "[%{public}s %{private}@ %{public}@] cancelled\n\t[%s %{uuid_t}.16P %{private,network:in_addr}d.%d<->%{private,network:sockaddr}.*P]\n\tConnected Path: %@\n\tDuration: %u.%03us, DNS @%u.%03us took %u.%03us, %{public}s @%u.%03us took %u.%03us\n\tbytes in/out: %llu/%llu, packets in/out: %llu/%llu, rtt: %u.%03us, retransmitted packets: %llu, out-of-order packets: %u");
+            assert_eq!(logs.message.as_str(), "[11 <private> stream, pid: 344] cancelled\n\t[11.1 334B42D96E654481B31C3A452BFB96B7 <private>.49154<-><private>]\n\tConnected Path: satisfied (Path is satisfied), interface: en0, ipv4, dns\n\tDuration: 0.115s, DNS @0.000s took 0.002s, TCP @0.002s took 0.014s\n\tbytes in/out: 818/542, packets in/out: 2/2, rtt: 0.020s, retransmitted packets: 1, out-of-order packets: 2");
+            assert_eq!(logs.raw_message.as_str(), "[%{public}s %{private}@ %{public}@] cancelled\n\t[%s %{uuid_t}.16P %{private,network:in_addr}d.%d<->%{private,network:sockaddr}.*P]\n\tConnected Path: %@\n\tDuration: %u.%03us, DNS @%u.%03us took %u.%03us, %{public}s @%u.%03us took %u.%03us\n\tbytes in/out: %llu/%llu, packets in/out: %llu/%llu, rtt: %u.%03us, retransmitted packets: %llu, out-of-order packets: %u");
         }
-        if logs.process == "/kernel" && logs.library == "/kernel" {
+        if logs.process.as_str() == "/kernel" && logs.library.as_str() == "/kernel" {
             kernel_entries += 1;
         }
 

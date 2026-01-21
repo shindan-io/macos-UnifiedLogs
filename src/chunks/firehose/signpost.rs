@@ -307,9 +307,9 @@ mod tests {
                             &catalog_data.catalog,
                         )
                         .unwrap();
-                        assert_eq!(message_data.format_string, "");
-                        assert_eq!(message_data.library, "/usr/libexec/kernelmanagerd");
-                        assert_eq!(message_data.process, "/usr/libexec/kernelmanagerd");
+                        assert_eq!(message_data.format_string.as_str(), "");
+                        assert_eq!(message_data.library.as_str(), "/usr/libexec/kernelmanagerd");
+                        assert_eq!(message_data.process.as_str(), "/usr/libexec/kernelmanagerd");
                         assert_eq!(
                             message_data.process_uuid,
                             Uuid::parse_str("CCCF30257483376883C824222233386D").unwrap()

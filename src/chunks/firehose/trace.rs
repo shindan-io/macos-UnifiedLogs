@@ -9,6 +9,7 @@ use crate::catalog::CatalogChunk;
 use crate::chunks::firehose::firehose_log::{FirehoseItemData, FirehoseItemInfo};
 use crate::chunks::firehose::message::MessageData;
 use crate::traits::FileProvider;
+use crate::{RcString, rc_string};
 use log::{error, warn};
 use nom::bytes::complete::take;
 use nom::number::complete::{be_u8, be_u16, be_u32, be_u64, le_u8, le_u32};
@@ -93,7 +94,7 @@ impl FirehoseTrace {
 
         for entry_size in sizes_count {
             let mut item_info = FirehoseItemInfo {
-                message_strings: String::new(),
+                message_strings: rc_string!(""),
                 item_type: 0,
                 item_size: 0,
             };
@@ -102,26 +103,26 @@ impl FirehoseTrace {
             match entry_size {
                 1 => {
                     let (_, value) = be_u8(message_data)?;
-                    item_info.message_strings = format!("{value}")
+                    item_info.message_strings = rc_string!(format!("{value}"));
                 }
                 2 => {
                     let (_, value) = be_u16(message_data)?;
-                    item_info.message_strings = format!("{value}")
+                    item_info.message_strings = rc_string!(format!("{value}"));
                 }
                 4 => {
                     let (_, value) = be_u32(message_data)?;
-                    item_info.message_strings = format!("{value}")
+                    item_info.message_strings = rc_string!(format!("{value}"));
                 }
                 8 => {
                     let (_, value) = be_u64(message_data)?;
-                    item_info.message_strings = format!("{value}")
+                    item_info.message_strings = rc_string!(format!("{value}"));
                 }
                 _ => {
                     warn!(
                         "[macos-unifiedlogs] Unhandled size of trace data: {entry_size}. Defaulting to size of one"
                     );
                     let (_, unknown_size) = le_u8(message_data)?;
-                    item_info.message_strings = format!("{unknown_size}")
+                    item_info.message_strings = rc_string!(format!("{unknown_size}"));
                 }
             }
             remaining_input = input;
@@ -179,7 +180,7 @@ mod tests {
         let mut test_message = vec![200, 0, 0, 0, 0, 0, 0, 0, 8, 1];
         test_message.reverse();
         let (_, results) = FirehoseTrace::parse_trace_message(&test_message).unwrap();
-        assert_eq!(results.item_info[0].message_strings, "200");
+        assert_eq!(results.item_info[0].message_strings.as_str(), "200");
     }
 
     #[test]
@@ -189,8 +190,11 @@ mod tests {
         ];
         let (_, results) = FirehoseTrace::parse_trace_message(&test_message).unwrap();
 
-        assert_eq!(results.item_info[0].message_strings, "140717286580400");
-        assert_eq!(results.item_info[1].message_strings, "200");
+        assert_eq!(
+            results.item_info[0].message_strings.as_str(),
+            "140717286580400"
+        );
+        assert_eq!(results.item_info[1].message_strings.as_str(), "200");
     }
 
     #[test]
@@ -198,7 +202,7 @@ mod tests {
         let mut test_message = vec![200, 0, 0, 0, 0, 0, 0, 0, 8, 1];
         test_message.reverse();
         let results = FirehoseTrace::get_message(&test_message);
-        assert_eq!(results.item_info[0].message_strings, "200");
+        assert_eq!(results.item_info[0].message_strings.as_str(), "200");
     }
 
     #[test]
@@ -226,9 +230,12 @@ mod tests {
                             &catalog_data.catalog,
                         )
                         .unwrap();
-                        assert_eq!(message_data.format_string, "starting metadata download");
-                        assert_eq!(message_data.library, "/usr/libexec/mobileassetd");
-                        assert_eq!(message_data.process, "/usr/libexec/mobileassetd");
+                        assert_eq!(
+                            message_data.format_string.as_str(),
+                            "starting metadata download"
+                        );
+                        assert_eq!(message_data.library.as_str(), "/usr/libexec/mobileassetd");
+                        assert_eq!(message_data.process.as_str(), "/usr/libexec/mobileassetd");
                         assert_eq!(
                             message_data.process_uuid,
                             Uuid::parse_str("CC6C867B44D63D0ABAA7598659629484").unwrap()

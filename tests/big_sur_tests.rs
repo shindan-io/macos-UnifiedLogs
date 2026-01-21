@@ -88,9 +88,9 @@ fn test_big_sur_livedata() {
 
     for results in data {
         // Test for a log message that uses a firehose_header_timestamp with a value of zero
-        if results.message == "TimeSyncTime is mach_absolute_time nanoseconds\n" {
+        if results.message.as_str() == "TimeSyncTime is mach_absolute_time nanoseconds\n" {
             assert_eq!(
-                results.message,
+                results.message.as_str(),
                 "TimeSyncTime is mach_absolute_time nanoseconds\n"
             );
             assert_eq!(results.activity_id, 0);
@@ -98,20 +98,20 @@ fn test_big_sur_livedata() {
             assert_eq!(results.euid, 0);
             assert_eq!(results.pid, 0);
             assert_eq!(
-                results.library,
+                results.library.as_str(),
                 "/System/Library/Extensions/IOTimeSyncFamily.kext/Contents/MacOS/IOTimeSyncFamily"
             );
-            assert_eq!(results.subsystem, String::new());
-            assert_eq!(results.category, String::new());
+            assert_eq!(results.subsystem.as_str(), "");
+            assert_eq!(results.category.as_str(), "");
             assert_eq!(results.event_type, EventType::Log);
             assert_eq!(results.log_type, LogType::Info);
-            assert_eq!(results.process, "/kernel");
+            assert_eq!(results.process.as_str(), "/kernel");
             assert_eq!(results.time, 1642304801596413351.0);
             assert_eq!(
                 results.boot_uuid,
                 Uuid::parse_str("A2A9017676CF421C84DC9BBD6263FEE7").unwrap()
             );
-            assert_eq!(results.timezone_name, "Pacific");
+            assert_eq!(results.timezone_name.as_str(), "Pacific");
         }
     }
 }
@@ -134,18 +134,18 @@ fn test_build_log_big_sur() {
     let exclude_missing = false;
     let (results, _) = build_log(&log_data, &mut provider, &timesync_data, exclude_missing);
     assert_eq!(results.len(), 110953);
-    assert_eq!(results[0].process, "/usr/libexec/opendirectoryd");
-    assert_eq!(results[0].subsystem, "com.apple.opendirectoryd");
+    assert_eq!(results[0].process.as_str(), "/usr/libexec/opendirectoryd");
+    assert_eq!(results[0].subsystem.as_str(), "com.apple.opendirectoryd");
     assert_eq!(results[0].time, 1642303933964503310.0);
     assert_eq!(results[0].activity_id, 0);
-    assert_eq!(results[0].library, "/usr/libexec/opendirectoryd");
+    assert_eq!(results[0].library.as_str(), "/usr/libexec/opendirectoryd");
     assert_eq!(
-        results[0].message,
+        results[0].message.as_str(),
         "opendirectoryd (build 796.100) launched..."
     );
     assert_eq!(results[0].pid, 105);
     assert_eq!(results[0].thread_id, 670);
-    assert_eq!(results[0].category, "default");
+    assert_eq!(results[0].category.as_str(), "default");
     assert_eq!(results[0].log_type, LogType::Default);
     assert_eq!(results[0].event_type, EventType::Log);
     assert_eq!(results[0].euid, 0);
@@ -153,7 +153,7 @@ fn test_build_log_big_sur() {
         results[0].boot_uuid,
         Uuid::parse_str("AACFB573E87545CE98B893D132766A46").unwrap()
     );
-    assert_eq!(results[0].timezone_name, "Pacific");
+    assert_eq!(results[0].timezone_name.as_str(), "Pacific");
     assert_eq!(
         results[0].library_uuid,
         Uuid::parse_str("B736DF1625F538248E9527A8CEC4991E").unwrap()
@@ -163,7 +163,7 @@ fn test_build_log_big_sur() {
         Uuid::parse_str("B736DF1625F538248E9527A8CEC4991E").unwrap()
     );
     assert_eq!(
-        results[0].raw_message,
+        results[0].raw_message.as_str(),
         "opendirectoryd (build %{public}s) launched..."
     );
 }
@@ -233,7 +233,7 @@ fn test_parse_all_logs_big_sur() {
                 .contains("Failed to serialize Protobuf HashMap")
         {
             statedump_protocol_buffer += 1;
-        } else if logs.message
+        } else if logs.message.as_str()
             == r##"#32EC4B64 [AssetCacheLocatorService.queue] sending POST [327]{"locator-tag":"#32ec4b64","local-addresses":["192.168.101.144"],"ranked-results":true,"locator-software":[{"build":"20G224","type":"system","name":"macOS","version":"11.6.1"},{"id":"com.apple.AssetCacheLocatorService","executable":"AssetCacheLocatorService","type":"bundle","name":"AssetCacheLocatorService","version":"118"}]} to https://lcdn-locator.apple.com/lcdn/locate"##
         {
             found_precision_string = true;
@@ -527,7 +527,7 @@ fn test_parse_all_logs_private_with_public_mix_big_sur_single_file() {
         // 7FAE25B0E420 is half public and half private
         // B0E420 exists in public data but is copied/prepended to the private data.
         // 7FAE25 only exists in private data
-        if result.message
+        if result.message.as_str()
             == "os_transaction created: (7FAE25B0E420) CLLS:0x7fae23628160.LocationFine"
         {
             public_private_mixture = true

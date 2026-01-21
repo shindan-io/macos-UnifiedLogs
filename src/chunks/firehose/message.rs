@@ -9,6 +9,7 @@ use crate::catalog::CatalogProcessInfoKey;
 use crate::traits::FileProvider;
 use crate::util::{extract_string, format_uuid};
 use crate::uuidtext::UUIDTextEntry;
+use crate::{RcString, rc_string};
 use crate::{catalog::CatalogChunk, util::u64_to_usize};
 use log::{debug, error, info, warn};
 use nom::bytes::complete::take;
@@ -16,9 +17,9 @@ use uuid::Uuid;
 
 #[derive(Debug, Default)]
 pub struct MessageData {
-    pub library: String,
-    pub format_string: String,
-    pub process: String,
+    pub library: RcString,
+    pub format_string: RcString,
+    pub process: RcString,
     pub library_uuid: Uuid,
     pub process_uuid: Uuid,
 }
@@ -69,13 +70,13 @@ impl MessageData {
             shared_string.uuids[ranges.unknown_uuid_index as usize]
                 .uuid
                 .clone_into(&mut message_data.library_uuid);
-            message_data.format_string = String::from("%s");
+            message_data.format_string = rc_string!("%s");
             message_data.process_uuid = main_uuid;
 
             // Extract image path from second UUIDtext file
             let (_, process_string) =
                 MessageData::get_uuid_image_path(message_data.process_uuid, provider)?;
-            message_data.process = process_string.to_owned();
+            message_data.process = rc_string!(process_string);
 
             return Ok((&[], message_data));
         }
@@ -122,7 +123,7 @@ impl MessageData {
                     };
                     let (message_start, _) = take(offset)(string_data)?;
                     let (_, message_string) = extract_string(message_start)?;
-                    message_data.format_string = message_string.to_owned();
+                    message_data.format_string = rc_string!(message_string);
 
                     shared_string.uuids[ranges.unknown_uuid_index as usize]
                         .path_string
@@ -136,7 +137,7 @@ impl MessageData {
                     // Extract image path from second UUIDtext file
                     let (_, process_string) =
                         MessageData::get_uuid_image_path(message_data.process_uuid, provider)?;
-                    message_data.process = process_string.to_owned();
+                    message_data.process = rc_string!(process_string);
                     return Ok((&[], message_data));
                 }
             }
@@ -156,20 +157,20 @@ impl MessageData {
                 shared_string.uuids[ranges.unknown_uuid_index as usize]
                     .uuid
                     .clone_into(&mut message_data.library_uuid);
-                message_data.format_string = String::from("Error: Invalid shared string offset");
+                message_data.format_string = rc_string!("Error: Invalid shared string offset");
                 message_data.process_uuid = main_uuid;
 
                 // Extract image path from second UUIDtext file
                 let (_, process_string) =
                     MessageData::get_uuid_image_path(message_data.process_uuid, provider)?;
-                message_data.process = process_string.to_owned();
+                message_data.process = rc_string!(process_string);
 
                 return Ok((&[], message_data));
             }
         }
 
         warn!("[macos-unifiedlogs] Failed to get message string from Shared Strings DSC file");
-        message_data.format_string = String::from("Unknown shared string message");
+        message_data.format_string = rc_string!("Unknown shared string message");
 
         Ok((&[], message_data))
     }
@@ -213,9 +214,9 @@ impl MessageData {
 
             let (_, process_string) =
                 MessageData::uuidtext_image_path(footer_data, &data.entry_descriptors)?;
-            process_string.clone_into(&mut message_data.process);
-            message_data.library = process_string.to_owned();
-            message_data.format_string = String::from("%s");
+            message_data.process = rc_string!(process_string);
+            message_data.library = rc_string!(process_string);
+            message_data.format_string = rc_string!("%s");
 
             return Ok((&[], message_data));
         }
@@ -249,10 +250,10 @@ impl MessageData {
                 let (_, process_string) =
                     MessageData::uuidtext_image_path(footer_data, &data.entry_descriptors)?;
 
-                message_data.format_string = message_string.to_owned();
+                message_data.format_string = rc_string!(message_string);
                 // Process and library path are the same for log entries with main_exe
-                process_string.clone_into(&mut message_data.process);
-                message_data.library = process_string.to_owned();
+                message_data.process = rc_string!(process_string);
+                message_data.library = rc_string!(process_string);
 
                 return Ok((&[], message_data));
             }
@@ -267,12 +268,12 @@ impl MessageData {
 
             let (_, process_string) =
                 MessageData::uuidtext_image_path(footer_data, &data.entry_descriptors)?;
-            process_string.clone_into(&mut message_data.process);
-            message_data.library = process_string.to_owned();
-            message_data.format_string = format!(
+            message_data.process = rc_string!(process_string);
+            message_data.library = rc_string!(process_string);
+            message_data.format_string = rc_string!(format!(
                 "Error: Invalid offset {string_offset} for UUID {}",
                 format_uuid(message_data.process_uuid)
-            );
+            ));
 
             return Ok((&[], message_data));
         }
@@ -281,10 +282,10 @@ impl MessageData {
             "[macos-unifiedlogs] Failed to get message string from UUIDText file: {}",
             message_data.process_uuid
         );
-        message_data.format_string = format!(
+        message_data.format_string = rc_string!(format!(
             "Failed to get string message from UUIDText file: {}",
             message_data.process_uuid
-        );
+        ));
         Ok((&[], message_data))
     }
 
@@ -328,9 +329,9 @@ impl MessageData {
         let (_, main_uuid) = MessageData::get_catalog_dsc(catalogs, first_proc_id, second_proc_id);
 
         let mut message_data = MessageData {
-            library: String::new(),
-            format_string: String::new(),
-            process: String::new(),
+            library: rc_string!(""),
+            format_string: rc_string!(""),
+            process: rc_string!(""),
             library_uuid: uuid,
             process_uuid: main_uuid,
         };
@@ -361,13 +362,13 @@ impl MessageData {
             // Extract image path from current UUIDtext file
             let (_, library_string) =
                 MessageData::uuidtext_image_path(footer_data, &data.entry_descriptors)?;
-            message_data.library = library_string.to_owned();
+            message_data.library = rc_string!(library_string);
 
             // Extract image path from second UUIDtext file
             let (_, process_string) =
                 MessageData::get_uuid_image_path(message_data.process_uuid, provider)?;
-            message_data.process = process_string.to_owned();
-            message_data.format_string = String::from("%s");
+            message_data.process = rc_string!(process_string);
+            message_data.format_string = rc_string!("%s");
 
             return Ok((&[], message_data));
         }
@@ -419,13 +420,13 @@ impl MessageData {
                 // Extract image path from current UUIDtext file
                 let (_, library_string) =
                     MessageData::uuidtext_image_path(footer_data, &data.entry_descriptors)?;
-                message_data.format_string = message_string.to_owned();
-                message_data.library = library_string.to_owned();
+                message_data.format_string = rc_string!(message_string);
+                message_data.library = rc_string!(library_string);
 
                 // Extract image path from second UUIDtext file
                 let (_, process_string) =
                     MessageData::get_uuid_image_path(message_data.process_uuid, provider)?;
-                message_data.process = process_string.to_owned();
+                message_data.process = rc_string!(process_string);
                 return Ok((&[], message_data));
             }
         }
@@ -440,17 +441,16 @@ impl MessageData {
             // Extract image path from current UUIDtext file
             let (_, library_string) =
                 MessageData::uuidtext_image_path(footer_data, &data.entry_descriptors)?;
-            message_data.library = library_string.to_owned();
-            message_data.format_string = format!(
+            message_data.library = rc_string!(library_string);
+            message_data.format_string = rc_string!(format!(
                 "Error: Invalid offset {string_offset} for absolute UUID {}",
                 format_uuid(message_data.library_uuid)
-            );
+            ));
 
             // Extract image path from second UUIDtext file
             let (_, process_string) =
                 MessageData::get_uuid_image_path(message_data.process_uuid, provider)?;
-            message_data.process = process_string.to_owned();
-
+            message_data.process = rc_string!(process_string);
             return Ok((&[], message_data));
         }
 
@@ -458,10 +458,10 @@ impl MessageData {
             "[macos-unifiedlogs] Failed to get message string from absolute UUIDText file: {}",
             message_data.library_uuid
         );
-        message_data.format_string = format!(
+        message_data.format_string = rc_string!(format!(
             "Failed to get string message from absolute UUIDText file: {}",
             format_uuid(message_data.library_uuid)
-        );
+        ));
         Ok((&[], message_data))
     }
 
@@ -481,9 +481,9 @@ impl MessageData {
         let (_, main_uuid) = MessageData::get_catalog_dsc(catalogs, first_proc_id, second_proc_id);
 
         let mut message_data = MessageData {
-            library: String::new(),
-            format_string: String::new(),
-            process: String::new(),
+            library: rc_string!(""),
+            format_string: rc_string!(""),
+            process: rc_string!(""),
             library_uuid: uuid,
             process_uuid: main_uuid,
         };
@@ -514,13 +514,13 @@ impl MessageData {
             // Extract image path from current UUIDtext file
             let (_, library_string) =
                 MessageData::uuidtext_image_path(footer_data, &data.entry_descriptors)?;
-            message_data.library = library_string.to_owned();
+            message_data.library = rc_string!(library_string);
 
             // Extract image path from second UUIDtext file
             let (_, process_string) =
                 MessageData::get_uuid_image_path(message_data.process_uuid, provider)?;
-            message_data.process = process_string.to_owned();
-            message_data.format_string = String::from("%s");
+            message_data.process = rc_string!(process_string);
+            message_data.format_string = rc_string!("%s");
 
             return Ok((&[], message_data));
         }
@@ -554,10 +554,10 @@ impl MessageData {
                 // Extract image path from second UUIDtext file
                 let (_, process_string) =
                     MessageData::get_uuid_image_path(message_data.process_uuid, provider)?;
-                message_data.process = process_string.to_owned();
+                message_data.process = rc_string!(process_string);
 
-                message_data.format_string = message_string.to_owned();
-                message_data.library = library_string.to_owned();
+                message_data.format_string = rc_string!(message_string);
+                message_data.library = rc_string!(library_string);
                 return Ok((&[], message_data));
             }
         }
@@ -572,14 +572,15 @@ impl MessageData {
             // Extract image path from current UUIDtext file
             let (_, library_string) =
                 MessageData::uuidtext_image_path(footer_data, &data.entry_descriptors)?;
-            message_data.library = library_string.to_owned();
-            message_data.format_string =
-                format!("Error: Invalid offset {string_offset} for alternative UUID {uuid}");
+            message_data.library = rc_string!(library_string);
+            message_data.format_string = rc_string!(format!(
+                "Error: Invalid offset {string_offset} for alternative UUID {uuid}"
+            ));
 
             // Extract image path from second UUIDtext file
             let (_, process_string) =
                 MessageData::get_uuid_image_path(message_data.process_uuid, provider)?;
-            message_data.process = process_string.to_owned();
+            message_data.process = rc_string!(process_string);
 
             return Ok((&[], message_data));
         }
@@ -587,8 +588,9 @@ impl MessageData {
         warn!(
             "[macos-unifiedlogs] Failed to get message string from alternative UUIDText file: {uuid}"
         );
-        message_data.format_string =
-            format!("Failed to get string message from alternative UUIDText file: {uuid}");
+        message_data.format_string = rc_string!(format!(
+            "Failed to get string message from alternative UUIDText file: {uuid}"
+        ));
         Ok((&[], message_data))
     }
 
@@ -685,7 +687,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            results.library,
+            results.library.as_str(),
             "/System/Library/PrivateFrameworks/AppleLOM.framework/Versions/A/AppleLOM"
         );
         assert_eq!(
@@ -693,13 +695,16 @@ mod tests {
             Uuid::parse_str("D8E5AF1CAF4F3CEB8731E6F240E8EA7D").unwrap()
         );
 
-        assert_eq!(results.process, "/usr/libexec/lightsoutmanagementd");
+        assert_eq!(
+            results.process.as_str(),
+            "/usr/libexec/lightsoutmanagementd"
+        );
         assert_eq!(
             results.process_uuid,
             Uuid::parse_str("6C3ADF991F033C1C96C4ADFAA12D8CED").unwrap()
         );
 
-        assert_eq!(results.format_string, "%@ start")
+        assert_eq!(results.format_string.as_str(), "%@ start")
     }
 
     #[test]
@@ -725,18 +730,27 @@ mod tests {
             0,
         )
         .unwrap();
-        assert_eq!(results.library, "/usr/lib/system/libsystem_blocks.dylib");
+        assert_eq!(
+            results.library.as_str(),
+            "/usr/lib/system/libsystem_blocks.dylib"
+        );
         assert_eq!(
             results.library_uuid,
             Uuid::parse_str("4DF6D8F5D9C23A968DE45E99D6B73DC8").unwrap()
         );
 
-        assert_eq!(results.process, "/usr/libexec/lightsoutmanagementd");
+        assert_eq!(
+            results.process.as_str(),
+            "/usr/libexec/lightsoutmanagementd"
+        );
         assert_eq!(
             results.process_uuid,
             Uuid::parse_str("6C3ADF991F033C1C96C4ADFAA12D8CED").unwrap()
         );
-        assert_eq!(results.format_string, "Error: Invalid shared string offset")
+        assert_eq!(
+            results.format_string.as_str(),
+            "Error: Invalid shared string offset"
+        )
     }
 
     #[test]
@@ -762,14 +776,17 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(results.library, "/usr/lib/system/libsystem_blocks.dylib");
+        assert_eq!(
+            results.library.as_str(),
+            "/usr/lib/system/libsystem_blocks.dylib"
+        );
         assert_eq!(
             results.library_uuid,
             Uuid::parse_str("4DF6D8F5D9C23A968DE45E99D6B73DC8").unwrap()
         );
 
         assert_eq!(
-            results.process,
+            results.process.as_str(),
             "/Library/Apple/System/Library/CoreServices/MRT.app/Contents/MacOS/MRT"
         );
         assert_eq!(
@@ -777,7 +794,7 @@ mod tests {
             Uuid::parse_str("95A48BD740423BEFBA6E0818A2EED8BE").unwrap()
         );
 
-        assert_eq!(results.format_string, "%s")
+        assert_eq!(results.format_string.as_str(), "%s")
     }
 
     #[test]
@@ -803,19 +820,25 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(results.process, "/usr/libexec/lightsoutmanagementd");
+        assert_eq!(
+            results.process.as_str(),
+            "/usr/libexec/lightsoutmanagementd"
+        );
         assert_eq!(
             results.process_uuid,
             Uuid::parse_str("6C3ADF991F033C1C96C4ADFAA12D8CED").unwrap()
         );
 
-        assert_eq!(results.library, "/usr/libexec/lightsoutmanagementd");
+        assert_eq!(
+            results.library.as_str(),
+            "/usr/libexec/lightsoutmanagementd"
+        );
         assert_eq!(
             results.library_uuid,
             Uuid::parse_str("6C3ADF991F033C1C96C4ADFAA12D8CED").unwrap()
         );
 
-        assert_eq!(results.format_string, "LOMD Start")
+        assert_eq!(results.format_string.as_str(), "LOMD Start")
     }
 
     #[test]
@@ -841,9 +864,12 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(results.process, "/usr/libexec/lightsoutmanagementd");
         assert_eq!(
-            results.format_string,
+            results.process.as_str(),
+            "/usr/libexec/lightsoutmanagementd"
+        );
+        assert_eq!(
+            results.format_string.as_str(),
             "Error: Invalid offset 1 for UUID 6C3ADF991F033C1C96C4ADFAA12D8CED"
         )
     }
@@ -873,7 +899,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            results.process,
+            results.process.as_str(),
             "/System/Library/PrivateFrameworks/SystemAdministration.framework/Versions/A/Resources/UpdateSettingsTool"
         );
         assert_eq!(
@@ -882,7 +908,7 @@ mod tests {
         );
 
         assert_eq!(
-            results.library,
+            results.library.as_str(),
             "/System/Library/PrivateFrameworks/SystemAdministration.framework/Versions/A/Resources/UpdateSettingsTool"
         );
         assert_eq!(
@@ -890,7 +916,7 @@ mod tests {
             Uuid::parse_str("6F2A273A77993A719F649607CADC090B").unwrap()
         );
 
-        assert_eq!(results.format_string, "%s")
+        assert_eq!(results.format_string.as_str(), "%s")
     }
 
     #[test]
@@ -918,11 +944,11 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            results.process,
+            results.process.as_str(),
             "/System/Library/PrivateFrameworks/SystemAdministration.framework/Versions/A/Resources/UpdateSettingsTool"
         );
         assert_eq!(
-            results.format_string,
+            results.format_string.as_str(),
             "Error: Invalid offset 55 for UUID 6F2A273A77993A719F649607CADC090B"
         )
     }
@@ -954,10 +980,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            results.library,
+            results.library.as_str(),
             "/System/Library/Extensions/AppleACPIPlatform.kext/Contents/MacOS/AppleACPIPlatform"
         );
-        assert_eq!(results.format_string, "%s")
+        assert_eq!(results.format_string.as_str(), "%s")
     }
 
     #[test]
@@ -985,9 +1011,9 @@ mod tests {
             0,
         )
         .unwrap();
-        assert_eq!(results.library, "");
+        assert_eq!(results.library.as_str(), "");
         assert_eq!(
-            results.format_string,
+            results.format_string.as_str(),
             "Failed to get string message from absolute UUIDText file: 00000000000000000000000000000000"
         )
     }
@@ -1021,10 +1047,10 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            results.library,
+            results.library.as_str(),
             "/System/Library/DriverExtensions/com.apple.AppleUserHIDDrivers.dext/"
         );
-        assert_eq!(results.format_string, "%s")
+        assert_eq!(results.format_string.as_str(), "%s")
     }
 
     #[test]
@@ -1056,11 +1082,11 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            results.library,
+            results.library.as_str(),
             "/System/Library/DriverExtensions/com.apple.AppleUserHIDDrivers.dext/"
         );
         assert_eq!(
-            results.format_string,
+            results.format_string.as_str(),
             "Error: Invalid offset 111 for absolute UUID 0AB77111A2723F2697571948ECE9BDB5"
         )
     }
@@ -1092,7 +1118,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            results.library,
+            results.library.as_str(),
             "/System/Library/OpenDirectory/Modules/SystemCache.bundle/Contents/MacOS/SystemCache"
         );
         assert_eq!(
@@ -1100,7 +1126,7 @@ mod tests {
             Uuid::parse_str("C275D5EEBAD43A86B74F16F3E62BF57D").unwrap()
         );
 
-        assert_eq!(results.process, "/usr/libexec/opendirectoryd");
+        assert_eq!(results.process.as_str(), "/usr/libexec/opendirectoryd");
         assert_eq!(
             results.process_uuid,
             Uuid::parse_str("B736DF1625F538248E9527A8CEC4991E").unwrap()

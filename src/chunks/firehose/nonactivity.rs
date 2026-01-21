@@ -299,11 +299,11 @@ mod tests {
                             )
                             .unwrap();
                         assert_eq!(
-                            message_data.format_string,
+                            message_data.format_string.as_str(),
                             "opendirectoryd (build %{public}s) launched..."
                         );
-                        assert_eq!(message_data.library, "/usr/libexec/opendirectoryd");
-                        assert_eq!(message_data.process, "/usr/libexec/opendirectoryd");
+                        assert_eq!(message_data.library.as_str(), "/usr/libexec/opendirectoryd");
+                        assert_eq!(message_data.process.as_str(), "/usr/libexec/opendirectoryd");
                         assert_eq!(
                             message_data.process_uuid,
                             Uuid::parse_str("B736DF1625F538248E9527A8CEC4991E").unwrap()

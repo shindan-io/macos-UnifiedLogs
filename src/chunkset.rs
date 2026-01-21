@@ -2238,7 +2238,9 @@ mod tests {
         assert_eq!(unified_log.oversize.len(), 0);
 
         assert_eq!(
-            unified_log.firehose[0].public_data[0].message.item_info[0].message_strings,
+            unified_log.firehose[0].public_data[0].message.item_info[0]
+                .message_strings
+                .as_str(),
             "796.100"
         );
         assert_eq!(unified_log.firehose[0].base_continous_time, 0);
@@ -2281,7 +2283,9 @@ mod tests {
         ChunksetChunk::get_chunkset_data(&buffer, firehose_chunk, &mut unified_log);
         assert_eq!(unified_log.firehose.len(), 1);
         assert_eq!(
-            unified_log.firehose[0].public_data[0].message.item_info[0].message_strings,
+            unified_log.firehose[0].public_data[0].message.item_info[0]
+                .message_strings
+                .as_str(),
             "796.100"
         );
         assert_eq!(unified_log.firehose[0].base_continous_time, 0);
@@ -2303,7 +2307,9 @@ mod tests {
         ChunksetChunk::get_chunkset_data(&buffer, oversize_chunk, &mut unified_log);
         assert_eq!(unified_log.oversize.len(), 1);
         assert_eq!(
-            unified_log.oversize[0].message_items.item_info[0].message_strings,
+            unified_log.oversize[0].message_items.item_info[0]
+                .message_strings
+                .as_str(),
             "system kext collection"
         );
         assert_eq!(
@@ -2329,7 +2335,7 @@ mod tests {
         ChunksetChunk::get_chunkset_data(&buffer, statedump_chunk, &mut unified_log);
         assert_eq!(unified_log.statedump.len(), 1);
         assert_eq!(
-            unified_log.statedump[0].title_name,
+            unified_log.statedump[0].title_name.as_str(),
             "CLDaemonStatusStateTracker"
         );
         assert_eq!(
@@ -2340,10 +2346,13 @@ mod tests {
             ]
         );
         assert_eq!(
-            unified_log.statedump[0].decoder_type,
+            unified_log.statedump[0].decoder_type.as_str(),
             "_CLDaemonStatusStateTrackerState"
         );
-        assert_eq!(unified_log.statedump[0].decoder_library, "location");
+        assert_eq!(
+            unified_log.statedump[0].decoder_library.as_str(),
+            "location"
+        );
         assert_eq!(unified_log.statedump[0].continuous_time, 3906319117);
         assert_eq!(unified_log.statedump[0].first_proc_id, 113);
         assert_eq!(unified_log.statedump[0].second_proc_id, 464);
@@ -2368,7 +2377,7 @@ mod tests {
         ChunksetChunk::get_chunkset_data(&buffer, simpledump_chunk, &mut unified_log);
         assert_eq!(unified_log.simpledump.len(), 1);
         assert_eq!(
-            unified_log.simpledump[0].message_string,
+            unified_log.simpledump[0].message_string.as_str(),
             "service exited: dirty = 0, supported pressured-exit = 1"
         );
         assert_eq!(unified_log.simpledump[0].first_proc_id, 1);
@@ -2379,7 +2388,7 @@ mod tests {
         assert_eq!(unified_log.simpledump[0].unknown_size_subsystem_string, 79);
         assert_eq!(unified_log.simpledump[0].unknown_offset, 95862);
         assert_eq!(
-            unified_log.simpledump[0].subsystem,
+            unified_log.simpledump[0].subsystem.as_str(),
             "user/501/com.apple.mdworker.shared.0B000000-0000-0000-0000-000000000000 [4229]"
         );
         assert_eq!(unified_log.simpledump[0].first_proc_id, 1);

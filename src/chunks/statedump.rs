@@ -7,6 +7,7 @@
 
 use crate::decoders::{config, location};
 use crate::util::{clean_uuid, encode_standard, extract_string};
+use crate::{RcString, rc_string};
 use log::{error, info};
 use nom::bytes::complete::take;
 use nom::number::complete::{le_u8, le_u32, le_u64};
@@ -15,7 +16,7 @@ use std::mem::size_of;
 use uuid::Uuid;
 
 pub type StatedumpStr<'a> = Statedump<&'a str>;
-pub type StatedumpOwned = Statedump<String>;
+pub type StatedumpOwned = Statedump<RcString>;
 
 #[derive(Debug, Clone, Default)]
 pub struct Statedump<S>
@@ -55,9 +56,9 @@ impl<'a> StatedumpStr<'a> {
             uuid: self.uuid,
             unknown_data_type: self.unknown_data_type,
             unknown_data_size: self.unknown_data_size,
-            decoder_library: self.decoder_library.to_string(),
-            decoder_type: self.decoder_type.to_string(),
-            title_name: self.title_name.to_string(),
+            decoder_library: rc_string!(self.decoder_library),
+            decoder_type: rc_string!(self.decoder_type),
+            title_name: rc_string!(self.title_name),
             statedump_data: self.statedump_data,
         }
     }

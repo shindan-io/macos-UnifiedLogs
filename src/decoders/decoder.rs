@@ -6,6 +6,7 @@
 // See the License for the specific language governing permissions and limitations under the License.
 
 use crate::{
+    RcString,
     chunks::firehose::firehose_log::FirehoseItemInfo,
     decoders::{
         DecoderError,
@@ -26,6 +27,7 @@ use crate::{
         time::parse_time,
         uuid::parse_uuid,
     },
+    rc_string,
     util::format_uuid,
 };
 
@@ -35,7 +37,7 @@ pub(crate) fn check_objects(
     message_values: &[FirehoseItemInfo],
     item_type: u8,
     item_index: usize,
-) -> String {
+) -> RcString {
     let mut index = item_index;
     const PRECISION_ITEM: u8 = 0x12;
 
@@ -43,18 +45,18 @@ pub(crate) fn check_objects(
     if item_type == PRECISION_ITEM {
         index += 1;
         if index > message_values.len() {
-            return format!(
+            return rc_string!(format!(
                 "Index out of bounds for FirehoseItemInfo Vec. Got adjusted index {}, Vec size is {}. This should not have happened",
                 index,
                 message_values.len()
-            );
+            ));
         }
     }
 
     const MASKED_HASH_TYPE: u8 = 0xf2;
     // Check if the log value is hashed or marked private
     if (format_string.contains("mask.hash") && message_values[index].item_type == MASKED_HASH_TYPE)
-        || message_values[index].message_strings == "<private>"
+        || message_values[index].message_strings.as_str() == "<private>"
     {
         return message_values[index].message_strings.to_owned();
     }
@@ -133,10 +135,10 @@ pub(crate) fn check_objects(
     };
 
     match message_value {
-        Ok(value) => value,
+        Ok(value) => rc_string!(value),
         Err(e) => {
             log::error!("[macos-unifiedlogs] Failed to decode log object. Error: {e:?}");
-            e.to_string()
+            rc_string!(e.to_string())
         }
     }
 }
@@ -144,13 +146,14 @@ pub(crate) fn check_objects(
 #[cfg(test)]
 mod tests {
     use super::check_objects;
+    use super::*;
     use crate::chunks::firehose::firehose_log::FirehoseItemInfo;
 
     #[test]
     fn test_check_objects_lowercase_bool() {
         let test_format = "%{bool}d";
         let test_item_info = FirehoseItemInfo {
-            message_strings: String::from("1"),
+            message_strings: rc_string!("1"),
             item_type: 0,
             item_size: 4,
         };
@@ -158,14 +161,14 @@ mod tests {
         let test_index = 0;
 
         let results = check_objects(test_format, &[test_item_info], test_type, test_index);
-        assert_eq!(results, "true")
+        assert_eq!(results.as_str(), "true")
     }
 
     #[test]
     fn test_check_objects_uppercase_bool() {
         let test_format = "%{BOOL}d";
         let test_item_info = FirehoseItemInfo {
-            message_strings: String::from("1"),
+            message_strings: rc_string!("1"),
             item_type: 0,
             item_size: 4,
         };
@@ -173,14 +176,14 @@ mod tests {
         let test_index = 0;
 
         let results = check_objects(test_format, &[test_item_info], test_type, test_index);
-        assert_eq!(results, "YES")
+        assert_eq!(results.as_str(), "YES")
     }
 
     #[test]
     fn test_odtypes() {
         let test_format = "%{odtypes:mbr_details}d";
         let test_item_info = FirehoseItemInfo {
-            message_strings: String::from("I/7///8vTG9jYWwvRGVmYXVsdAA="),
+            message_strings: rc_string!("I/7///8vTG9jYWwvRGVmYXVsdAA="),
             item_type: 50,
             item_size: 0,
         };
@@ -188,14 +191,14 @@ mod tests {
         let test_index = 0;
 
         let results = check_objects(test_format, &[test_item_info], test_type, test_index);
-        assert_eq!(results, "user: -2@/Local/Default");
+        assert_eq!(results.as_str(), "user: -2@/Local/Default");
     }
 
     #[test]
     fn test_check_objects_uuid() {
         let test_format = "%{public,uuid_t}.16P";
         let test_item_info = FirehoseItemInfo {
-            message_strings: String::from("hZV+HTbETtKGqAZXvN3ikw=="),
+            message_strings: rc_string!("hZV+HTbETtKGqAZXvN3ikw=="),
             item_type: 50,
             item_size: 16,
         };
@@ -203,14 +206,14 @@ mod tests {
         let test_index = 0;
 
         let results = check_objects(test_format, &[test_item_info], test_type, test_index);
-        assert_eq!(results, "85957E1D36C44ED286A80657BCDDE293")
+        assert_eq!(results.as_str(), "85957E1D36C44ED286A80657BCDDE293")
     }
 
     #[test]
     fn test_private() {
         let test_format = "%{public,uuid_t}.16P";
         let test_item_info = FirehoseItemInfo {
-            message_strings: String::from("<private>"),
+            message_strings: rc_string!("<private>"),
             item_type: 50,
             item_size: 16,
         };
@@ -218,14 +221,14 @@ mod tests {
         let test_index = 0;
 
         let results = check_objects(test_format, &[test_item_info], test_type, test_index);
-        assert_eq!(results, "<private>")
+        assert_eq!(results.as_str(), "<private>")
     }
 
     #[test]
     fn test_hash() {
         let test_format = "%{public,mask.hash}.16P";
         let test_item_info = FirehoseItemInfo {
-            message_strings: String::from("hash"),
+            message_strings: rc_string!("hash"),
             item_type: 242,
             item_size: 16,
         };
@@ -233,6 +236,6 @@ mod tests {
         let test_index = 0;
 
         let results = check_objects(test_format, &[test_item_info], test_type, test_index);
-        assert_eq!(results, "hash")
+        assert_eq!(results.as_str(), "hash")
     }
 }

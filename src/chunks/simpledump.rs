@@ -6,13 +6,14 @@
 // See the License for the specific language governing permissions and limitations under the License.
 
 use crate::util::{clean_uuid, extract_string};
+use crate::{RcString, rc_string};
 use nom::bytes::complete::take;
 use nom::number::complete::{le_u16, le_u32, le_u64};
 use std::mem::size_of;
 use uuid::Uuid;
 
 pub type SimpleDumpStr<'a> = SimpleDump<&'a str>;
-pub type SimpleDumpOwned = SimpleDump<String>;
+pub type SimpleDumpOwned = SimpleDump<RcString>;
 
 /*
    Introduced in macOS Monterey (12).  Appears to be a "simpler" version of Statedump?
@@ -60,8 +61,8 @@ impl<'a> SimpleDumpStr<'a> {
             unknown_number_message_strings: self.unknown_number_message_strings,
             unknown_size_subsystem_string: self.unknown_size_subsystem_string,
             unknown_size_message_string: self.unknown_size_message_string,
-            subsystem: self.subsystem.to_string(),
-            message_string: self.message_string.to_string(),
+            subsystem: rc_string!(self.subsystem),
+            message_string: rc_string!(self.message_string),
         }
     }
 }

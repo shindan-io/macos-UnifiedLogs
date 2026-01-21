@@ -5,9 +5,7 @@
 // is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and limitations under the License.
 
-use std::collections::HashMap;
-
-use crate::{preamble::LogPreamble, util::*};
+use crate::{RcString, preamble::LogPreamble, rc_string, util::*};
 use log::error;
 use nom::{
     IResult, Parser,
@@ -17,6 +15,7 @@ use nom::{
     multi::many_m_n,
     number::complete::{be_u128, le_u16, le_u32, le_u64},
 };
+use std::collections::HashMap;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Default)]
@@ -112,8 +111,8 @@ pub struct CatalogSubchunk {
 
 #[derive(Debug)]
 pub struct SubsystemInfo {
-    pub subsystem: String,
-    pub category: String,
+    pub subsystem: RcString,
+    pub category: RcString,
 }
 
 impl CatalogChunk {
@@ -383,8 +382,8 @@ impl CatalogChunk {
         second_proc_id: u32,
     ) -> nom::IResult<&[u8], SubsystemInfo> {
         let mut subsystem_info = SubsystemInfo {
-            subsystem: String::new(),
-            category: String::new(),
+            subsystem: rc_string!(""),
+            category: rc_string!(""),
         };
 
         if let Some(entry) = self
@@ -399,15 +398,15 @@ impl CatalogChunk {
 
                     let (input, _) = take(subsystems.category_offset)(subsystem_data)?;
                     let (_, category_string) = extract_string(input)?;
-                    subsystem_info.subsystem = subsystem_string.to_owned();
-                    subsystem_info.category = category_string.to_owned();
+                    subsystem_info.subsystem = rc_string!(subsystem_string);
+                    subsystem_info.category = rc_string!(category_string);
                     return Ok((input, subsystem_info));
                 }
             }
         }
 
         //log::warn!("[macos-unifiedlogs] Did not find subsystem in log entry");
-        subsystem_info.subsystem = String::from("Unknown subsystem");
+        subsystem_info.subsystem = rc_string!("Unknown subsystem");
         Ok((&[], subsystem_info))
     }
 
@@ -677,7 +676,7 @@ mod tests {
         let (_, results) = catalog
             .get_subsystem(subsystem_value, first_proc_id, second_proc_id)
             .unwrap();
-        assert_eq!(results.subsystem, "com.apple.containermanager");
-        assert_eq!(results.category, "xpc");
+        assert_eq!(results.subsystem.as_str(), "com.apple.containermanager");
+        assert_eq!(results.category.as_str(), "xpc");
     }
 }

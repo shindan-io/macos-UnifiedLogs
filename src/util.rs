@@ -6,7 +6,7 @@
 // See the License for the specific language governing permissions and limitations under the License.
 
 use base64::{DecodeError, Engine, engine::general_purpose};
-use chrono::{SecondsFormat, TimeZone, Utc};
+use chrono::{DateTime, SecondsFormat, TimeZone, Utc};
 use log::{error, warn};
 use nom::{
     Parser,
@@ -47,11 +47,41 @@ pub(crate) fn padding_size(data_size: u64, alignment: u64) -> u64 {
     (alignment - (data_size & (alignment - 1))) & (alignment - 1)
 }
 
+/// Returns joined string wihout having to collect to vec first
+/// ex:
+///
+/// ```rust
+/// # use fw_std::strings::join_strs;
+/// let strings = ["a", "b", "c"];
+/// let joined = join_strs(strings, ", ", Some("'"));
+/// assert_eq!(joined, "'a', 'b', 'c'");
+/// ```
+pub fn join_strs(
+    strings: impl IntoIterator<Item = impl AsRef<str>>,
+    separator: &str,
+    decorator: Option<&str>,
+) -> String {
+    strings.into_iter().fold(String::new(), |mut acc, s| {
+        if !acc.is_empty() {
+            acc.push_str(separator);
+        }
+        if let Some(decorator) = decorator {
+            acc.push_str(decorator);
+        }
+        acc.push_str(s.as_ref());
+        if let Some(decorator) = decorator {
+            acc.push_str(decorator);
+        }
+        acc
+    })
+}
+
+// todo: do better and retrurn &str
 /// Extract a size based on provided string size from Firehose string item entries
 pub(crate) fn extract_string_size(data: &[u8], message_size: u64) -> nom::IResult<&[u8], String> {
     const NULL_STRING: u64 = 0;
     if message_size == NULL_STRING {
-        return Ok((data, String::from("(null)")));
+        return Ok((data, "(null)".to_string()));
     }
 
     // If our remaining data is smaller than the message string size just go until the end of the remaining data
@@ -184,9 +214,13 @@ pub(crate) fn decode_standard(data: &str) -> Result<Vec<u8>, DecodeError> {
 }
 
 /// Convert `UnixEpoch` time to ISO RFC 3339
-pub(crate) fn unixepoch_to_iso(timestamp: &i64) -> String {
-    let date_time_result = Utc.timestamp_nanos(*timestamp);
-    date_time_result.to_rfc3339_opts(SecondsFormat::Nanos, true)
+pub(crate) fn unixepoch_to_iso(timestamp: i64) -> String {
+    unixepoch_to_datetime(timestamp).to_rfc3339_opts(SecondsFormat::Nanos, true)
+}
+
+/// Convert `UnixEpoch` time to `DateTime<Utc>`
+pub(crate) fn unixepoch_to_datetime(timestamp: i64) -> DateTime<Utc> {
+    Utc.timestamp_nanos(timestamp)
 }
 
 pub(crate) fn u64_to_usize(n: u64) -> Option<usize> {
@@ -263,7 +297,7 @@ mod tests {
 
     #[test]
     fn test_unixepoch_to_iso() {
-        let result = unixepoch_to_iso(&1650767813342574583);
+        let result = unixepoch_to_iso(1650767813342574583);
         assert_eq!(result, "2022-04-24T02:36:53.342574583Z");
     }
 

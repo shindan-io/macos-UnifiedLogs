@@ -5,19 +5,18 @@
 // is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and limitations under the License.
 
-use std::{mem::size_of, str::from_utf8};
-
+use crate::util::INVALID_UTF8;
+use crate::{RcString, rc_string};
 use log::warn;
 use nom::{
     bytes::complete::take,
     number::complete::{be_u128, le_u32, le_u64},
 };
+use std::{mem::size_of, str::from_utf8};
 use uuid::Uuid;
 
-use crate::util::INVALID_UTF8;
-
 pub type HeaderChunkStr<'a> = HeaderChunk<&'a str>;
-pub type HeaderChunkOwned = HeaderChunk<String>;
+pub type HeaderChunkOwned = HeaderChunk<RcString>;
 
 #[derive(Debug, Clone, Default)]
 pub struct HeaderChunk<S>
@@ -57,9 +56,9 @@ where
 impl<'a> HeaderChunkStr<'a> {
     pub fn into_owned(self) -> HeaderChunkOwned {
         HeaderChunkOwned {
-            build_version_string: self.build_version_string.to_string(),
-            hardware_model_string: self.hardware_model_string.to_string(),
-            timezone_path: self.timezone_path.to_string(),
+            build_version_string: rc_string!(self.build_version_string),
+            hardware_model_string: rc_string!(self.hardware_model_string),
+            timezone_path: rc_string!(self.timezone_path),
             chunk_tag: self.chunk_tag,
             chunk_sub_tag: self.chunk_sub_tag,
             chunk_data_size: self.chunk_data_size,

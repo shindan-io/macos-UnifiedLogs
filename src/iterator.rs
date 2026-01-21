@@ -203,18 +203,24 @@ mod tests {
 
             if results[10].time == 1642302327364384800.0 {
                 assert_eq!(results.len(), 3805);
-                assert_eq!(results[10].process, "/usr/libexec/lightsoutmanagementd");
-                assert_eq!(results[10].subsystem, "com.apple.lom");
+                assert_eq!(
+                    results[10].process.as_str(),
+                    "/usr/libexec/lightsoutmanagementd"
+                );
+                assert_eq!(results[10].subsystem.as_str(), "com.apple.lom");
                 assert_eq!(results[10].time, 1642302327364384800.0);
                 assert_eq!(results[10].activity_id, 0);
                 assert_eq!(
-                    results[10].library,
+                    results[10].library.as_str(),
                     "/System/Library/PrivateFrameworks/AppleLOM.framework/Versions/A/AppleLOM"
                 );
-                assert_eq!(results[10].message, "<private> LOM isSupported : No");
+                assert_eq!(
+                    results[10].message.as_str(),
+                    "<private> LOM isSupported : No"
+                );
                 assert_eq!(results[10].pid, 45);
                 assert_eq!(results[10].thread_id, 588);
-                assert_eq!(results[10].category, "device");
+                assert_eq!(results[10].category.as_str(), "device");
                 assert_eq!(results[10].log_type, LogType::Default);
                 assert_eq!(results[10].event_type, EventType::Log);
                 assert_eq!(results[10].euid, 0);
@@ -222,7 +228,7 @@ mod tests {
                     results[10].boot_uuid,
                     Uuid::parse_str("80D194AF56A34C54867449D2130D41BB").unwrap()
                 );
-                assert_eq!(results[10].timezone_name, "Pacific");
+                assert_eq!(results[10].timezone_name.as_str(), "Pacific");
                 assert_eq!(
                     results[10].library_uuid,
                     Uuid::parse_str("D8E5AF1CAF4F3CEB8731E6F240E8EA7D").unwrap()
@@ -231,7 +237,7 @@ mod tests {
                     results[10].process_uuid,
                     Uuid::parse_str("6C3ADF991F033C1C96C4ADFAA12D8CED").unwrap()
                 );
-                assert_eq!(results[10].raw_message, "%@ LOM isSupported : %s");
+                assert_eq!(results[10].raw_message.as_str(), "%@ LOM isSupported : %s");
             }
 
             total += results.len();

@@ -62,21 +62,21 @@ fn test_build_log_monterey() {
     let exclude_missing = false;
     let (results, _) = build_log(&log_data, &mut provider, &timesync_data, exclude_missing);
     assert_eq!(results.len(), 322859);
-    assert_eq!(results[0].process, "/kernel");
-    assert_eq!(results[0].subsystem, "");
+    assert_eq!(results[0].process.as_str(), "/kernel");
+    assert_eq!(results[0].subsystem.as_str(), "");
     assert_eq!(results[0].time, 1651345928766719209.0);
     assert_eq!(results[0].activity_id, 0);
     assert_eq!(
-        results[0].library,
+        results[0].library.as_str(),
         "/System/Library/Extensions/Sandbox.kext/Contents/MacOS/Sandbox"
     );
     assert_eq!(
-        results[0].message,
+        results[0].message.as_str(),
         "2 duplicate reports for Sandbox: MTLCompilerServi(187) deny(1) file-read-metadata /private"
     );
     assert_eq!(results[0].pid, 0);
     assert_eq!(results[0].thread_id, 2241);
-    assert_eq!(results[0].category, "");
+    assert_eq!(results[0].category.as_str(), "");
     assert_eq!(results[0].log_type, LogType::Error);
     assert_eq!(results[0].event_type, EventType::Log);
     assert_eq!(results[0].euid, 0);
@@ -84,7 +84,7 @@ fn test_build_log_monterey() {
         results[0].boot_uuid,
         Uuid::parse_str("17AB576950394796B7F3CD2C157F4A2F").unwrap()
     );
-    assert_eq!(results[0].timezone_name, "New_York");
+    assert_eq!(results[0].timezone_name.as_str(), "New_York");
     assert_eq!(
         results[0].library_uuid,
         Uuid::parse_str("7EFAFB8B6CA63090957FC68A6230BC38").unwrap()
@@ -93,7 +93,7 @@ fn test_build_log_monterey() {
         results[0].process_uuid,
         Uuid::parse_str("C342869FFFB93CCEA5A3EA711C1E87F6").unwrap()
     );
-    assert_eq!(results[0].raw_message, "%s");
+    assert_eq!(results[0].raw_message.as_str(), "%s");
 }
 
 #[test]

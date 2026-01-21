@@ -106,3 +106,42 @@ pub mod unified_log;
 mod util;
 /// Functions to parse the log string files
 pub mod uuidtext;
+
+type RcString = std::rc::Rc<String>;
+
+macro_rules! rc_string {
+    ($s:expr) => {
+        crate::ToRcString::to_rc_string($s)
+    };
+}
+use rc_string;
+
+trait ToRcString {
+    fn to_rc_string(self) -> RcString;
+}
+
+impl ToRcString for &str {
+    fn to_rc_string(self) -> RcString {
+        RcString::new(String::from(self))
+    }
+}
+impl ToRcString for String {
+    fn to_rc_string(self) -> RcString {
+        RcString::new(self)
+    }
+}
+impl ToRcString for &String {
+    fn to_rc_string(self) -> RcString {
+        RcString::new(self.clone())
+    }
+}
+impl ToRcString for RcString {
+    fn to_rc_string(self) -> RcString {
+        self
+    }
+}
+impl ToRcString for &RcString {
+    fn to_rc_string(self) -> RcString {
+        self.clone()
+    }
+}

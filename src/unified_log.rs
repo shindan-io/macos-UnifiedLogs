@@ -10,6 +10,7 @@
 //! Provides a simple library to parse the macOS Unified Log format.
 
 use std::collections::HashMap;
+use std::rc;
 
 use crate::catalog::CatalogChunk;
 use crate::chunks::firehose::activity::FirehoseActivity;
@@ -27,8 +28,11 @@ use crate::preamble::LogPreamble;
 use crate::timesync::TimesyncBoot;
 use crate::traits::FileProvider;
 use crate::util::{
-    encode_standard, extract_string, padding_size_8, u64_to_usize, unixepoch_to_iso,
+    encode_standard, extract_string, join_strs, padding_size_8, u64_to_usize,
+    unixepoch_to_datetime, unixepoch_to_iso,
 };
+use crate::{RcString, rc_string};
+use chrono::{DateTime, Utc};
 use log::{error, warn};
 use nom::bytes::complete::take;
 use regex::Regex;
@@ -185,38 +189,39 @@ impl Iterator for LogIterator<'_> {
 
                 // Our struct format to hold and show the log data
                 let mut log_data = LogData {
-                    subsystem: String::new(),
+                    subsystem: rc_string!(""),
                     thread_id: firehose.thread_id,
                     pid: catalog_data.catalog.get_pid(
                         preamble.first_number_proc_id,
                         preamble.second_number_proc_id,
                     ),
-                    library: String::new(),
+                    library: rc_string!(""),
                     activity_id: 0,
                     time: timestamp,
-                    timestamp: unixepoch_to_iso(&(timestamp as i64)),
-                    category: String::new(),
+                    timestamp: unixepoch_to_datetime(timestamp as i64),
+                    category: rc_string!(""),
                     log_type: LogData::get_log_type(
                         firehose.unknown_log_type,
                         firehose.unknown_log_activity_type,
                     ),
-                    process: String::new(),
-                    message: String::new(),
+                    process: rc_string!(""),
+                    message: rc_string!(""),
                     event_type: LogData::get_event_type(firehose.unknown_log_activity_type),
                     euid: catalog_data.catalog.get_euid(
                         preamble.first_number_proc_id,
                         preamble.second_number_proc_id,
                     ),
                     boot_uuid: self.unified_log_data.header[0].boot_uuid,
-                    timezone_name: self.unified_log_data.header[0]
-                        .timezone_path
-                        .split('/')
-                        .next_back()
-                        .unwrap_or("Unknown Timezone Name")
-                        .to_string(),
+                    timezone_name: rc_string!(
+                        self.unified_log_data.header[0]
+                            .timezone_path
+                            .split('/')
+                            .next_back()
+                            .unwrap_or("Unknown Timezone Name")
+                    ),
                     library_uuid: Uuid::nil(),
                     process_uuid: Uuid::nil(),
-                    raw_message: String::new(),
+                    raw_message: rc_string!(""),
                     message_entries: firehose.message.item_info.to_owned(),
                 };
 
@@ -240,9 +245,9 @@ impl Iterator for LogIterator<'_> {
 
                         match message_data {
                             Ok((_, results)) => {
-                                log_data.library = results.library;
+                                log_data.library = rc_string!(results.library);
                                 log_data.library_uuid = results.library_uuid;
-                                log_data.process = results.process;
+                                log_data.process = rc_string!(results.process);
                                 log_data.process_uuid = results.process_uuid;
                                 results.format_string.clone_into(&mut log_data.raw_message);
 
@@ -285,13 +290,21 @@ impl Iterator for LogIterator<'_> {
                                 }
 
                                 if !firehose.message.backtrace_strings.is_empty() {
-                                    log_data.message = format!(
+                                    log_data.message = rc_string!(format!(
                                         "Backtrace:\n{}\n{}",
-                                        firehose.message.backtrace_strings.join("\n"),
+                                        join_strs(
+                                            firehose
+                                                .message
+                                                .backtrace_strings
+                                                .iter()
+                                                .map(|s| s.as_str()),
+                                            "\n",
+                                            None
+                                        ),
                                         log_message
-                                    );
+                                    ));
                                 } else {
-                                    log_data.message = log_message;
+                                    log_data.message = rc_string!(log_message);
                                 }
                             }
                             Err(err) => {
@@ -309,8 +322,8 @@ impl Iterator for LogIterator<'_> {
                             );
                             match results {
                                 Ok((_, subsystem)) => {
-                                    log_data.subsystem = subsystem.subsystem;
-                                    log_data.category = subsystem.category;
+                                    log_data.subsystem = rc_string!(subsystem.subsystem);
+                                    log_data.category = rc_string!(subsystem.category);
                                 }
                                 Err(err) => {
                                     warn!("[macos-unifiedlogs] Failed to get subsystem: {err:?}")
@@ -362,13 +375,21 @@ impl Iterator for LogIterator<'_> {
                                     continue;
                                 }
                                 if !firehose.message.backtrace_strings.is_empty() {
-                                    log_data.message = format!(
+                                    log_data.message = rc_string!(format!(
                                         "Backtrace:\n{}\n{}",
-                                        firehose.message.backtrace_strings.join("\n"),
+                                        join_strs(
+                                            firehose
+                                                .message
+                                                .backtrace_strings
+                                                .iter()
+                                                .map(|s| s.as_str()),
+                                            "\n",
+                                            None
+                                        ),
                                         log_message
-                                    );
+                                    ));
                                 } else {
-                                    log_data.message = log_message;
+                                    log_data.message = rc_string!(log_message);
                                 }
                             }
                             Err(err) => {
@@ -433,19 +454,27 @@ impl Iterator for LogIterator<'_> {
                                     continue;
                                 }
 
-                                log_message = format!(
+                                log_message = rc_string!(format!(
                                     "Signpost ID: {:X} - Signpost Name: {:X}\n {log_message}",
                                     firehose.firehose_signpost.signpost_id,
                                     firehose.firehose_signpost.signpost_name,
-                                );
+                                ));
 
                                 if !firehose.message.backtrace_strings.is_empty() {
-                                    log_data.message = format!(
+                                    log_data.message = rc_string!(format!(
                                         "Backtrace:\n{}\n{log_message}",
-                                        firehose.message.backtrace_strings.join("\n"),
-                                    );
+                                        join_strs(
+                                            firehose
+                                                .message
+                                                .backtrace_strings
+                                                .iter()
+                                                .map(|s| s.as_str()),
+                                            "\n",
+                                            None
+                                        ),
+                                    ));
                                 } else {
-                                    log_data.message = log_message;
+                                    log_data.message = rc_string!(log_message);
                                 }
                             }
                             Err(err) => {
@@ -506,12 +535,20 @@ impl Iterator for LogIterator<'_> {
                                     continue;
                                 }
                                 if !firehose.message.backtrace_strings.is_empty() {
-                                    log_data.message = format!(
+                                    log_data.message = rc_string!(format!(
                                         "Backtrace:\n{}\n{log_message}",
-                                        firehose.message.backtrace_strings.join("\n"),
-                                    );
+                                        join_strs(
+                                            firehose
+                                                .message
+                                                .backtrace_strings
+                                                .iter()
+                                                .map(|s| s.as_str()),
+                                            "\n",
+                                            None
+                                        ),
+                                    ));
                                 } else {
-                                    log_data.message = log_message;
+                                    log_data.message = rc_string!(log_message);
                                 }
                             }
                             Err(err) => {
@@ -538,29 +575,30 @@ impl Iterator for LogIterator<'_> {
                 no_firehose_preamble,
             );
             let log_data = LogData {
-                subsystem: simpledump.subsystem.to_owned(),
+                subsystem: rc_string!(&simpledump.subsystem),
                 thread_id: simpledump.thread_id,
                 pid: simpledump.first_proc_id,
-                library: String::new(),
+                library: rc_string!(""),
                 activity_id: 0,
                 time: timestamp,
-                timestamp: unixepoch_to_iso(&(timestamp as i64)),
-                category: String::new(),
+                timestamp: unixepoch_to_datetime(timestamp as i64),
+                category: rc_string!(""),
                 log_type: LogType::Simpledump,
-                process: String::new(),
-                message: simpledump.message_string.to_owned(),
+                process: rc_string!(""),
+                message: rc_string!(&simpledump.message_string),
                 event_type: EventType::Simpledump,
                 euid: 0,
                 boot_uuid: self.unified_log_data.header[0].boot_uuid,
-                timezone_name: self.unified_log_data.header[0]
-                    .timezone_path
-                    .split('/')
-                    .next_back()
-                    .unwrap_or("Unknown Timezone Name")
-                    .to_string(),
+                timezone_name: rc_string!(
+                    self.unified_log_data.header[0]
+                        .timezone_path
+                        .split('/')
+                        .next_back()
+                        .unwrap_or("Unknown Timezone Name")
+                ),
                 library_uuid: simpledump.sender_uuid,
                 process_uuid: simpledump.dsc_uuid,
-                raw_message: String::new(),
+                raw_message: rc_string!(""),
                 message_entries: Vec::new(),
             };
             log_data_vec.push(log_data);
@@ -607,32 +645,33 @@ impl Iterator for LogIterator<'_> {
                 no_firehose_preamble,
             );
             let log_data = LogData {
-                subsystem: String::new(),
+                subsystem: rc_string!(""),
                 thread_id: 0,
                 pid: statedump.first_proc_id,
-                library: String::new(),
+                library: rc_string!(""),
                 activity_id: statedump.activity_id,
                 time: timestamp,
-                timestamp: unixepoch_to_iso(&(timestamp as i64)),
-                category: String::new(),
+                timestamp: unixepoch_to_datetime(timestamp as i64),
+                category: rc_string!(""),
                 event_type: EventType::Statedump,
-                process: String::new(),
-                message: format!(
+                process: rc_string!(""),
+                message: rc_string!(format!(
                     "title: {}\nObject Type: {}\nObject Type: {}\n{data_string}",
                     statedump.title_name, statedump.decoder_library, statedump.decoder_type,
-                ),
+                )),
                 log_type: LogType::Statedump,
                 euid: 0,
                 boot_uuid: self.unified_log_data.header[0].boot_uuid.to_owned(),
-                timezone_name: self.unified_log_data.header[0]
-                    .timezone_path
-                    .split('/')
-                    .next_back()
-                    .unwrap_or("Unknown Timezone Name")
-                    .to_string(),
+                timezone_name: rc_string!(
+                    self.unified_log_data.header[0]
+                        .timezone_path
+                        .split('/')
+                        .next_back()
+                        .unwrap_or("Unknown Timezone Name")
+                ),
                 library_uuid: Uuid::nil(),
                 process_uuid: Uuid::nil(),
-                raw_message: String::new(),
+                raw_message: rc_string!(""),
                 message_entries: Vec::new(),
             };
             log_data_vec.push(log_data);
@@ -645,25 +684,25 @@ impl Iterator for LogIterator<'_> {
 
 #[derive(Debug, Serialize)]
 pub struct LogData {
-    pub subsystem: String,
+    pub subsystem: RcString,
     pub thread_id: u64,
     pub pid: u64,
     pub euid: u32,
-    pub library: String,
+    pub library: RcString,
     pub library_uuid: Uuid,
     pub activity_id: u64,
     pub time: f64,
-    pub category: String,
+    pub category: RcString,
     pub event_type: EventType,
     pub log_type: LogType,
-    pub process: String,
+    pub process: RcString,
     pub process_uuid: Uuid,
-    pub message: String,
-    pub raw_message: String,
+    pub message: RcString,
+    pub raw_message: RcString,
     pub boot_uuid: Uuid,
-    pub timezone_name: String,
+    pub timezone_name: RcString,
     pub message_entries: Vec<FirehoseItemInfo>,
-    pub timestamp: String,
+    pub timestamp: DateTime<Utc>,
 }
 
 impl LogData {
@@ -933,6 +972,7 @@ impl LogData {
 
 #[cfg(test)]
 mod tests {
+    use chrono::DateTime;
     use uuid::Uuid;
 
     use super::{LogData, UnifiedLogData};
@@ -1034,11 +1074,17 @@ mod tests {
             LogData::build_log(&log_data, &mut provider, &timesync_data, exclude_missing);
 
         assert_eq!(results.len(), 207366);
-        assert_eq!(results[0].process, "/usr/libexec/lightsoutmanagementd");
-        assert_eq!(results[0].subsystem, "com.apple.lom");
+        assert_eq!(
+            results[0].process.as_str(),
+            "/usr/libexec/lightsoutmanagementd"
+        );
+        assert_eq!(results[0].subsystem.as_str(), "com.apple.lom");
         assert_eq!(results[0].time, 1_642_302_326_434_850_800.0);
         assert_eq!(results[0].activity_id, 0);
-        assert_eq!(results[0].library, "/usr/libexec/lightsoutmanagementd");
+        assert_eq!(
+            results[0].library.as_str(),
+            "/usr/libexec/lightsoutmanagementd"
+        );
         assert_eq!(
             results[0].library_uuid,
             Uuid::parse_str("6C3ADF991F033C1C96C4ADFAA12D8CED").unwrap()
@@ -1047,10 +1093,10 @@ mod tests {
             results[0].process_uuid,
             Uuid::parse_str("6C3ADF991F033C1C96C4ADFAA12D8CED").unwrap()
         );
-        assert_eq!(results[0].message, "LOMD Start");
+        assert_eq!(results[0].message.as_str(), "LOMD Start");
         assert_eq!(results[0].pid, 45);
         assert_eq!(results[0].thread_id, 588);
-        assert_eq!(results[0].category, "device");
+        assert_eq!(results[0].category.as_str(), "device");
         assert_eq!(results[0].log_type, LogType::Default);
         assert_eq!(results[0].event_type, EventType::Log);
         assert_eq!(results[0].euid, 0);
@@ -1058,9 +1104,12 @@ mod tests {
             results[0].boot_uuid,
             Uuid::parse_str("80D194AF56A34C54867449D2130D41BB").unwrap()
         );
-        assert_eq!(results[0].timezone_name, "Pacific");
-        assert_eq!(results[0].raw_message, "LOMD Start");
-        assert_eq!(results[0].timestamp, "2022-01-16T03:05:26.434850816Z")
+        assert_eq!(results[0].timezone_name.as_str(), "Pacific");
+        assert_eq!(results[0].raw_message.as_str(), "LOMD Start");
+        assert_eq!(
+            results[0].timestamp,
+            DateTime::parse_from_rfc3339("2022-01-16T03:05:26.434850816Z").unwrap()
+        );
     }
 
     #[test]
@@ -1200,7 +1249,9 @@ mod tests {
         assert_eq!(unified_log.oversize.len(), 0);
 
         assert_eq!(
-            unified_log.firehose[0].public_data[0].message.item_info[0].message_strings,
+            unified_log.firehose[0].public_data[0].message.item_info[0]
+                .message_strings
+                .as_str(),
             "483.700"
         );
         assert_eq!(unified_log.firehose[0].base_continous_time, 0);
