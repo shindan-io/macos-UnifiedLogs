@@ -12,9 +12,16 @@ use nom::bytes::complete::take;
 use nom::number::complete::{le_u8, le_u32, le_u64};
 use plist::Value;
 use std::mem::size_of;
+use uuid::Uuid;
+
+pub type StatedumpStr<'a> = Statedump<&'a str>;
+pub type StatedumpOwned = Statedump<String>;
 
 #[derive(Debug, Clone, Default)]
-pub struct Statedump {
+pub struct Statedump<S>
+where
+    S: Default + ToString,
+{
     pub chunk_tag: u32,
     pub chunk_subtag: u32,
     pub chunk_data_size: u64,
@@ -24,18 +31,41 @@ pub struct Statedump {
     pub unknown_reserved: Vec<u8>, // 3 bytes
     pub continuous_time: u64,
     pub activity_id: u64,
-    pub uuid: String,
+    pub uuid: Uuid,
     pub unknown_data_type: u32, // 1 = plist, 3 = custom object?, 2 = (protocol buffer?)
     pub unknown_data_size: u32, // Size of statedump data
-    pub decoder_library: String,
-    pub decoder_type: String,
-    pub title_name: String,
+    pub decoder_library: S,
+    pub decoder_type: S,
+    pub title_name: S,
     pub statedump_data: Vec<u8>,
 }
 
-impl Statedump {
+impl<'a> StatedumpStr<'a> {
+    pub fn into_owned(self) -> StatedumpOwned {
+        StatedumpOwned {
+            chunk_tag: self.chunk_tag,
+            chunk_subtag: self.chunk_subtag,
+            chunk_data_size: self.chunk_data_size,
+            first_proc_id: self.first_proc_id,
+            second_proc_id: self.second_proc_id,
+            ttl: self.ttl,
+            unknown_reserved: self.unknown_reserved,
+            continuous_time: self.continuous_time,
+            activity_id: self.activity_id,
+            uuid: self.uuid,
+            unknown_data_type: self.unknown_data_type,
+            unknown_data_size: self.unknown_data_size,
+            decoder_library: self.decoder_library.to_string(),
+            decoder_type: self.decoder_type.to_string(),
+            title_name: self.title_name.to_string(),
+            statedump_data: self.statedump_data,
+        }
+    }
+}
+
+impl<'a> StatedumpStr<'a> {
     /// Parse Statedump log entry. Statedumps are special log entries that may contain a plist file, custom object, or protocol buffer
-    pub fn parse_statedump(data: &[u8]) -> nom::IResult<&[u8], Statedump> {
+    pub fn parse_statedump(data: &'a [u8]) -> nom::IResult<&'a [u8], Self> {
         let mut statedump_results = Statedump::default();
 
         let (input, chunk_tag) = take(size_of::<u32>())(data)?;
@@ -165,6 +195,8 @@ impl Statedump {
 
 #[cfg(test)]
 mod tests {
+    use uuid::Uuid;
+
     use crate::chunks::statedump::Statedump;
 
     #[test]
@@ -195,7 +227,10 @@ mod tests {
         assert_eq!(results.unknown_reserved, vec![0, 0, 0]);
         assert_eq!(results.continuous_time, 3906319117);
         assert_eq!(results.activity_id, 9223372036854776950);
-        assert_eq!(results.uuid, "5CD8DDEE04383A38887710227C5A0A56");
+        assert_eq!(
+            results.uuid,
+            Uuid::parse_str("5CD8DDEE04383A38887710227C5A0A56").unwrap()
+        );
         assert_eq!(results.unknown_data_type, 3);
         assert_eq!(results.unknown_data_size, 40);
         assert_eq!(results.decoder_library, "location");
@@ -624,7 +659,10 @@ mod tests {
         assert_eq!(statedump_results.unknown_reserved, [0, 0, 0]);
         assert_eq!(statedump_results.continuous_time, 10048439123292);
         assert_eq!(statedump_results.activity_id, 9223372036854833248);
-        assert_eq!(statedump_results.uuid, "7E5D9855D1CC382DB8EB25A030D4B2FA");
+        assert_eq!(
+            statedump_results.uuid,
+            Uuid::parse_str("7E5D9855D1CC382DB8EB25A030D4B2FA").unwrap()
+        );
         assert_eq!(statedump_results.unknown_data_type, 1); // plist
         assert_eq!(statedump_results.unknown_data_size, 7611);
         assert_eq!(statedump_results.decoder_library, "");

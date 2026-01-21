@@ -131,8 +131,8 @@ impl FirehoseSignpost {
         firehose: &FirehoseSignpost,
         provider: &'a mut dyn FileProvider,
         string_offset: u64,
-        first_proc_id: &u64,
-        second_proc_id: &u32,
+        first_proc_id: u64,
+        second_proc_id: u32,
         catalogs: &CatalogChunk,
     ) -> nom::IResult<&'a [u8], MessageData> {
         if firehose.firehose_formatters.shared_cache
@@ -222,11 +222,11 @@ impl FirehoseSignpost {
                     }
                 }
             }
-            if !firehose.firehose_formatters.uuid_relative.is_empty() {
+            if !firehose.firehose_formatters.uuid_relative.is_nil() {
                 return MessageData::extract_alt_uuid_strings(
                     provider,
                     string_offset,
-                    &firehose.firehose_formatters.uuid_relative,
+                    firehose.firehose_formatters.uuid_relative,
                     first_proc_id,
                     second_proc_id,
                     catalogs,
@@ -247,6 +247,8 @@ impl FirehoseSignpost {
 
 #[cfg(test)]
 mod tests {
+    use uuid::Uuid;
+
     use crate::chunks::firehose::signpost::FirehoseSignpost;
     use crate::filesystem::LogarchiveProvider;
     use crate::parser::parse_log;
@@ -273,7 +275,7 @@ mod tests {
         assert_eq!(results.firehose_formatters.has_large_offset, 0);
         assert_eq!(results.firehose_formatters.large_shared_cache, 0);
         assert!(!results.firehose_formatters.absolute);
-        assert_eq!(results.firehose_formatters.uuid_relative, String::new());
+        assert_eq!(results.firehose_formatters.uuid_relative, Uuid::nil());
         assert!(!results.firehose_formatters.main_plugin);
         assert!(!results.firehose_formatters.pc_style);
         assert_eq!(results.firehose_formatters.main_exe_alt_index, 0);
@@ -300,8 +302,8 @@ mod tests {
                             &firehose.firehose_signpost,
                             &mut provider,
                             u64::from(firehose.format_string_location),
-                            &preamble.first_number_proc_id,
-                            &preamble.second_number_proc_id,
+                            preamble.first_number_proc_id,
+                            preamble.second_number_proc_id,
                             &catalog_data.catalog,
                         )
                         .unwrap();
@@ -310,11 +312,11 @@ mod tests {
                         assert_eq!(message_data.process, "/usr/libexec/kernelmanagerd");
                         assert_eq!(
                             message_data.process_uuid,
-                            "CCCF30257483376883C824222233386D"
+                            Uuid::parse_str("CCCF30257483376883C824222233386D").unwrap()
                         );
                         assert_eq!(
                             message_data.library_uuid,
-                            "CCCF30257483376883C824222233386D"
+                            Uuid::parse_str("CCCF30257483376883C824222233386D").unwrap()
                         );
 
                         return;

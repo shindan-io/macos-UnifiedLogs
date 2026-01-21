@@ -12,13 +12,14 @@ use nom::number::complete::{be_u128, le_i64, le_u16, le_u32, le_u64};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::mem::size_of;
+use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct TimesyncBoot {
     pub signature: u16,
     pub header_size: u16,
     pub unknown: u32,
-    pub boot_uuid: String,
+    pub boot_uuid: Uuid,
     pub timebase_numerator: u32,
     pub timebase_denominator: u32,
     pub boot_time: i64, // Number of nanoseconds since UNIXEPOCH
@@ -40,8 +41,8 @@ pub struct Timesync {
 
 impl TimesyncBoot {
     /// Parse the Unified Log timesync files
-    pub fn parse_timesync_data(data: &[u8]) -> nom::IResult<&[u8], HashMap<String, TimesyncBoot>> {
-        let mut timesync_data: HashMap<String, TimesyncBoot> = HashMap::new();
+    pub fn parse_timesync_data(data: &[u8]) -> nom::IResult<&[u8], HashMap<Uuid, TimesyncBoot>> {
+        let mut timesync_data: HashMap<Uuid, TimesyncBoot> = HashMap::new();
         let mut input = data;
 
         let mut timesync_boot = TimesyncBoot::default();
@@ -111,7 +112,7 @@ impl TimesyncBoot {
             signature: timesync_signature,
             header_size: timesync_header_size,
             unknown: timesync_unknown,
-            boot_uuid: format!("{timesync_boot_uuid:X}"),
+            boot_uuid: Uuid::from_u128(timesync_boot_uuid),
             timebase_numerator: timesync_timebase_numerator,
             timebase_denominator: timesync_timebase_denominator,
             boot_time: timesync_boot_time,
@@ -166,8 +167,8 @@ impl TimesyncBoot {
 
     /// Calculate timestamp for firehose log entry
     pub fn get_timestamp(
-        timesync_data: &HashMap<String, TimesyncBoot>,
-        boot_uuid: &str,
+        timesync_data: &HashMap<Uuid, TimesyncBoot>,
+        boot_uuid: Uuid,
         firehose_log_delta_time: u64,
         firehose_preamble_time: u64,
     ) -> f64 {
@@ -198,7 +199,7 @@ impl TimesyncBoot {
 
         // Apple Intel uses 1/1 as the timebase
         let mut timebase_adjustment = 1.0;
-        if let Some(timesync) = timesync_data.get(boot_uuid) {
+        if let Some(timesync) = timesync_data.get(&boot_uuid) {
             if timesync.timebase_numerator == 125 && timesync.timebase_denominator == 3 {
                 // For Apple Silicon (ARM) we need to adjust the mach time by multiplying by 125.0/3.0 to get the accurate nanosecond count
                 timebase_adjustment = 125.0 / 3.0;
@@ -234,6 +235,8 @@ impl TimesyncBoot {
 
 #[cfg(test)]
 mod tests {
+    use uuid::Uuid;
+
     use crate::filesystem::LogarchiveProvider;
     use crate::parser::collect_timesync;
     use crate::timesync::TimesyncBoot;
@@ -252,7 +255,7 @@ mod tests {
         assert_eq!(timesync_data.len(), 5);
         assert_eq!(
             timesync_data
-                .get("9A6A3124274A44B29ABF2BC9E4599B3B")
+                .get(&Uuid::parse_str("9A6A3124274A44B29ABF2BC9E4599B3B").unwrap())
                 .unwrap()
                 .timesync
                 .len(),
@@ -332,7 +335,10 @@ mod tests {
         assert_eq!(timesync_boot.signature, 0xbbb0);
         assert_eq!(timesync_boot.header_size, 48);
         assert_eq!(timesync_boot.unknown, 0);
-        assert_eq!(timesync_boot.boot_uuid, "845B0DD50160453EACE038760C7B5C1D");
+        assert_eq!(
+            timesync_boot.boot_uuid,
+            Uuid::parse_str("845B0DD50160453EACE038760C7B5C1D").unwrap()
+        );
         assert_eq!(timesync_boot.timebase_numerator, 1);
         assert_eq!(timesync_boot.timebase_denominator, 1);
         assert_eq!(timesync_boot.boot_time, 1622314506201049000);
@@ -348,7 +354,7 @@ mod tests {
 
         let timesync_data = collect_timesync(&provider).unwrap();
 
-        let boot_uuid = "A2A9017676CF421C84DC9BBD6263FEE7";
+        let boot_uuid = Uuid::parse_str("A2A9017676CF421C84DC9BBD6263FEE7").unwrap();
         let firehose_preamble_continous_time = 2818326118;
 
         let results = TimesyncBoot::get_timestamp(
@@ -368,7 +374,7 @@ mod tests {
 
         let timesync_data = collect_timesync(&provider).unwrap();
 
-        let boot_uuid = "3E12B435814B4C62918CEBC0826F06B8";
+        let boot_uuid = Uuid::parse_str("3E12B435814B4C62918CEBC0826F06B8").unwrap();
         let firehose_preamble_continous_time = 2818326118;
 
         let results = TimesyncBoot::get_timestamp(
@@ -389,7 +395,7 @@ mod tests {
 
         let timesync_data = collect_timesync(&provider).unwrap();
 
-        let boot_uuid = "3E12B435814B4C62918CEBC0826F06B8";
+        let boot_uuid = Uuid::parse_str("3E12B435814B4C62918CEBC0826F06B8").unwrap();
         let firehose_preamble_continous_time = 9898326118;
 
         let results = TimesyncBoot::get_timestamp(

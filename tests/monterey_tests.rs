@@ -14,6 +14,7 @@ use macos_unifiedlogs::{
     unified_log::{EventType, LogData, LogType, UnifiedLogData},
 };
 use regex::Regex;
+use uuid::Uuid;
 
 fn collect_logs(provider: &dyn FileProvider) -> Vec<UnifiedLogData> {
     provider
@@ -79,10 +80,19 @@ fn test_build_log_monterey() {
     assert_eq!(results[0].log_type, LogType::Error);
     assert_eq!(results[0].event_type, EventType::Log);
     assert_eq!(results[0].euid, 0);
-    assert_eq!(results[0].boot_uuid, "17AB576950394796B7F3CD2C157F4A2F");
+    assert_eq!(
+        results[0].boot_uuid,
+        Uuid::parse_str("17AB576950394796B7F3CD2C157F4A2F").unwrap()
+    );
     assert_eq!(results[0].timezone_name, "New_York");
-    assert_eq!(results[0].library_uuid, "7EFAFB8B6CA63090957FC68A6230BC38");
-    assert_eq!(results[0].process_uuid, "C342869FFFB93CCEA5A3EA711C1E87F6");
+    assert_eq!(
+        results[0].library_uuid,
+        Uuid::parse_str("7EFAFB8B6CA63090957FC68A6230BC38").unwrap()
+    );
+    assert_eq!(
+        results[0].process_uuid,
+        Uuid::parse_str("C342869FFFB93CCEA5A3EA711C1E87F6").unwrap()
+    );
     assert_eq!(results[0].raw_message, "%s");
 }
 

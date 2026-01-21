@@ -137,8 +137,8 @@ impl FirehoseTrace {
     pub fn get_firehose_trace_strings<'a>(
         provider: &'a mut dyn FileProvider,
         string_offset: u64,
-        first_proc_id: &u64,
-        second_proc_id: &u32,
+        first_proc_id: u64,
+        second_proc_id: u32,
         catalogs: &CatalogChunk,
     ) -> nom::IResult<&'a [u8], MessageData> {
         // Only main_exe flag has been seen for format strings
@@ -155,6 +155,8 @@ impl FirehoseTrace {
 
 #[cfg(test)]
 mod tests {
+    use uuid::Uuid;
+
     use crate::{
         chunks::firehose::trace::FirehoseTrace, filesystem::LogarchiveProvider, parser::parse_log,
     };
@@ -219,8 +221,8 @@ mod tests {
                         let (_, message_data) = FirehoseTrace::get_firehose_trace_strings(
                             &mut provider,
                             u64::from(firehose.format_string_location),
-                            &preamble.first_number_proc_id,
-                            &preamble.second_number_proc_id,
+                            preamble.first_number_proc_id,
+                            preamble.second_number_proc_id,
                             &catalog_data.catalog,
                         )
                         .unwrap();
@@ -229,11 +231,11 @@ mod tests {
                         assert_eq!(message_data.process, "/usr/libexec/mobileassetd");
                         assert_eq!(
                             message_data.process_uuid,
-                            "CC6C867B44D63D0ABAA7598659629484"
+                            Uuid::parse_str("CC6C867B44D63D0ABAA7598659629484").unwrap()
                         );
                         assert_eq!(
                             message_data.library_uuid,
-                            "CC6C867B44D63D0ABAA7598659629484"
+                            Uuid::parse_str("CC6C867B44D63D0ABAA7598659629484").unwrap()
                         );
                         return;
                     }

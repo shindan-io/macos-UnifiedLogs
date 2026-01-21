@@ -11,10 +11,11 @@ use nom::bytes::complete::take;
 use nom::number::complete::le_u32;
 use serde::{Deserialize, Serialize};
 use std::mem::size_of;
+use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct UUIDText {
-    pub uuid: String,
+    pub uuid: Uuid,
     pub signature: u32,
     pub unknown_major_version: u32,
     pub unknown_minor_version: u32,

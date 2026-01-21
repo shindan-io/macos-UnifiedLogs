@@ -13,6 +13,7 @@ use macos_unifiedlogs::{
 };
 use regex::Regex;
 use std::{fs::File, path::PathBuf};
+use uuid::Uuid;
 
 fn collect_logs(provider: &dyn FileProvider) -> Vec<UnifiedLogData> {
     provider
@@ -106,7 +107,10 @@ fn test_big_sur_livedata() {
             assert_eq!(results.log_type, LogType::Info);
             assert_eq!(results.process, "/kernel");
             assert_eq!(results.time, 1642304801596413351.0);
-            assert_eq!(results.boot_uuid, "A2A9017676CF421C84DC9BBD6263FEE7");
+            assert_eq!(
+                results.boot_uuid,
+                Uuid::parse_str("A2A9017676CF421C84DC9BBD6263FEE7").unwrap()
+            );
             assert_eq!(results.timezone_name, "Pacific");
         }
     }
@@ -145,10 +149,19 @@ fn test_build_log_big_sur() {
     assert_eq!(results[0].log_type, LogType::Default);
     assert_eq!(results[0].event_type, EventType::Log);
     assert_eq!(results[0].euid, 0);
-    assert_eq!(results[0].boot_uuid, "AACFB573E87545CE98B893D132766A46");
+    assert_eq!(
+        results[0].boot_uuid,
+        Uuid::parse_str("AACFB573E87545CE98B893D132766A46").unwrap()
+    );
     assert_eq!(results[0].timezone_name, "Pacific");
-    assert_eq!(results[0].library_uuid, "B736DF1625F538248E9527A8CEC4991E");
-    assert_eq!(results[0].process_uuid, "B736DF1625F538248E9527A8CEC4991E");
+    assert_eq!(
+        results[0].library_uuid,
+        Uuid::parse_str("B736DF1625F538248E9527A8CEC4991E").unwrap()
+    );
+    assert_eq!(
+        results[0].process_uuid,
+        Uuid::parse_str("B736DF1625F538248E9527A8CEC4991E").unwrap()
+    );
     assert_eq!(
         results[0].raw_message,
         "opendirectoryd (build %{public}s) launched..."

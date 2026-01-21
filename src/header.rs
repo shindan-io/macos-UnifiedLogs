@@ -12,9 +12,18 @@ use nom::{
     bytes::complete::take,
     number::complete::{be_u128, le_u32, le_u64},
 };
+use uuid::Uuid;
+
+use crate::util::INVALID_UTF8;
+
+pub type HeaderChunkStr<'a> = HeaderChunk<&'a str>;
+pub type HeaderChunkOwned = HeaderChunk<String>;
 
 #[derive(Debug, Clone, Default)]
-pub struct HeaderChunk {
+pub struct HeaderChunk<S>
+where
+    S: Default + ToString,
+{
     pub chunk_tag: u32,
     pub chunk_sub_tag: u32,
     pub chunk_data_size: u64,
@@ -33,23 +42,56 @@ pub struct HeaderChunk {
     pub sub_chunk_tag_data_size_2: u32,
     pub unknown_2: u32,
     pub unknown_3: u32,
-    pub build_version_string: String,
-    pub hardware_model_string: String,
+    pub build_version_string: S,
+    pub hardware_model_string: S,
     pub sub_chunk_tag_3: u32, // 0x6102
     pub sub_chunk_tag_data_size_3: u32,
-    pub boot_uuid: String,
+    pub boot_uuid: Uuid,
     pub logd_pid: u32,
     pub logd_exit_status: u32,
     pub sub_chunk_tag_4: u32, // 0x6103
     pub sub_chunk_tag_data_size_4: u32,
-    pub timezone_path: String,
+    pub timezone_path: S,
 }
 
-impl HeaderChunk {
-    /// Parse the Unified Log tracev3 header data
-    pub fn parse_header(data: &[u8]) -> nom::IResult<&[u8], HeaderChunk> {
-        let mut header_chunk = HeaderChunk::default();
+impl<'a> HeaderChunkStr<'a> {
+    pub fn into_owned(self) -> HeaderChunkOwned {
+        HeaderChunkOwned {
+            build_version_string: self.build_version_string.to_string(),
+            hardware_model_string: self.hardware_model_string.to_string(),
+            timezone_path: self.timezone_path.to_string(),
+            chunk_tag: self.chunk_tag,
+            chunk_sub_tag: self.chunk_sub_tag,
+            chunk_data_size: self.chunk_data_size,
+            mach_time_numerator: self.mach_time_numerator,
+            mach_time_denominator: self.mach_time_denominator,
+            continous_time: self.continous_time,
+            unknown_time: self.unknown_time,
+            unknown: self.unknown,
+            bias_min: self.bias_min,
+            daylight_savings: self.daylight_savings,
+            unknown_flags: self.unknown_flags,
+            sub_chunk_tag: self.sub_chunk_tag,
+            sub_chunk_data_size: self.sub_chunk_data_size,
+            sub_chunk_continous_time: self.sub_chunk_continous_time,
+            sub_chunk_tag_2: self.sub_chunk_tag_2,
+            sub_chunk_tag_data_size_2: self.sub_chunk_tag_data_size_2,
+            unknown_2: self.unknown_2,
+            unknown_3: self.unknown_3,
+            sub_chunk_tag_3: self.sub_chunk_tag_3,
+            sub_chunk_tag_data_size_3: self.sub_chunk_tag_data_size_3,
+            boot_uuid: self.boot_uuid,
+            logd_pid: self.logd_pid,
+            logd_exit_status: self.logd_exit_status,
+            sub_chunk_tag_4: self.sub_chunk_tag_4,
+            sub_chunk_tag_data_size_4: self.sub_chunk_tag_data_size_4,
+        }
+    }
+}
 
+impl<'a> HeaderChunkStr<'a> {
+    /// Parse the Unified Log tracev3 header data
+    pub fn parse_header(data: &'a [u8]) -> nom::IResult<&'a [u8], Self> {
         let (input, chunk_tag) = take(size_of::<u32>())(data)?;
         let (input, chunk_sub_tag) = take(size_of::<u32>())(input)?;
         let (input, chunk_data_size) = take(size_of::<u64>())(input)?;
@@ -69,9 +111,23 @@ impl HeaderChunk {
         let (input, unknown_2) = take(size_of::<u32>())(input)?;
         let (input, unknown_3) = take(size_of::<u32>())(input)?;
         let (input, build_version_string) = take(size_of::<u128>())(input)?;
+        let build_version_string = from_utf8(build_version_string)
+            .inspect_err(|err| {
+                warn!("[macos-unifiedlogs] Failed to get build version from header: {err:?}")
+            })
+            .map(|s| s.trim_end_matches('\0'))
+            .unwrap_or(INVALID_UTF8);
 
         let hardware_model_size: u8 = 32;
         let (input, hardware_model_string) = take(hardware_model_size)(input)?;
+
+        let hardware_model_string = from_utf8(hardware_model_string)
+            .inspect_err(|err| {
+                warn!("[macos-unifiedlogs] Failed to get hardware info from header: {err:?}")
+            })
+            .map(|s| s.trim_end_matches('\0'))
+            .unwrap_or(INVALID_UTF8);
+
         let (input, sub_chunk_tag_3) = take(size_of::<u32>())(input)?;
         let (input, sub_chunk_tag_data_size_3) = take(size_of::<u32>())(input)?;
         let (input, boot_uuid) = take(size_of::<u128>())(input)?;
@@ -82,87 +138,71 @@ impl HeaderChunk {
 
         let timezone_path_size: u8 = 48;
         let (input, timezone_path) = take(timezone_path_size)(input)?;
-
-        let (_, header_chunk_tag) = le_u32(chunk_tag)?;
-        let (_, header_chunk_sub_tag) = le_u32(chunk_sub_tag)?;
-        let (_, header_chunk_data_size) = le_u64(chunk_data_size)?;
-        let (_, header_mach_time_numerator) = le_u32(mach_time_numerator)?;
-        let (_, header_mach_time_denominator) = le_u32(mach_time_denominator)?;
-        let (_, header_continous_time) = le_u64(continous_time)?;
-        let (_, header_unknown_time) = le_u64(unknown_time)?;
-        let (_, header_unknown) = le_u32(unknown)?;
-        let (_, header_bias_min) = le_u32(bias_min)?;
-        let (_, header_daylight_savings) = le_u32(daylight_savings)?;
-        let (_, header_unknown_flags) = le_u32(unknown_flags)?;
-        let (_, header_sub_chunk_tag) = le_u32(sub_chunk_tag)?;
-        let (_, header_sub_chunk_data_size) = le_u32(sub_chunk_data_size)?;
-        let (_, header_sub_chunk_continous_time) = le_u64(sub_chunk_continous_time)?;
-        let (_, header_sub_chunk_tag_2) = le_u32(sub_chunk_tag_2)?;
-        let (_, header_sub_chunk_tag_data_size_2) = le_u32(sub_chunk_tag_data_size_2)?;
-        let (_, header_unknown_2) = le_u32(unknown_2)?;
-        let (_, header_unknown_3) = le_u32(unknown_3)?;
-        let (_, header_sub_chunk_tag_3) = le_u32(sub_chunk_tag_3)?;
-        let (_, header_sub_chunk_tag_data_size_3) = le_u32(sub_chunk_tag_data_size_3)?;
-        let (_, header_logd_pid) = le_u32(logd_pid)?;
-        let (_, header_logd_exit_status) = le_u32(logd_exit_status)?;
-        let (_, header_sub_chunk_tag_4) = le_u32(sub_chunk_tag_4)?;
-        let (_, header_sub_chunk_tag_data_size_4) = le_u32(sub_chunk_tag_data_size_4)?;
-
-        header_chunk.chunk_tag = header_chunk_tag;
-        header_chunk.chunk_sub_tag = header_chunk_sub_tag;
-        header_chunk.chunk_data_size = header_chunk_data_size;
-        header_chunk.mach_time_numerator = header_mach_time_numerator;
-        header_chunk.mach_time_denominator = header_mach_time_denominator;
-        header_chunk.continous_time = header_continous_time;
-        header_chunk.unknown_time = header_unknown_time;
-        header_chunk.unknown = header_unknown;
-        header_chunk.bias_min = header_bias_min;
-        header_chunk.daylight_savings = header_daylight_savings;
-        header_chunk.unknown_flags = header_unknown_flags;
-        header_chunk.sub_chunk_tag = header_sub_chunk_tag;
-        header_chunk.sub_chunk_data_size = header_sub_chunk_data_size;
-        header_chunk.sub_chunk_continous_time = header_sub_chunk_continous_time;
-        header_chunk.sub_chunk_tag_2 = header_sub_chunk_tag_2;
-        header_chunk.sub_chunk_tag_data_size_2 = header_sub_chunk_tag_data_size_2;
-        header_chunk.unknown_2 = header_unknown_2;
-        header_chunk.unknown_3 = header_unknown_3;
-        header_chunk.sub_chunk_tag_3 = header_sub_chunk_tag_3;
-        header_chunk.sub_chunk_tag_data_size_3 = header_sub_chunk_tag_data_size_3;
-        header_chunk.logd_pid = header_logd_pid;
-        header_chunk.logd_exit_status = header_logd_exit_status;
-        header_chunk.sub_chunk_tag_4 = header_sub_chunk_tag_4;
-        header_chunk.sub_chunk_tag_data_size_4 = header_sub_chunk_tag_data_size_4;
-
-        let path_data = from_utf8(timezone_path);
-        match path_data {
-            Ok(results) => header_chunk.timezone_path = results.trim_end_matches('\0').to_string(),
-            Err(err) => {
+        let timezone_path = from_utf8(timezone_path)
+            .inspect_err(|err| {
                 warn!("[macos-unifiedlogs] Failed to get timezone path from header: {err:?}")
-            }
-        }
+            })
+            .map(|s| s.trim_end_matches('\0'))
+            .unwrap_or(INVALID_UTF8);
 
-        let build_version = from_utf8(build_version_string);
-        match build_version {
-            Ok(results) => {
-                header_chunk.build_version_string = results.trim_end_matches('\0').to_string()
-            }
-            Err(err) => {
-                warn!("[macos-unifiedlogs] Failed to get build version from header: {err:?}")
-            }
-        }
-
-        let hardware_info = from_utf8(hardware_model_string);
-        match hardware_info {
-            Ok(results) => {
-                header_chunk.hardware_model_string = results.trim_end_matches('\0').to_string()
-            }
-            Err(err) => {
-                warn!("[macos-unifiedlogs] Failed to get hardware info from header: {err:?}")
-            }
-        }
+        let (_, chunk_tag) = le_u32(chunk_tag)?;
+        let (_, chunk_sub_tag) = le_u32(chunk_sub_tag)?;
+        let (_, chunk_data_size) = le_u64(chunk_data_size)?;
+        let (_, mach_time_numerator) = le_u32(mach_time_numerator)?;
+        let (_, mach_time_denominator) = le_u32(mach_time_denominator)?;
+        let (_, continous_time) = le_u64(continous_time)?;
+        let (_, unknown_time) = le_u64(unknown_time)?;
+        let (_, unknown) = le_u32(unknown)?;
+        let (_, bias_min) = le_u32(bias_min)?;
+        let (_, daylight_savings) = le_u32(daylight_savings)?;
+        let (_, unknown_flags) = le_u32(unknown_flags)?;
+        let (_, sub_chunk_tag) = le_u32(sub_chunk_tag)?;
+        let (_, sub_chunk_data_size) = le_u32(sub_chunk_data_size)?;
+        let (_, sub_chunk_continous_time) = le_u64(sub_chunk_continous_time)?;
+        let (_, sub_chunk_tag_2) = le_u32(sub_chunk_tag_2)?;
+        let (_, sub_chunk_tag_data_size_2) = le_u32(sub_chunk_tag_data_size_2)?;
+        let (_, unknown_2) = le_u32(unknown_2)?;
+        let (_, unknown_3) = le_u32(unknown_3)?;
+        let (_, sub_chunk_tag_3) = le_u32(sub_chunk_tag_3)?;
+        let (_, sub_chunk_tag_data_size_3) = le_u32(sub_chunk_tag_data_size_3)?;
+        let (_, logd_pid) = le_u32(logd_pid)?;
+        let (_, logd_exit_status) = le_u32(logd_exit_status)?;
+        let (_, sub_chunk_tag_4) = le_u32(sub_chunk_tag_4)?;
+        let (_, sub_chunk_tag_data_size_4) = le_u32(sub_chunk_tag_data_size_4)?;
 
         let (_, boot_uuid_be) = be_u128(boot_uuid)?;
-        header_chunk.boot_uuid = format!("{boot_uuid_be:X}");
+        let boot_uuid = Uuid::from_u128(boot_uuid_be);
+
+        let header_chunk = HeaderChunk {
+            chunk_tag,
+            chunk_sub_tag,
+            chunk_data_size,
+            mach_time_numerator,
+            mach_time_denominator,
+            continous_time,
+            unknown_time,
+            unknown,
+            bias_min,
+            daylight_savings,
+            unknown_flags,
+            sub_chunk_tag,
+            sub_chunk_data_size,
+            sub_chunk_continous_time,
+            sub_chunk_tag_2,
+            sub_chunk_tag_data_size_2,
+            unknown_2,
+            unknown_3,
+            sub_chunk_tag_3,
+            sub_chunk_tag_data_size_3,
+            logd_pid,
+            logd_exit_status,
+            sub_chunk_tag_4,
+            sub_chunk_tag_data_size_4,
+            build_version_string,
+            hardware_model_string,
+            boot_uuid,
+            timezone_path,
+        };
 
         Ok((input, header_chunk))
     }
@@ -170,6 +210,8 @@ impl HeaderChunk {
 
 #[cfg(test)]
 mod tests {
+
+    use uuid::Uuid;
 
     use super::HeaderChunk;
 
@@ -211,7 +253,10 @@ mod tests {
         assert_eq!(header_data.hardware_model_string, "MacBookPro16,1");
         assert_eq!(header_data.sub_chunk_tag_3, 24834);
         assert_eq!(header_data.sub_chunk_tag_data_size_3, 24);
-        assert_eq!(header_data.boot_uuid, "C320B8CE97FA4DA59F317D392E389CEA");
+        assert_eq!(
+            header_data.boot_uuid,
+            Uuid::parse_str("C320B8CE97FA4DA59F317D392E389CEA").unwrap()
+        );
         assert_eq!(header_data.logd_pid, 85);
         assert_eq!(header_data.logd_exit_status, 0);
         assert_eq!(header_data.sub_chunk_tag_4, 24835);

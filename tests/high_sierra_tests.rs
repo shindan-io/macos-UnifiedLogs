@@ -13,6 +13,7 @@ use macos_unifiedlogs::{
     unified_log::{EventType, LogType, UnifiedLogData},
 };
 use regex::Regex;
+use uuid::Uuid;
 
 fn collect_logs(provider: &dyn FileProvider) -> Vec<UnifiedLogData> {
     provider
@@ -74,10 +75,19 @@ fn test_build_log_high_sierra() {
     assert_eq!(results[0].log_type, LogType::Default);
     assert_eq!(results[0].event_type, EventType::Log);
     assert_eq!(results[0].euid, 0);
-    assert_eq!(results[0].boot_uuid, "30774817CF1549B0920E1A8E17D47AB5");
+    assert_eq!(
+        results[0].boot_uuid,
+        Uuid::parse_str("30774817CF1549B0920E1A8E17D47AB5").unwrap()
+    );
     assert_eq!(results[0].timezone_name, "Pacific");
-    assert_eq!(results[0].process_uuid, "AD43C574A9F73311A4E995237667082A");
-    assert_eq!(results[0].library_uuid, "AD43C574A9F73311A4E995237667082A");
+    assert_eq!(
+        results[0].process_uuid,
+        Uuid::parse_str("AD43C574A9F73311A4E995237667082A").unwrap()
+    );
+    assert_eq!(
+        results[0].library_uuid,
+        Uuid::parse_str("AD43C574A9F73311A4E995237667082A").unwrap()
+    );
     assert_eq!(
         results[0].raw_message,
         "opendirectoryd (build %{public}s) launched..."
@@ -129,10 +139,19 @@ fn test_build_log_complex_format_high_sierra() {
             assert_eq!(result.log_type, LogType::Default);
             assert_eq!(result.event_type, EventType::Log);
             assert_eq!(result.euid, 501);
-            assert_eq!(result.boot_uuid, "30774817CF1549B0920E1A8E17D47AB5");
+            assert_eq!(
+                result.boot_uuid,
+                Uuid::parse_str("30774817CF1549B0920E1A8E17D47AB5").unwrap()
+            );
             assert_eq!(result.timezone_name, "Pacific");
-            assert_eq!(result.process_uuid, "3E78A65047873F8AAFB10EA606B84B5D");
-            assert_eq!(result.library_uuid, "761AF71A7FBE3374A4A48A38E0D59B6B");
+            assert_eq!(
+                result.process_uuid,
+                Uuid::parse_str("3E78A65047873F8AAFB10EA606B84B5D").unwrap()
+            );
+            assert_eq!(
+                result.library_uuid,
+                Uuid::parse_str("761AF71A7FBE3374A4A48A38E0D59B6B").unwrap()
+            );
             assert_eq!(
                 result.raw_message,
                 "%{public}@ Calculated minimum fire date [%{public}@] (%g%%) with fire date [%{public}@], start date [%{public}@], minimum early fire proportion %g, power state detection supported: %{public}s, in high power state: %{public}s, early fire constant interval %f"

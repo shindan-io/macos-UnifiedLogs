@@ -14,7 +14,10 @@ use nom::{
     combinator::opt,
     error::ErrorKind,
 };
-use std::str::from_utf8;
+use std::str::{FromStr, from_utf8};
+use uuid::Uuid;
+
+pub(crate) const INVALID_UTF8: &str = "<Invalid UTF-8>";
 
 /// Returns the padding to consume in order to align to 8 bytes
 /// Actual total size is computed as `items_count` * `items_size`
@@ -106,7 +109,7 @@ pub(crate) fn non_empty_cstring(input: &[u8]) -> nom::IResult<&[u8], String> {
 }
 
 /// Extract strings that contain end of string characters
-pub(crate) fn extract_string(data: &[u8]) -> nom::IResult<&[u8], String> {
+pub(crate) fn extract_string(data: &[u8]) -> nom::IResult<&[u8], &str> {
     let last_value = data.last();
     match last_value {
         Some(value) => {
@@ -116,17 +119,17 @@ pub(crate) fn extract_string(data: &[u8]) -> nom::IResult<&[u8], String> {
                 let (input, path) = take(data.len())(data)?;
                 let path_string = from_utf8(path);
                 match path_string {
-                    Ok(results) => return Ok((input, results.to_string())),
+                    Ok(results) => return Ok((input, results)),
                     Err(err) => {
                         warn!("[macos-unifiedlogs] Failed to extract full string: {err:?}");
-                        return Ok((input, String::from("Could not extract string")));
+                        return Ok((input, "Could not extract string"));
                     }
                 }
             }
         }
         None => {
             error!("[macos-unifiedlogs] Cannot extract string. Empty input.");
-            return Ok((data, String::from("Cannot extract string. Empty input.")));
+            return Ok((data, "Cannot extract string. Empty input."));
         }
     }
 
@@ -134,18 +137,40 @@ pub(crate) fn extract_string(data: &[u8]) -> nom::IResult<&[u8], String> {
     let path_string = from_utf8(path);
     match path_string {
         Ok(results) => {
-            return Ok((input, results.to_string()));
+            return Ok((input, results));
         }
         Err(err) => {
             warn!("[macos-unifiedlogs] Failed to get string: {err:?}");
         }
     }
-    Ok((input, String::from("Could not extract string")))
+    Ok((input, "Could not extract string"))
 }
 
 /// Clean and format UUIDs to be pretty
-pub(crate) fn clean_uuid(uuid_format: &str) -> String {
-    uuid_format.replace([',', '[', ']', ' '], "")
+pub(crate) fn clean_uuid(uuid_format: &str) -> Uuid {
+    let clean = uuid_format.replace([',', '[', ']', ' '], "");
+    Uuid::parse_str(&clean).unwrap_or(Uuid::nil())
+}
+
+pub(crate) fn format_uuid(uuid: Uuid) -> String {
+    format!("{:X}", uuid.simple())
+}
+
+pub(crate) fn parse_uuid_from_str(uuid_str: &str) -> Result<Uuid, uuid::Error> {
+    const UUID_LEN: usize = 32;
+
+    let first_error = match Uuid::from_str(uuid_str) {
+        Ok(u) => return Ok(u),
+        Err(e) => e,
+    };
+
+    if uuid_str.len() == UUID_LEN - 2 {
+        // UUID starts with 00 which was not included in the string
+        let formatted_uuid = format!("00{uuid_str}");
+        return Uuid::from_str(&formatted_uuid);
+    }
+
+    Err(first_error)
 }
 
 /// Base64 encode data use the STANDARD engine (alphabet along with "+" and "/")
@@ -172,6 +197,16 @@ pub(crate) fn u64_to_usize(n: u64) -> Option<usize> {
 mod tests {
     use super::*;
     use test_case::test_case;
+
+    #[test]
+    fn parse_uuid_from_str_test() -> anyhow::Result<()> {
+        assert_eq!(
+            parse_uuid_from_str("004EAF1C2B310DA0383BE3D60B80E8")?,
+            Uuid::parse_str("00004EAF1C2B310DA0383BE3D60B80E8")?
+        );
+
+        Ok(())
+    }
 
     #[test_case(0, 8, 8 => 0)]
     #[test_case(1, 8, 8 => 0)]

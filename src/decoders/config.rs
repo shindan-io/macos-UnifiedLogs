@@ -96,7 +96,7 @@ fn parse_dns_config<'a>(
 }
 
 /// Combine our `DnsConfigs` into single message
-fn assemble_message(log_message: &str, configs: &[DnsConfig]) -> String {
+fn assemble_message(log_message: &str, configs: &[DnsConfigStr<'_>]) -> String {
     let mut message = log_message.to_string();
     for (key, entry) in configs.iter().enumerate() {
         let mut resolver_message = format!("resolver #{key}\n");
@@ -143,26 +143,31 @@ fn assemble_message(log_message: &str, configs: &[DnsConfig]) -> String {
     message
 }
 
+type DnsConfigStr<'a> = DnsConfig<&'a str>;
+
 #[derive(Debug, Default)]
-struct DnsConfig {
-    nameservers: Vec<String>,
-    search_domains: Vec<String>,
+struct DnsConfig<S>
+where
+    S: Default + ToString,
+{
+    nameservers: Vec<String>, // todo : turn to IP ?
+    search_domains: Vec<S>,
     timeout: u32,
     order: u32,
     if_index: u32,
-    if_index_value: String,
+    if_index_value: S,
     dns_flags: u32,
-    dns_flags_string: String,
+    dns_flags_string: S,
     reach: u32,
-    reach_string: String,
-    config_id: String,
-    options: String,
-    domain: String,
-    unknown: String,
+    reach_string: S,
+    config_id: S,
+    options: S,
+    domain: S,
+    unknown: S,
 }
 
 /// Parse DNS resolver data
-fn parse_dns_resolver(data: &[u8]) -> nom::IResult<&[u8], DnsConfig> {
+fn parse_dns_resolver<'a>(data: &'a [u8]) -> nom::IResult<&'a [u8], DnsConfigStr<'a>> {
     // Seen 0x0
     let (input, _unknown) = take(8_u8)(data)?;
     let (input, _nameserver_count) = be_u32(input)?;
@@ -188,7 +193,7 @@ fn parse_dns_resolver(data: &[u8]) -> nom::IResult<&[u8], DnsConfig> {
     // remaining bytes is variety of config options
     let min_size = 10;
     let mut remaining = input;
-    let mut config = DnsConfig {
+    let mut config = DnsConfigStr::<'a> {
         timeout,
         order,
         if_index,
@@ -197,12 +202,12 @@ fn parse_dns_resolver(data: &[u8]) -> nom::IResult<&[u8], DnsConfig> {
         ..Default::default()
     };
     if dns_flags == 6 {
-        config.dns_flags_string = String::from("(Request A records, Request AAAA records)");
+        config.dns_flags_string = "(Request A records, Request AAAA records)";
     }
     if reach == 0 {
-        config.reach_string = String::from("(Not Reachable)")
+        config.reach_string = "(Not Reachable)"
     } else if reach == 0x00020002 {
-        config.reach_string = String::from("(Reachable, Directly Reachable Address)")
+        config.reach_string = "(Reachable, Directly Reachable Address)"
     }
     while remaining.len() > min_size {
         // Option types:
@@ -231,10 +236,11 @@ fn parse_dns_resolver(data: &[u8]) -> nom::IResult<&[u8], DnsConfig> {
             0xe => config.options = extract_string(option_data)?.1,
             _ => {
                 warn!("[macos-unifiedlogs] Unknown DNS option type: {option_type}");
-                config.unknown = format!(
-                    "Unknown DNS option type: {option_type}: {}",
-                    encode_standard(data)
-                );
+                // config.unknown = format!(
+                //     "Unknown DNS option type: {option_type}: {}",
+                //     encode_standard(data)
+                // );
+                config.unknown = "Unknown DNS option type";
                 return Ok((remaining, config));
             }
         }
@@ -302,9 +308,14 @@ pub(crate) fn get_network_interface(data: &[u8]) -> nom::IResult<&[u8], String> 
     Ok((input, message))
 }
 
+type NetworkInterfaceStr<'a> = NetworkInterface<&'a str>;
+
 #[derive(Debug)]
-struct NetworkInterface {
-    name: String,
+struct NetworkInterface<S>
+where
+    S: Default + ToString,
+{
+    name: S,
     ip: String,
     rank: u32,
     rank_flag: RankFlag,
@@ -321,7 +332,7 @@ struct NetworkInterface {
 fn parse_interface<'a>(
     data: &'a [u8],
     interface_count: &u32,
-) -> nom::IResult<&'a [u8], Vec<NetworkInterface>> {
+) -> nom::IResult<&'a [u8], Vec<NetworkInterfaceStr<'a>>> {
     let mut remaining = data;
     let mut count = 0;
 
@@ -460,8 +471,8 @@ fn get_rank(rank: &u32) -> (RankFlag, u32) {
 
 /// Assemble our log message
 fn assemble_network_interface(
-    ip4: &[NetworkInterface],
-    ip6: &[NetworkInterface],
+    ip4: &[NetworkInterfaceStr<'_>],
+    ip6: &[NetworkInterfaceStr<'_>],
     generation_count: &u64,
     size: &usize,
 ) -> String {
@@ -482,13 +493,13 @@ fn assemble_network_interface(
         if entry.rank_flag == RankFlag::Never {
             continue;
         }
-        names.insert(entry.name.clone());
+        names.insert(entry.name);
     }
     for entry in ip6 {
         if entry.rank_flag == RankFlag::Never {
             continue;
         }
-        names.insert(entry.name.clone());
+        names.insert(entry.name);
     }
 
     message += &format!(
@@ -502,7 +513,7 @@ fn assemble_network_interface(
 /// Combine interface log data
 fn combine_data(
     log_message: &str,
-    interfaces: &[NetworkInterface],
+    interfaces: &[NetworkInterfaceStr<'_>],
     ip4_count: &i32,
     ip6_count: &i32,
     is_ip4: &bool,

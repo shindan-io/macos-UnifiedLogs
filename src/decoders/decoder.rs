@@ -26,6 +26,7 @@ use crate::{
         time::parse_time,
         uuid::parse_uuid,
     },
+    util::format_uuid,
 };
 
 /// Check if we support one of Apple's custom logging objects
@@ -64,7 +65,7 @@ pub(crate) fn check_objects(
     } else if format_string.contains("bool") {
         Ok(lowercase_bool(&message_values[index].message_strings))
     } else if format_string.contains("uuid_t") {
-        parse_uuid(&message_values[index].message_strings)
+        parse_uuid(&message_values[index].message_strings).map(|uuid| format_uuid(uuid))
     } else if format_string.contains("darwin.errno") {
         Ok(errno_codes(&message_values[index].message_strings))
     } else if format_string.contains("darwin.mode") {

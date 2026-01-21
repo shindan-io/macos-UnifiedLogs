@@ -695,6 +695,8 @@ impl FirehosePreamble {
 mod tests {
     use std::{fs::File, io::Read, path::PathBuf};
 
+    use uuid::Uuid;
+
     use super::{FirehoseItemData, FirehoseItemInfo, FirehosePreamble};
 
     #[test]
@@ -3055,7 +3057,7 @@ mod tests {
                 .firehose_non_activity
                 .firehose_formatters
                 .uuid_relative,
-            String::new()
+            Uuid::nil()
         );
         assert!(
             !firehose.public_data[0]

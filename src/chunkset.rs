@@ -177,7 +177,7 @@ impl ChunksetChunk {
         } else if chunk_type == statedump_chunk {
             let statedump_results = Statedump::parse_statedump(data);
             match statedump_results {
-                Ok((_, statedump)) => unified_log_data.statedump.push(statedump),
+                Ok((_, statedump)) => unified_log_data.statedump.push(statedump.into_owned()),
                 Err(err) => error!(
                     "[macos-unifiedlogs] Failed to parse statedump log entry (chunk): {err:?}"
                 ),
@@ -185,7 +185,7 @@ impl ChunksetChunk {
         } else if chunk_type == simpledump_chunk {
             let simpledump_results = SimpleDump::parse_simpledump(data);
             match simpledump_results {
-                Ok((_, simpledump)) => unified_log_data.simpledump.push(simpledump),
+                Ok((_, simpledump)) => unified_log_data.simpledump.push(simpledump.into_owned()),
                 Err(err) => error!(
                     "[macos-unifiedlogs] Failed to parse simpledump log entry (chunk): {err:?}"
                 ),
@@ -198,6 +198,8 @@ impl ChunksetChunk {
 
 #[cfg(test)]
 mod tests {
+    use uuid::Uuid;
+
     use super::ChunksetChunk;
     use crate::catalog::CatalogChunk;
     use crate::unified_log::UnifiedLogCatalogData;
@@ -2348,7 +2350,7 @@ mod tests {
         assert_eq!(unified_log.statedump[0].activity_id, 9223372036854776950);
         assert_eq!(
             unified_log.statedump[0].uuid,
-            "5CD8DDEE04383A38887710227C5A0A56"
+            Uuid::parse_str("5CD8DDEE04383A38887710227C5A0A56").unwrap()
         );
         assert_eq!(unified_log.statedump[0].chunk_data_size, 288);
     }
