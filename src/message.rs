@@ -558,11 +558,8 @@ fn format_alignment_left(
     let mut message = format_message;
     let mut precision = format_precision;
 
-    let (plus_symbol, width) = if plus_minus {
-        (PLUS, format_width - 1)
-    } else {
-        ("", format_width)
-    };
+    let plus_symbol = plus_minus.then_some(PLUS).unwrap_or_default();
+    let width = format_width - plus_symbol.len();
 
     match formatable {
         FormatableType::Float => {
@@ -620,11 +617,8 @@ fn format_alignment_right(
 ) -> RcString {
     let mut precision = precision;
 
-    let (plus_symbol, width) = if plus_minus {
-        (PLUS, format_width - 1)
-    } else {
-        ("", format_width)
-    };
+    let plus_symbol = plus_minus.then_some(PLUS).unwrap_or_default();
+    let width = format_width - plus_symbol.len();
 
     match formatable {
         FormatableType::Float => {
@@ -680,11 +674,8 @@ fn format_alignment_left_space(
 ) -> RcString {
     let mut precision = format_precision;
 
-    let (plus_symbol, width) = if plus_minus {
-        (PLUS, format_width - 1)
-    } else {
-        ("", format_width)
-    };
+    let plus_symbol = plus_minus.then_some(PLUS).unwrap_or_default();
+    let width = format_width - plus_symbol.len();
 
     match formatable {
         FormatableType::Float => {
@@ -743,11 +734,8 @@ fn format_alignment_right_space(
 ) -> RcString {
     let mut precision = format_precision;
 
-    let (plus_symbol, width) = if plus_minus {
-        (PLUS, format_width - 1)
-    } else {
-        ("", format_width)
-    };
+    let plus_symbol = plus_minus.then_some(PLUS).unwrap_or_default();
+    let width = format_width - plus_symbol.len();
 
     match formatable {
         FormatableType::Float => {
