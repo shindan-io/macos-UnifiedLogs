@@ -912,6 +912,8 @@ mod tests {
     use regex::Regex;
     use test_case::test_case;
 
+    const F: &str = "4611911198408756429";
+
     #[test]
     fn test_format_firehose_log_message() {
         let test_data = String::from("opendirectoryd (build %{public}s) launched...");
@@ -1272,9 +1274,15 @@ mod tests {
     #[test_case("2", FormatableType::Integer, 0, 5, false, false, "2    ")]
     #[test_case("2", FormatableType::Integer, 0, 3, true, false, "+2 ")]
     #[test_case("2", FormatableType::Integer, 0, 0, true, false, "+2")]
+    #[test_case("plop", FormatableType::Integer, 0, 3, false, false, "0  "; "error case => defaults to 0")]
+    #[test_case(F, FormatableType::Float, 4, 10, true, false, "+2.1000   ")]
     #[test_case("22", FormatableType::Hex, 0, 4, true, false, "+16 ")]
     #[test_case("22", FormatableType::Hex, 0, 7, true, true, "+0x16  ")]
     #[test_case("22", FormatableType::Hex, 0, 5, false, true, "0x16 ")]
+    #[test_case("22", FormatableType::Octal, 0, 6, true, true, "+0o26 ")]
+    #[test_case("22", FormatableType::Octal, 0, 0, false, false, "26")]
+    #[test_case("plop", FormatableType::String, 0, 6, true, true, "+plop ")]
+
     fn test_format_alignment_left_space(
         message: &str,
         formatable: FormatableType,
@@ -1294,9 +1302,14 @@ mod tests {
     #[test_case("2", FormatableType::Integer, 0, 5, false, false, "    2")]
     #[test_case("2", FormatableType::Integer, 0, 3, true, false, "+ 2")]
     #[test_case("2", FormatableType::Integer, 0, 0, true, false, "+2")]
+    #[test_case("plop", FormatableType::Integer, 0, 3, false, false, "  0"; "error case => defaults to 0")]
+    #[test_case(F, FormatableType::Float, 4, 10, true, false, "+   2.1000")]
     #[test_case("22", FormatableType::Hex, 0, 4, true, false, "+ 16")]
     #[test_case("22", FormatableType::Hex, 0, 7, true, true, "+  0x16")]
     #[test_case("22", FormatableType::Hex, 0, 5, false, true, " 0x16")]
+    #[test_case("22", FormatableType::Octal, 0, 6, true, true, "+ 0o26")]
+    #[test_case("22", FormatableType::Octal, 0, 0, false, false, "26")]
+    #[test_case("plop", FormatableType::String, 0, 6, true, true, "+ plop")]
     fn test_format_alignment_right_space(
         message: &str,
         formatable: FormatableType,
@@ -1349,7 +1362,7 @@ mod tests {
 
     #[test]
     fn test_parse_float() {
-        let results = parse_float("4611911198408756429");
+        let results = parse_float(F);
         assert_eq!(results, 2.1);
     }
 
