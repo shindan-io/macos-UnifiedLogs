@@ -8,9 +8,9 @@
 use log::warn;
 
 /// Convert Darwin errno codes to message
-pub(crate) fn errno_codes(errno: &str) -> String {
+pub(crate) fn errno_codes(errno: &str) -> &'static str {
     // Found at https://github.com/apple/darwin-xnu/blob/main/bsd/sys/errno.h
-    let errno_message = match errno {
+    match errno {
         "0" => "Success",
         "1" => "Operation not permitted",
         "2" => "No such file or directory",
@@ -126,29 +126,43 @@ pub(crate) fn errno_codes(errno: &str) -> String {
         "-8" => "Data less",
         _ => {
             warn!("[macos-unifiedlogs] Unknown darwin errno code: {errno}");
-            return format!("Unknown errno: {errno}");
+            "Unknown errno"
         }
-    };
-
-    errno_message.to_string()
+    }
 }
 
 /// Parse UNIX permissions to string version
-pub(crate) fn permission(permissions: &str) -> String {
-    let mut message = String::from("-");
-    for bit in permissions.chars() {
-        match bit {
-            '1' => message = format!("{message}--x"),
-            '2' => message = format!("{message}-w-"),
-            '4' => message = format!("{message}r--"),
-            '3' => message = format!("{message}-wx"),
-            '5' => message = format!("{message}r-x"),
-            '6' => message = format!("{message}rw-"),
-            '7' => message = format!("{message}rwx"),
-            _ => message = format!("{message}---"),
-        }
-    }
-    message
+pub(crate) fn permission(permissions: &str) -> super::decoder::Decoded {
+    let v = |v: char| match v {
+        '1' => 1_u8,
+        '2' => 2,
+        '3' => 3,
+        '4' => 4,
+        '5' => 5,
+        '6' => 6,
+        '7' => 7,
+        _ => 0,
+    };
+
+    let mut chars = permissions.chars();
+    let user = chars.next().map(|c| v(c)).unwrap_or(0);
+    let owner = chars.next().map(|c| v(c)).unwrap_or(0);
+    let group = chars.next().map(|c| v(c)).unwrap_or(0);
+    super::decoder::Decoded::Permission(user, owner, group)
+}
+
+pub(crate) fn format_permission(user: u8, owner: u8, group: u8) -> String {
+    let v = |v: u8| match v {
+        1 => "--x",
+        2 => "-w-",
+        3 => "-wx",
+        4 => "r--",
+        5 => "r-x",
+        6 => "rw-",
+        7 => "rwx",
+        _ => "---",
+    };
+    format!("-{}{}{}", v(user), v(owner), v(group))
 }
 
 #[cfg(test)]
@@ -180,19 +194,19 @@ mod tests {
     #[test]
     fn test_permission() {
         let mut test_data = "111";
-        let mut result = permission(test_data);
-        assert_eq!(result, "---x--x--x");
+        let mut result = permission(test_data).to_rc_string();
+        assert_eq!(result.as_str(), "---x--x--x");
 
         test_data = "448";
-        result = permission(test_data);
-        assert_eq!(result, "-r--r-----");
+        result = permission(test_data).to_rc_string();
+        assert_eq!(result.as_str(), "-r--r-----");
 
         test_data = "777";
-        result = permission(test_data);
-        assert_eq!(result, "-rwxrwxrwx");
+        result = permission(test_data).to_rc_string();
+        assert_eq!(result.as_str(), "-rwxrwxrwx");
 
         test_data = "400";
-        result = permission(test_data);
-        assert_eq!(result, "-r--------");
+        result = permission(test_data).to_rc_string();
+        assert_eq!(result.as_str(), "-r--------");
     }
 }

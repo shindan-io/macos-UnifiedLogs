@@ -509,6 +509,7 @@ fn parse_type_formatter<'a>(
     let (format, format_type) = take_until("}")(formatter)?;
 
     let apple_object = decoder::check_objects(format_type, message_value, item_type, item_index);
+    let apple_object = apple_object.to_rc_string();
 
     // If we successfully decoded an apple object, then there is nothing to format.
     // Signpost entries have not been seen with custom objects
