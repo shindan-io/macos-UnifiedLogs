@@ -48,14 +48,6 @@ pub(crate) fn padding_size(data_size: u64, alignment: u64) -> u64 {
 }
 
 /// Returns joined string wihout having to collect to vec first
-/// ex:
-///
-/// ```rust
-/// # use fw_std::strings::join_strs;
-/// let strings = ["a", "b", "c"];
-/// let joined = join_strs(strings, ", ", Some("'"));
-/// assert_eq!(joined, "'a', 'b', 'c'");
-/// ```
 pub fn join_strs(
     strings: impl IntoIterator<Item = impl AsRef<str>>,
     separator: &str,
@@ -231,6 +223,13 @@ pub(crate) fn u64_to_usize(n: u64) -> Option<usize> {
 mod tests {
     use super::*;
     use test_case::test_case;
+
+    #[test]
+    fn join_strs_test() {
+        let strings = ["a", "b", "c"];
+        let joined = join_strs(strings, ", ", Some("'"));
+        assert_eq!(joined, "'a', 'b', 'c'");
+    }
 
     #[test]
     fn parse_uuid_from_str_test() -> anyhow::Result<()> {

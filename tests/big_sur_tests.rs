@@ -261,7 +261,7 @@ fn test_parse_all_logs_big_sur() {
             loss_type += 1;
         }
 
-        if logs.message.contains("\"subHarvester\":\"Trace\"") {
+        if logs.message.contains("\"subHarvester\":Trace") {
             location_harvest_count += 1;
         }
 
