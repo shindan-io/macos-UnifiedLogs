@@ -5,6 +5,8 @@
 // is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and limitations under the License.
 
+use std::usize;
+
 /// Return BOOL value to string
 pub(crate) fn uppercase_bool(bool_data: &str) -> &'static str {
     (bool_data == "0").then(|| "NO").unwrap_or("YES")
@@ -15,7 +17,13 @@ pub(crate) fn lowercase_bool(bool_data: &str) -> &'static str {
     (bool_data == "0").then(|| "false").unwrap_or("true")
 }
 
-/// Return int value to bool
+/// Return false if int is 0, true otherwise
+pub(crate) fn bool_from_int(integer: u32) -> bool {
+    const FALSE_BOOL: u32 = 0;
+    integer != 0
+}
+
+/// Return "false" if int is 0, "true" otherwise
 pub(crate) fn lowercase_int_bool(bool_data: u8) -> &'static str {
     const FALSE_BOOL: u8 = 0;
     (bool_data == FALSE_BOOL).then(|| "false").unwrap_or("true")

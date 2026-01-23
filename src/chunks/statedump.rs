@@ -172,11 +172,19 @@ impl<'a> StatedumpStr<'a> {
     /// Parse custom Apple objects
     pub(crate) fn parse_statedump_object(object_data: &[u8], name: &str) -> String {
         let message_result = match name {
-            "CLDaemonStatusStateTracker" => location::get_daemon_status_tracker(object_data),
-            "CLClientManagerStateTracker" => location::get_state_tracker_data(object_data),
-            "CLLocationManagerStateTracker" => location::get_location_tracker_state(object_data),
-            "DNS Configuration" => config::get_dns_config(object_data),
-            "Network information" => config::get_network_interface(object_data),
+            "CLDaemonStatusStateTracker" => location::get_daemon_status_tracker(object_data)
+                .map(|(_, result)| result.to_string()),
+            "CLClientManagerStateTracker" => {
+                location::get_state_tracker_data(object_data).map(|(_, result)| result.to_string())
+            }
+            "CLLocationManagerStateTracker" => location::get_location_tracker_state(object_data)
+                .map(|(_, result)| result.to_string()),
+            "DNS Configuration" => {
+                config::get_dns_config(object_data).map(|(_, result)| result.to_string())
+            }
+            "Network information" => {
+                config::get_network_interface(object_data).map(|(_, result)| result.to_string())
+            }
             _ => {
                 return format!(
                     "Unsupported Statedump object: {name}-{}",
@@ -185,7 +193,7 @@ impl<'a> StatedumpStr<'a> {
             }
         };
         match message_result {
-            Ok((_, result)) => result,
+            Ok(result) => result,
             Err(err) => {
                 error!("[macos-unifiedlogs] Failed to parse statedump object {name}: {err:?}");
                 format!("Failed to parse statedump object: {name}")

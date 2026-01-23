@@ -5,7 +5,9 @@
 // is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and limitations under the License.
 
-use crate::util::decode_standard;
+use std::fmt::Display;
+
+use crate::{decoders::bool::bool_from_int, util::decode_standard};
 
 use super::{
     DecoderError,
@@ -15,6 +17,7 @@ use log::warn;
 use nom::{
     IResult, Parser,
     bytes::complete::take,
+    character::Char,
     number::complete::{le_f64, le_i32, le_i64, le_u8, le_u32},
 };
 
@@ -174,7 +177,7 @@ pub(crate) fn subharvester_identifier(
 }
 
 /// Convert Core Location SQLITE code to string
-pub(crate) fn sqlite_location(input: &str) -> Result<&'static str, DecoderError<'_>> {
+pub(crate) fn sqlite_location(input: &str) -> Result<SqliteError, DecoderError<'_>> {
     let decoded_data = decode_standard(input).map_err(|_| DecoderError::Parse {
         input: input.as_bytes(),
         parser_name: "sqlite location",
@@ -190,55 +193,126 @@ pub(crate) fn sqlite_location(input: &str) -> Result<&'static str, DecoderError<
     Ok(result)
 }
 
-/// Get the SQLITE error message
-fn get_sqlite_data(input: &[u8]) -> IResult<&[u8], &'static str> {
-    let (input, sqlite_code) = le_u32(input)?;
+#[allow(non_camel_case_types)]
+#[derive(Debug, Clone, PartialEq, Eq, strum::Display)]
+pub enum SqliteError {
+    #[strum(to_string = "SQLITE OK")]
+    SQLITE_OK,
+    #[strum(to_string = "SQLITE ERROR")]
+    SQLITE_ERROR,
+    #[strum(to_string = "SQLITE INTERNAL")]
+    SQLITE_INTERNAL,
+    #[strum(to_string = "SQLITE PERM")]
+    SQLITE_PERM,
+    #[strum(to_string = "SQLITE ABORT")]
+    SQLITE_ABORT,
+    #[strum(to_string = "SQLITE BUSY")]
+    SQLITE_BUSY,
+    #[strum(to_string = "SQLITE LOCKED")]
+    SQLITE_LOCKED,
+    #[strum(to_string = "SQLITE NOMEM")]
+    SQLITE_NOMEM,
+    #[strum(to_string = "SQLITE READ ONLY")]
+    SQLITE_READ_ONLY,
+    #[strum(to_string = "SQLITE INTERRUPT")]
+    SQLITE_INTERRUPT,
+    #[strum(to_string = "SQLITE IO ERR")]
+    SQLITE_IO_ERR,
+    #[strum(to_string = "SQLITE CORRUPT")]
+    SQLITE_CORRUPT,
+    #[strum(to_string = "SQLITE NOT FOUND")]
+    SQLITE_NOT_FOUND,
+    #[strum(to_string = "SQLITE FULL")]
+    SQLITE_FULL,
+    #[strum(to_string = "SQLITE CAN'T OPEN")]
+    SQLITE_CANT_OPEN,
+    #[strum(to_string = "SQLITE PROTOCOL")]
+    SQLITE_PROTOCOL,
+    #[strum(to_string = "SQLITE EMPTY")]
+    SQLITE_EMPTY,
+    #[strum(to_string = "SQLITE SCHEMA")]
+    SQLITE_SCHEMA,
+    #[strum(to_string = "SQLITE TOO BIG")]
+    SQLITE_TOO_BIG,
+    #[strum(to_string = "SQLITE CONSTRAINT")]
+    SQLITE_CONSTRAINT,
+    #[strum(to_string = "SQLITE MISMATCH")]
+    SQLITE_MISMATCH,
+    #[strum(to_string = "SQLITE MISUSE")]
+    SQLITE_MISUSE,
+    #[strum(to_string = "SQLITE NO LFS")]
+    SQLITE_NO_LFS,
+    #[strum(to_string = "SQLITE AUTH")]
+    SQLITE_AUTH,
+    #[strum(to_string = "SQLITE FORMAT")]
+    SQLITE_FORMAT,
+    #[strum(to_string = "SQLITE RANGE")]
+    SQLITE_RANGE,
+    #[strum(to_string = "SQLITE NOT A DB")]
+    SQLITE_NOT_A_DB,
+    #[strum(to_string = "SQLITE NOTICE")]
+    SQLITE_NOTICE,
+    #[strum(to_string = "SQLITE WARNING")]
+    SQLITE_WARNING,
+    #[strum(to_string = "SQLITE ROW")]
+    SQLITE_ROW,
+    #[strum(to_string = "SQLITE DONE")]
+    SQLITE_DONE,
+    #[strum(to_string = "SQLITE IO ERR READ")]
+    SQLITE_IO_ERR_READ,
+    #[strum(to_string = "Unknown Core Location sqlite error")]
+    Unknown,
+}
 
+/// Get the SQLITE error message
+fn get_sqlite_data(input: &[u8]) -> IResult<&[u8], SqliteError> {
+    let (input, sqlite_code) = le_u32(input)?;
     // Found at https://www.sqlite.org/rescode.html
-    let message = match sqlite_code {
-        0 => "SQLITE OK",
-        1 => "SQLITE ERROR",
-        2 => "SQLITE INTERNAL",
-        3 => "SQLITE PERM",
-        4 => "SQLITE ABORT",
-        5 => "SQLITE BUSY",
-        6 => "SQLITE LOCKED",
-        7 => "SQLITE NOMEM",
-        8 => "SQLITE READ ONLY",
-        9 => "SQLITE INTERRUPT",
-        10 => "SQLITE IO ERR",
-        11 => "SQLITE CORRUPT",
-        12 => "SQLITE NOT FOUND",
-        13 => "SQLITE FULL",
-        14 => "SQLITE CAN'T OPEN",
-        15 => "SQLITE PROTOCOL",
-        16 => "SQLITE EMPTY",
-        17 => "SQLITE SCHEMA",
-        18 => "SQLITE TOO BIG",
-        19 => "SQLITE CONSTRAINT",
-        20 => "SQLITE MISMATCH",
-        21 => "SQLITE MISUSE",
-        22 => "SQLITE NO LFS",
-        23 => "SQLITE AUTH",
-        24 => "SQLITE FORMAT",
-        25 => "SQLITE RANGE",
-        26 => "SQLITE NOT A DB",
-        27 => "SQLITE NOTICE",
-        28 => "SQLITE WARNING",
-        100 => "SQLITE ROW",
-        101 => "SQLITE DONE",
-        266 => "SQLITE IO ERR READ",
+    let result = match sqlite_code {
+        0 => SqliteError::SQLITE_OK,
+        1 => SqliteError::SQLITE_ERROR,
+        2 => SqliteError::SQLITE_INTERNAL,
+        3 => SqliteError::SQLITE_PERM,
+        4 => SqliteError::SQLITE_ABORT,
+        5 => SqliteError::SQLITE_BUSY,
+        6 => SqliteError::SQLITE_LOCKED,
+        7 => SqliteError::SQLITE_NOMEM,
+        8 => SqliteError::SQLITE_READ_ONLY,
+        9 => SqliteError::SQLITE_INTERRUPT,
+        10 => SqliteError::SQLITE_IO_ERR,
+        11 => SqliteError::SQLITE_CORRUPT,
+        12 => SqliteError::SQLITE_NOT_FOUND,
+        13 => SqliteError::SQLITE_FULL,
+        14 => SqliteError::SQLITE_CANT_OPEN,
+        15 => SqliteError::SQLITE_PROTOCOL,
+        16 => SqliteError::SQLITE_EMPTY,
+        17 => SqliteError::SQLITE_SCHEMA,
+        18 => SqliteError::SQLITE_TOO_BIG,
+        19 => SqliteError::SQLITE_CONSTRAINT,
+        20 => SqliteError::SQLITE_MISMATCH,
+        21 => SqliteError::SQLITE_MISUSE,
+        22 => SqliteError::SQLITE_NO_LFS,
+        23 => SqliteError::SQLITE_AUTH,
+        24 => SqliteError::SQLITE_FORMAT,
+        25 => SqliteError::SQLITE_RANGE,
+        26 => SqliteError::SQLITE_NOT_A_DB,
+        27 => SqliteError::SQLITE_NOTICE,
+        28 => SqliteError::SQLITE_WARNING,
+        100 => SqliteError::SQLITE_ROW,
+        101 => SqliteError::SQLITE_DONE,
+        266 => SqliteError::SQLITE_IO_ERR_READ,
         _ => {
             warn!("[macos-unifiedlogs] Unknown Core Location sqlite error: {sqlite_code}");
-            "Unknown Core Location sqlite error"
+            SqliteError::Unknown
         }
     };
-
-    Ok((input, message))
+    Ok((input, result))
 }
 
 /// Parse the manager tracker state data
-pub(crate) fn client_manager_state_tracker_state(input: &str) -> Result<String, DecoderError<'_>> {
+pub(crate) fn client_manager_state_tracker_state(
+    input: &str,
+) -> Result<LocationStateTrackerData, DecoderError<'_>> {
     let decoded_data = decode_standard(input).map_err(|_| DecoderError::Parse {
         input: input.as_bytes(),
         parser_name: "client manager state tracker state",
@@ -254,17 +328,32 @@ pub(crate) fn client_manager_state_tracker_state(input: &str) -> Result<String, 
     Ok(result)
 }
 
+pub struct LocationStateTrackerData {
+    location_enabled: u32,
+    location_restricted: u32,
+}
+
+impl Display for LocationStateTrackerData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{{\"locationRestricted\":{}, \"locationServicesenabledStatus\":{}}}",
+            bool_from_int(self.location_restricted),
+            self.location_enabled
+        )
+    }
+}
+
 /// Get the tracker data
-pub(crate) fn get_state_tracker_data(input: &[u8]) -> IResult<&[u8], String> {
+pub(crate) fn get_state_tracker_data(input: &[u8]) -> IResult<&[u8], LocationStateTrackerData> {
     let mut tup = (le_u32, le_u32);
     let (input, (location_enabled, location_restricted)) = tup.parse(input)?;
     Ok((
         input,
-        format!(
-            "{{\"locationRestricted\":{}, \"locationServicesenabledStatus\":{}}}",
-            lowercase_bool(&format!("{location_restricted}")),
-            location_enabled
-        ),
+        LocationStateTrackerData {
+            location_enabled,
+            location_restricted,
+        },
     ))
 }
 
@@ -516,8 +605,97 @@ pub(crate) fn io_message(data: &str) -> Result<&'static str, DecoderError<'_>> {
     Ok(message)
 }
 
+pub struct DaemonTrackerData {
+    level: f64,
+    charged: u8,
+    connected: u8,
+    unknown: u8,
+    unknown2: u8,
+    charger_type: ChargerType,
+    unknown3: u32,
+    unknown4: u32,
+    reachability: ReachabilityStatus,
+    thermal_level: i32,
+    airplane: u8,
+    battery_saver: u8,
+    push_service: u8,
+    restricted: u8,
+    was_connected: bool,
+}
+
+impl Display for DaemonTrackerData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            r#"{{"thermalLevel": {}, "reachability": "{}", "airplaneMode": {}, "batteryData":{{"wasConnected": {}, "charged": {}, "level": {}, "connected": {}, "chargerType": "{}"}}, "restrictedMode": {}, "batterySaverModeEnabled": {}, "push_service":{}}}"#,
+            self.thermal_level,
+            self.reachability,
+            bool_from_int(self.airplane as _),
+            self.was_connected,
+            bool_from_int(self.charged as _),
+            self.level,
+            bool_from_int(self.connected as _),
+            self.charger_type,
+            bool_from_int(self.restricted as _),
+            bool_from_int(self.battery_saver as _),
+            bool_from_int(self.push_service as _)
+        )
+    }
+}
+
+/// Values found in dyldcache logd_location
+#[derive(Debug, Clone, PartialEq, Eq, strum::Display)]
+pub enum ReachabilityStatus {
+    #[strum(to_string = "kReachabilityUnavailable")]
+    Unavailable,
+    #[strum(to_string = "kReachabilitySmall")]
+    Small,
+    #[strum(to_string = "kReachabilityLarge")]
+    Large,
+    #[strum(to_string = "kReachabilityUnachievable")]
+    Unachievable,
+    #[strum(to_string = "Unknown Reachability Status {0}")]
+    Unknown(u32),
+}
+
+impl From<u32> for ReachabilityStatus {
+    fn from(value: u32) -> Self {
+        match value {
+            0 => ReachabilityStatus::Unavailable,
+            1 => ReachabilityStatus::Small,
+            2 => ReachabilityStatus::Large,
+            1000 => ReachabilityStatus::Unachievable,
+            _ => ReachabilityStatus::Unknown(value),
+        }
+    }
+}
+
+// Values found in dyldcache logd_location
+// Other values seen are:
+// kChargerTypeNone, kChargerTypeExternal, and kChargerTypeArcas.
+// But have not observed the numerical value for these types
+#[derive(Debug, Clone, PartialEq, Eq, strum::Display)]
+pub enum ChargerType {
+    #[strum(to_string = "kChargerTypeUnknown")]
+    Unknown,
+    #[strum(to_string = "kChargerTypeUsb")]
+    Usb,
+    #[strum(to_string = "Unknown charger type value {0}")]
+    Other(u32),
+}
+
+impl From<u32> for ChargerType {
+    fn from(value: u32) -> Self {
+        match value {
+            0 => ChargerType::Unknown,
+            2 => ChargerType::Usb,
+            _ => ChargerType::Other(value),
+        }
+    }
+}
+
 /// Parse and get the location Daemon tracker
-pub(crate) fn get_daemon_status_tracker(input: &[u8]) -> nom::IResult<&[u8], String> {
+pub(crate) fn get_daemon_status_tracker(input: &[u8]) -> nom::IResult<&[u8], DaemonTrackerData> {
     // Slightly outdated but still helpful: https://gist.github.com/razvand/578f94748b624f4d47c1533f5a02b095
     let mut tup = (
         le_f64, le_u8, le_u8, le_u8, le_u8, le_u32, le_u32, le_u32, le_u32, le_i32, le_u8, le_u8,
@@ -529,11 +707,11 @@ pub(crate) fn get_daemon_status_tracker(input: &[u8]) -> nom::IResult<&[u8], Str
             level,
             charged,
             connected,
-            _unknown,
-            _unknown2,
+            unknown,
+            unknown2,
             charger_type,
-            _unknown3,
-            _unknown4,
+            unknown3,
+            unknown4,
             reachability,
             thermal_level,
             airplane,
@@ -543,49 +721,32 @@ pub(crate) fn get_daemon_status_tracker(input: &[u8]) -> nom::IResult<&[u8], Str
         ),
     ) = tup.parse(input)?;
 
-    let mut was_connected = false;
     // When these unknown values are not 0 `was_connected` is always true
     // Not 100% sure the significance or what they represent
-    if _unknown != 0 && _unknown2 != 0 && _unknown3 != 0 {
-        was_connected = true;
-    }
+    let was_connected = unknown != 0 && unknown2 != 0 && unknown3 != 0;
 
-    // Values found in dyldcache logd_location
-    let reachability_str = match reachability {
-        0 => "kReachabilityUnavailable",
-        1 => "kReachabilitySmall",
-        2 => "kReachabilityLarge",
-        1000 => "kReachabilityUnachievable",
-        _ => {
-            warn!("[macos-unifiedlogs] Unknown reachability value: {reachability}");
-            "Unknown reachability value"
-        }
+    let charger_type: ChargerType = charger_type.into();
+    let reachability: ReachabilityStatus = reachability.into();
+
+    let tracker_data = DaemonTrackerData {
+        level,
+        charged,
+        connected,
+        unknown,
+        unknown2,
+        charger_type,
+        unknown3,
+        unknown4,
+        reachability,
+        thermal_level,
+        airplane,
+        battery_saver,
+        push_service,
+        restricted,
+        was_connected,
     };
 
-    // Values found in dyldcache logd_location
-    // Other values seen are:
-    // kChargerTypeNone, kChargerTypeExternal, and kChargerTypeArcas.
-    // But have not observed the numerical value for these types
-    let charger_type_str = match charger_type {
-        0 => "kChargerTypeUnknown",
-        2 => "kChargerTypeUsb",
-        _ => {
-            warn!("[macos-unifiedlogs] Unknown charger type value: {charger_type}");
-            "Unknown charger type value"
-        }
-    };
-
-    let message = format!(
-        r#"{{"thermalLevel": {thermal_level}, "reachability": "{reachability_str}", "airplaneMode": {}, "batteryData":{{"wasConnected": {was_connected}, "charged": {}, "level": {level}, "connected": {}, "chargerType": "{charger_type_str}"}}, "restrictedMode": {}, "batterySaverModeEnabled": {}, "push_service":{}}}"#,
-        lowercase_int_bool(airplane),
-        lowercase_int_bool(charged),
-        lowercase_int_bool(connected),
-        lowercase_int_bool(restricted),
-        lowercase_int_bool(battery_saver),
-        lowercase_int_bool(push_service)
-    );
-
-    Ok((location_data, message))
+    Ok((location_data, tracker_data))
 }
 
 #[cfg(test)]
@@ -621,7 +782,7 @@ mod tests {
         let test_data = "AAAAAA==";
         let result = sqlite_location(test_data).unwrap();
 
-        assert_eq!(result, "SQLITE OK")
+        assert_eq!(result, SqliteError::SQLITE_OK)
     }
 
     #[test]
@@ -631,7 +792,7 @@ mod tests {
 
         let (_, result) = get_sqlite_data(&decoded_data_result).unwrap();
 
-        assert_eq!(result, "SQLITE OK")
+        assert_eq!(result, SqliteError::SQLITE_OK)
     }
 
     #[test]
@@ -640,7 +801,7 @@ mod tests {
         let result = client_manager_state_tracker_state(test_data).unwrap();
 
         assert_eq!(
-            result,
+            result.to_string(),
             "{\"locationRestricted\":false, \"locationServicesenabledStatus\":1}"
         )
     }
@@ -665,7 +826,7 @@ mod tests {
         let (_, result) = get_state_tracker_data(&decoded_data_result).unwrap();
 
         assert_eq!(
-            result,
+            result.to_string(),
             "{\"locationRestricted\":false, \"locationServicesenabledStatus\":1}"
         )
     }
@@ -710,7 +871,7 @@ mod tests {
         let (_, result) = get_daemon_status_tracker(&test_data).unwrap();
 
         assert_eq!(
-            result,
+            result.to_string(),
             "{\"thermalLevel\": -1, \"reachability\": \"kReachabilityLarge\", \"airplaneMode\": false, \"batteryData\":{\"wasConnected\": false, \"charged\": false, \"level\": -1, \"connected\": false, \"chargerType\": \"kChargerTypeUnknown\"}, \"restrictedMode\": false, \"batterySaverModeEnabled\": false, \"push_service\":false}"
         )
     }
@@ -724,7 +885,7 @@ mod tests {
         let (_, result) = get_daemon_status_tracker(&test_data).unwrap();
 
         assert_eq!(
-            result,
+            result.to_string(),
             "{\"thermalLevel\": 0, \"reachability\": \"kReachabilityLarge\", \"airplaneMode\": false, \"batteryData\":{\"wasConnected\": true, \"charged\": false, \"level\": 100, \"connected\": true, \"chargerType\": \"kChargerTypeUsb\"}, \"restrictedMode\": false, \"batterySaverModeEnabled\": false, \"push_service\":false}"
         )
     }

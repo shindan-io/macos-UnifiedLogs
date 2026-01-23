@@ -17,10 +17,10 @@ use crate::{
             get_service_binding, parse_dns_header,
         },
         location::{
-            ClientAuthorizationStatus, DaemonStatusType, SubharvesterIdentifier,
-            client_authorization_status, client_manager_state_tracker_state, daemon_status_type,
-            io_message, location_manager_state_tracker_state, sqlite_location,
-            subharvester_identifier,
+            ClientAuthorizationStatus, DaemonStatusType, LocationStateTrackerData, SqliteError,
+            SubharvesterIdentifier, client_authorization_status,
+            client_manager_state_tracker_state, daemon_status_type, io_message,
+            location_manager_state_tracker_state, sqlite_location, subharvester_identifier,
         },
         network::{ipv_four, ipv_six, sockaddr},
         opendirectory::{
@@ -50,6 +50,8 @@ pub enum Decoded {
     ClientAuthorizationStatus(ClientAuthorizationStatus),
     DaemonStatusType(DaemonStatusType),
     SubharvesterIdentifier(SubharvesterIdentifier),
+    SqliteError(SqliteError),
+    LocationStateTrackerData(LocationStateTrackerData),
     Permission(u8, u8, u8),
 }
 
@@ -67,6 +69,8 @@ impl Decoded {
             Self::ClientAuthorizationStatus(value) => rc_string!(value.to_string()),
             Self::DaemonStatusType(value) => rc_string!(value.to_string()),
             Self::SubharvesterIdentifier(value) => rc_string!(value.to_string()),
+            Self::SqliteError(value) => rc_string!(value.to_string()),
+            Self::LocationStateTrackerData(value) => rc_string!(value.to_string()),
             Self::Uuid(value) => rc_string!(format_uuid(*value)),
             Self::Permission(user, owner, group) => {
                 rc_string!(format_permission(*user, *owner, *group))
@@ -147,12 +151,12 @@ fn to_decoded_value<'a>(
         Decoded::DaemonStatusType(daemon_status_type(&message_strings)?)
     } else if format_string.contains("location:CLSubHarvesterIdentifier") {
         Decoded::SubharvesterIdentifier(subharvester_identifier(&message_strings)?)
+    } else if format_string.contains("location:SqliteResult") {
+        Decoded::SqliteError(sqlite_location(&message_strings)?)
+    } else if format_string.contains("location:_CLClientManagerStateTrackerState") {
+        Decoded::LocationStateTrackerData(client_manager_state_tracker_state(&message_strings)?)
     } else {
-        let ok = if format_string.contains("location:SqliteResult") {
-            sqlite_location(&message_strings)?.to_string()
-        } else if format_string.contains("location:_CLClientManagerStateTrackerState") {
-            client_manager_state_tracker_state(&message_strings)?
-        } else if format_string.contains("location:_CLLocationManagerStateTrackerState") {
+        let ok = if format_string.contains("location:_CLLocationManagerStateTrackerState") {
             location_manager_state_tracker_state(&message_strings)?
         } else if format_string.contains("network:in6_addr") {
             ipv_six(&message_strings).map(|ip| ip.to_string())?
