@@ -5,35 +5,35 @@
 // is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and limitations under the License.
 
-use std::rc::Rc;
-
-use uuid::Uuid;
-
 use crate::{
     RcString,
     chunks::firehose::firehose_log::FirehoseItemInfo,
     decoders::{
         DecoderError,
-        bool::{lowercase_bool, uppercase_bool},
-        darwin::{errno_codes, format_permission, permission},
+        darwin::{Errno, errno_codes, format_permission, permission},
         dns::{
             dns_acceptable, dns_addrmv, dns_counts, dns_getaddrinfo_opts, dns_idflags, dns_ip_addr,
             dns_protocol, dns_reason, dns_records, dns_yes_no, get_dns_mac_addr, get_domain_name,
             get_service_binding, parse_dns_header,
         },
         location::{
+            ClientAuthorizationStatus, DaemonStatusType, SubharvesterIdentifier,
             client_authorization_status, client_manager_state_tracker_state, daemon_status_type,
             io_message, location_manager_state_tracker_state, sqlite_location,
             subharvester_identifier,
         },
         network::{ipv_four, ipv_six, sockaddr},
-        opendirectory::{errors, member_details, member_id_type, sid_details},
+        opendirectory::{
+            MemberDetails, MemberIdType, OdError, SidDetails, errors, member_details,
+            member_id_type, sid_details,
+        },
         time::parse_time,
         uuid::parse_uuid,
     },
     rc_string,
     util::format_uuid,
 };
+use uuid::Uuid;
 
 pub enum Decoded {
     Other(RcString), // Default value for work in progress, to be removed when all other types are implemented
@@ -42,7 +42,14 @@ pub enum Decoded {
     UpBool(bool),
     LoBool(bool),
     Uuid(Uuid),
-    Errno(&'static str),
+    Errno(Errno),
+    OdError(OdError),
+    MemberIdType(MemberIdType),
+    MemberDetails(MemberDetails),
+    SidDetails(SidDetails),
+    ClientAuthorizationStatus(ClientAuthorizationStatus),
+    DaemonStatusType(DaemonStatusType),
+    SubharvesterIdentifier(SubharvesterIdentifier),
     Permission(u8, u8, u8),
 }
 
@@ -52,8 +59,15 @@ impl Decoded {
             Self::Other(value) | Self::Error(value) | Self::Masked(value) => value.clone(),
             Self::UpBool(value) => rc_string!(value.then(|| "NO").unwrap_or("YES")),
             Self::LoBool(value) => rc_string!(value.then(|| "false").unwrap_or("true")),
+            Self::Errno(value) => rc_string!(value.to_string()),
+            Self::OdError(value) => rc_string!(value.to_string()),
+            Self::MemberIdType(value) => rc_string!(value.to_string()),
+            Self::MemberDetails(value) => rc_string!(value.to_string()),
+            Self::SidDetails(value) => rc_string!(value.to_string()),
+            Self::ClientAuthorizationStatus(value) => rc_string!(value.to_string()),
+            Self::DaemonStatusType(value) => rc_string!(value.to_string()),
+            Self::SubharvesterIdentifier(value) => rc_string!(value.to_string()),
             Self::Uuid(value) => rc_string!(format_uuid(*value)),
-            Self::Errno(value) => rc_string!(*value),
             Self::Permission(user, owner, group) => {
                 rc_string!(format_permission(*user, *owner, *group))
             }
@@ -119,22 +133,22 @@ fn to_decoded_value<'a>(
         Decoded::Errno(errno_codes(&message_strings))
     } else if format_string.contains("darwin.mode") {
         permission(&message_strings)
+    } else if format_string.contains("odtypes:ODError") {
+        Decoded::OdError(errors(&message_strings))
+    } else if format_string.contains("odtypes:mbridtype") {
+        Decoded::MemberIdType(member_id_type(&message_strings))
+    } else if format_string.contains("odtypes:mbr_details") {
+        Decoded::MemberDetails(member_details(&message_strings)?)
+    } else if format_string.contains("odtypes:nt_sid_t") {
+        Decoded::SidDetails(sid_details(&message_strings)?)
+    } else if format_string.contains("location:CLClientAuthorizationStatus") {
+        Decoded::ClientAuthorizationStatus(client_authorization_status(&message_strings)?)
+    } else if format_string.contains("location:CLDaemonStatus_Type::Reachability") {
+        Decoded::DaemonStatusType(daemon_status_type(&message_strings)?)
+    } else if format_string.contains("location:CLSubHarvesterIdentifier") {
+        Decoded::SubharvesterIdentifier(subharvester_identifier(&message_strings)?)
     } else {
-        let ok = if format_string.contains("odtypes:ODError") {
-            errors(&message_strings)
-        } else if format_string.contains("odtypes:mbridtype") {
-            member_id_type(&message_strings)
-        } else if format_string.contains("odtypes:mbr_details") {
-            member_details(&message_strings)?
-        } else if format_string.contains("odtypes:nt_sid_t") {
-            sid_details(&message_strings)?
-        } else if format_string.contains("location:CLClientAuthorizationStatus") {
-            client_authorization_status(&message_strings)?
-        } else if format_string.contains("location:CLDaemonStatus_Type::Reachability") {
-            daemon_status_type(&message_strings)?
-        } else if format_string.contains("location:CLSubHarvesterIdentifier") {
-            subharvester_identifier(&message_strings)?
-        } else if format_string.contains("location:SqliteResult") {
+        let ok = if format_string.contains("location:SqliteResult") {
             sqlite_location(&message_strings)?.to_string()
         } else if format_string.contains("location:_CLClientManagerStateTrackerState") {
             client_manager_state_tracker_state(&message_strings)?

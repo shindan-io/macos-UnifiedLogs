@@ -7,126 +7,358 @@
 
 use log::warn;
 
+#[derive(Debug, Clone, PartialEq, Eq, strum::Display)]
+pub enum Errno {
+    #[strum(to_string = "Success")]
+    Success,
+    #[strum(to_string = "Operation not permitted")]
+    OperationNotPermitted,
+    #[strum(to_string = "No such file or directory")]
+    NoSuchFileOrDirectory,
+    #[strum(to_string = "No such process")]
+    NoSuchProcess,
+    #[strum(to_string = "Interrupted system call")]
+    InterruptedSystemCall,
+    #[strum(to_string = "Input/Output error")]
+    InputOutputError,
+    #[strum(to_string = "Device not configured")]
+    DeviceNotConfigured,
+    #[strum(to_string = "Argument list too long")]
+    ArgumentListTooLong,
+    #[strum(to_string = "Exec format error")]
+    ExecFormatError,
+    #[strum(to_string = "Bad file descriptor")]
+    BadFileDescriptor,
+    #[strum(to_string = "No child processes")]
+    NoChildProcesses,
+    #[strum(to_string = "Resource deadlock avoided")]
+    ResourceDeadlockAvoided,
+    #[strum(to_string = "Cannot allocate memory")]
+    CannotAllocateMemory,
+    #[strum(to_string = "Permission denied")]
+    PermissionDenied,
+    #[strum(to_string = "Bad address")]
+    BadAddress,
+    #[strum(to_string = "Block device required")]
+    BlockDeviceRequired,
+    #[strum(to_string = "Device / Resource busy")]
+    DeviceResourceBusy,
+    #[strum(to_string = "File exists")]
+    FileExists,
+    #[strum(to_string = "Cross-device link")]
+    CrossDeviceLink,
+    #[strum(to_string = "Operation not supported by device")]
+    OperationNotSupportedByDevice,
+    #[strum(to_string = "Not a directory")]
+    NotADirectory,
+    #[strum(to_string = "Is a directory")]
+    IsADirectory,
+    #[strum(to_string = "Invalid arguement")]
+    InvalidArgument,
+    #[strum(to_string = "Too many open files in system")]
+    TooManyOpenFilesInSystem,
+    #[strum(to_string = "Too many open files")]
+    TooManyOpenFiles,
+    #[strum(to_string = "Inappropriate ioctl for devices")]
+    InappropriateIoctlForDevices,
+    #[strum(to_string = "Text file busy")]
+    TextFileBusy,
+    #[strum(to_string = "File too large")]
+    FileTooLarge,
+    #[strum(to_string = "No space left on device")]
+    NoSpaceLeftOnDevice,
+    #[strum(to_string = "Illegal seek")]
+    IllegalSeek,
+    #[strum(to_string = "Read-only filesystem")]
+    ReadOnlyFilesystem,
+    #[strum(to_string = "Too many link")]
+    TooManyLink,
+    #[strum(to_string = "Broken pipe")]
+    BrokenPipe,
+    #[strum(to_string = "Numerical argument out of domain")]
+    NumericalArgumentOutOfDomain,
+    #[strum(to_string = "Result too large")]
+    ResultTooLarge,
+    #[strum(to_string = "Resource temporarily unavailable, operation would block")]
+    ResourceTemporarilyUnavailableOperationWouldBlock,
+    #[strum(to_string = "Operation now in progress")]
+    OperationNowInProgress,
+    #[strum(to_string = "Operation already in progress")]
+    OperationAlreadyInProgress,
+    #[strum(to_string = "Socket operation on non-socket")]
+    SocketOperationOnNonSocket,
+    #[strum(to_string = "Destination address required")]
+    DestinationAddressRequired,
+    #[strum(to_string = "Message too long")]
+    MessageTooLong,
+    #[strum(to_string = "Protocol wrong type for socket")]
+    ProtocolWrongTypeForSocket,
+    #[strum(to_string = "Protocol not available")]
+    ProtocolNotAvailable,
+    #[strum(to_string = "Protocol not supported")]
+    ProtocolNotSupported,
+    #[strum(to_string = "Socket type not supported")]
+    SocketTypeNotSupported,
+    #[strum(to_string = "Operation not supported, Operation not supported on socket")]
+    OperationNotSupportedOperationNotSupportedOnSocket,
+    #[strum(to_string = "Protocol family not supported")]
+    ProtocolFamilyNotSupported,
+    #[strum(to_string = "Address family not supported by protocol family")]
+    AddressFamilyNotSupportedByProtocolFamily,
+    #[strum(to_string = "Address already in use")]
+    AddressAlreadyInUse,
+    #[strum(to_string = "Can't assign requested address")]
+    CantAssignRequestedAddress,
+    #[strum(to_string = "Network is down")]
+    NetworkIsDown,
+    #[strum(to_string = "Network is unreachable")]
+    NetworkIsUnreachable,
+    #[strum(to_string = "Network dropped connection on reset")]
+    NetworkDroppedConnectionOnReset,
+    #[strum(to_string = "Software caused connection abort")]
+    SoftwareCausedConnectionAbort,
+    #[strum(to_string = "Connection reset by peer")]
+    ConnectionResetByPeer,
+    #[strum(to_string = "No buffer space available")]
+    NoBufferSpaceAvailable,
+    #[strum(to_string = "Socket is already connected")]
+    SocketIsAlreadyConnected,
+    #[strum(to_string = "Socket is not connected")]
+    SocketIsNotConnected,
+    #[strum(to_string = "Can't send after socket shutdown")]
+    CantSendAfterSocketShutdown,
+    #[strum(to_string = "Too many references: can't splice")]
+    TooManyReferencesCantSplice,
+    #[strum(to_string = "Operation timed out")]
+    OperationTimedOut,
+    #[strum(to_string = "Connection refused")]
+    ConnectionRefused,
+    #[strum(to_string = "Too many levels of symbolic links")]
+    TooManyLevelsOfSymbolicLinks,
+    #[strum(to_string = "File name too long")]
+    FileNameTooLong,
+    #[strum(to_string = "Host is down")]
+    HostIsDown,
+    #[strum(to_string = "No route to host")]
+    NoRouteToHost,
+    #[strum(to_string = "Directory not empty")]
+    DirectoryNotEmpty,
+    #[strum(to_string = "Too many processes")]
+    TooManyProcesses,
+    #[strum(to_string = "Too many users")]
+    TooManyUsers,
+    #[strum(to_string = "Disc quota exceeded")]
+    DiscQuotaExceeded,
+    #[strum(to_string = "Stale NFS file handle")]
+    StaleNFSFileHandle,
+    #[strum(to_string = "Too many levels of remote in path")]
+    TooManyLevelsOfRemoteInPath,
+    #[strum(to_string = "RPC struct is bad")]
+    RPCStructIsBad,
+    #[strum(to_string = "RPC version wrong")]
+    RPCVersionWrong,
+    #[strum(to_string = "RPC prog. not avail")]
+    RPCProgNotAvail,
+    #[strum(to_string = "Program version wrong")]
+    ProgramVersionWrong,
+    #[strum(to_string = "Bad procedure for program")]
+    BadProcedureForProgram,
+    #[strum(to_string = "No locks available")]
+    NoLocksAvailable,
+    #[strum(to_string = "Function not implemented")]
+    FunctionNotImplemented,
+    #[strum(to_string = "Inappropriate file type or format")]
+    InappropriateFileTypeOrFormat,
+    #[strum(to_string = "Authentication error")]
+    AuthenticationError,
+    #[strum(to_string = "Need authenticator")]
+    NeedAuthenticator,
+    #[strum(to_string = "Device power is off")]
+    DevicePowerIsOff,
+    #[strum(to_string = "Device error, e.g. paper out")]
+    DeviceErrorEGPaperOut,
+    #[strum(to_string = "Value too large to be stored in data type")]
+    ValueTooLargeToBeStoredInDataType,
+    #[strum(to_string = "Bad executable")]
+    BadExecutable,
+    #[strum(to_string = "Bad CPU type in executable")]
+    BadCPUTypeInExecutable,
+    #[strum(to_string = "Shared library version mismatch")]
+    SharedLibraryVersionMismatch,
+    #[strum(to_string = "Malformed Macho file")]
+    MalformedMachoFile,
+    #[strum(to_string = "Operation canceled")]
+    OperationCanceled,
+    #[strum(to_string = "Identifier removed")]
+    IdentifierRemoved,
+    #[strum(to_string = "No message of desired type")]
+    NoMessageOfDesiredType,
+    #[strum(to_string = "Illegal byte sequence")]
+    IllegalByteSequence,
+    #[strum(to_string = "Attribute not found")]
+    AttributeNotFound,
+    #[strum(to_string = "Bad message")]
+    BadMessage,
+    #[strum(to_string = "Reserved")]
+    Reserved1,
+    #[strum(to_string = "No message available on STREAM")]
+    NoMessageAvailableOnSTREAM,
+    #[strum(to_string = "Reserved")]
+    Reserved2,
+    #[strum(to_string = "No STREAM resources")]
+    NoSTREAMResources,
+    #[strum(to_string = "Not a STREAM")]
+    NotASTREAM,
+    #[strum(to_string = "Protocol error")]
+    ProtocolError,
+    #[strum(to_string = "STREAM ioctl timeout")]
+    STREAMIoctlTimeout,
+    #[strum(to_string = "Operation not supported on socket")]
+    OperationNotSupportedOnSocket,
+    #[strum(to_string = "No such policy registered")]
+    NoSuchPolicyRegistered,
+    #[strum(to_string = "State not recoverable")]
+    StateNotRecoverable,
+    #[strum(to_string = "Previous owner died")]
+    PreviousOwnerDied,
+    #[strum(to_string = "Interface output queue is full, Must be equal largest errno")]
+    InterfaceOutputQueueIsFullMustBeEqualLargestErrno,
+    #[strum(to_string = "Restart syscall")]
+    RestartSyscall,
+    #[strum(to_string = "Don't modify regs, just return")]
+    DontModifyRegsJustReturn,
+    #[strum(to_string = "Restart lookup under heavy vnode pressure/recycling")]
+    RestartLookupUnderHeavyVnodePressureRecycling,
+    #[strum(to_string = "Red drive open")]
+    RedDriveOpen,
+    #[strum(to_string = "Keep looking")]
+    KeepLooking,
+    #[strum(to_string = "Data less")]
+    DataLess,
+    #[strum(to_string = "Unknown errno: {0}")]
+    Unknown(String),
+}
+
 /// Convert Darwin errno codes to message
-pub(crate) fn errno_codes(errno: &str) -> &'static str {
+pub(crate) fn errno_codes(errno: &str) -> Errno {
     // Found at https://github.com/apple/darwin-xnu/blob/main/bsd/sys/errno.h
     match errno {
-        "0" => "Success",
-        "1" => "Operation not permitted",
-        "2" => "No such file or directory",
-        "3" => "No such process",
-        "4" => "Interrupted system call",
-        "5" => "Input/Output error",
-        "6" => "Device not configured",
-        "7" => "Argument list too long",
-        "8" => "Exec format error",
-        "9" => "Bad file descriptor",
-        "10" => "No child processes",
-        "11" => "Resource deadlock avoided",
-        "12" => "Cannot allocate memory",
-        "13" => "Permission denied",
-        "14" => "Bad address",
-        "15" => "Block device required",
-        "16" => "Device / Resource busy",
-        "17" => "File exists",
-        "18" => "Cross-device link",
-        "19" => "Operation not supported by device",
-        "20" => "Not a directory",
-        "21" => "Is a directory",
-        "22" => "Invalid arguement",
-        "23" => "Too many open files in system",
-        "24" => "Too many open files",
-        "25" => "Inappropriate ioctl for devices",
-        "26" => "Text file busy",
-        "27" => "File too large",
-        "28" => "No space left on device",
-        "29" => "Illegal seek",
-        "30" => "Read-only filesystem",
-        "31" => "Too many link",
-        "32" => "Broken pipe",
-        "33" => "Numerical argument out of domain",
-        "34" => "Result too large",
-        "35" => "Resource temporarily unavailable, operation would block",
-        "36" => "Operation now in progress",
-        "37" => "Operation already in progress",
-        "38" => "Socket operation on non-socket",
-        "39" => "Destination address required",
-        "40" => "Message too long",
-        "41" => "Protocol wrong type for socket",
-        "42" => "Protocol not available",
-        "43" => "Protocol not supported",
-        "44" => "Socket type not supported",
-        "45" => "Operation not supported, Operation not supported on socket",
-        "46" => "Protocol family not supported",
-        "47" => "Address family not supported by protocol family",
-        "48" => "Address already in use",
-        "49" => "Can't assign requested address",
-        "50" => "Network is down",
-        "51" => "Network is unreachable",
-        "52" => "Network dropped connection on reset",
-        "53" => "Software caused connection abort",
-        "54" => "Connection reset by peer",
-        "55" => "No buffer space available",
-        "56" => "Socket is already connected",
-        "57" => "Socket is not connected",
-        "58" => "Can't send after socket shutdown",
-        "59" => "Too many references: can't splice",
-        "60" => "Operation timed out",
-        "61" => "Connection refused",
-        "62" => "Too many levels of symbolic links",
-        "63" => "File name too long",
-        "64" => "Host is down",
-        "65" => "No route to host",
-        "66" => "Directory not empty",
-        "67" => "Too many processes",
-        "68" => "Too many users",
-        "69" => "Disc quota exceeded",
-        "70" => "Stale NFS file handle",
-        "71" => "Too many levels of remote in path",
-        "72" => "RPC struct is bad",
-        "73" => "RPC version wrong",
-        "74" => "RPC prog. not avail",
-        "75" => "Program version wrong",
-        "76" => "Bad procedure for program",
-        "77" => "No locks available",
-        "78" => "Function not implemented",
-        "79" => "Inappropriate file type or format",
-        "80" => "Authentication error",
-        "81" => "Need authenticator",
-        "82" => "Device power is off",
-        "83" => "Device error, e.g. paper out",
-        "84" => "Value too large to be stored in data type",
-        "85" => "Bad executable",
-        "86" => "Bad CPU type in executable",
-        "87" => "Shared library version mismatch",
-        "88" => "Malformed Macho file",
-        "89" => "Operation canceled",
-        "90" => "Identifier removed",
-        "91" => "No message of desired type",
-        "92" => "Illegal byte sequence",
-        "93" => "Attribute not found",
-        "94" => "Bad message",
-        "95" => "Reserved",
-        "96" => "No message available on STREAM",
-        "97" => "Reserved",
-        "98" => "No STREAM resources",
-        "99" => "Not a STREAM",
-        "100" => "Protocol error",
-        "101" => "STREAM ioctl timeout",
-        "102" => "Operation not supported on socket",
-        "103" => "No such policy registered",
-        "104" => "State not recoverable",
-        "105" => "Previous owner died",
-        "106" => "Interface output queue is full, Must be equal largest errno",
-        "-1" => "Restart syscall",
-        "-2" => "Don't modify regs, just return",
-        "-5" => "Restart lookup under heavy vnode pressure/recycling",
-        "-6" => "Red drive open",
-        "-7" => "Keep looking",
-        "-8" => "Data less",
+        "0" => Errno::Success,
+        "1" => Errno::OperationNotPermitted,
+        "2" => Errno::NoSuchFileOrDirectory,
+        "3" => Errno::NoSuchProcess,
+        "4" => Errno::InterruptedSystemCall,
+        "5" => Errno::InputOutputError,
+        "6" => Errno::DeviceNotConfigured,
+        "7" => Errno::ArgumentListTooLong,
+        "8" => Errno::ExecFormatError,
+        "9" => Errno::BadFileDescriptor,
+        "10" => Errno::NoChildProcesses,
+        "11" => Errno::ResourceDeadlockAvoided,
+        "12" => Errno::CannotAllocateMemory,
+        "13" => Errno::PermissionDenied,
+        "14" => Errno::BadAddress,
+        "15" => Errno::BlockDeviceRequired,
+        "16" => Errno::DeviceResourceBusy,
+        "17" => Errno::FileExists,
+        "18" => Errno::CrossDeviceLink,
+        "19" => Errno::OperationNotSupportedByDevice,
+        "20" => Errno::NotADirectory,
+        "21" => Errno::IsADirectory,
+        "22" => Errno::InvalidArgument,
+        "23" => Errno::TooManyOpenFilesInSystem,
+        "24" => Errno::TooManyOpenFiles,
+        "25" => Errno::InappropriateIoctlForDevices,
+        "26" => Errno::TextFileBusy,
+        "27" => Errno::FileTooLarge,
+        "28" => Errno::NoSpaceLeftOnDevice,
+        "29" => Errno::IllegalSeek,
+        "30" => Errno::ReadOnlyFilesystem,
+        "31" => Errno::TooManyLink,
+        "32" => Errno::BrokenPipe,
+        "33" => Errno::NumericalArgumentOutOfDomain,
+        "34" => Errno::ResultTooLarge,
+        "35" => Errno::ResourceTemporarilyUnavailableOperationWouldBlock,
+        "36" => Errno::OperationNowInProgress,
+        "37" => Errno::OperationAlreadyInProgress,
+        "38" => Errno::SocketOperationOnNonSocket,
+        "39" => Errno::DestinationAddressRequired,
+        "40" => Errno::MessageTooLong,
+        "41" => Errno::ProtocolWrongTypeForSocket,
+        "42" => Errno::ProtocolNotAvailable,
+        "43" => Errno::ProtocolNotSupported,
+        "44" => Errno::SocketTypeNotSupported,
+        "45" => Errno::OperationNotSupportedOperationNotSupportedOnSocket,
+        "46" => Errno::ProtocolFamilyNotSupported,
+        "47" => Errno::AddressFamilyNotSupportedByProtocolFamily,
+        "48" => Errno::AddressAlreadyInUse,
+        "49" => Errno::CantAssignRequestedAddress,
+        "50" => Errno::NetworkIsDown,
+        "51" => Errno::NetworkIsUnreachable,
+        "52" => Errno::NetworkDroppedConnectionOnReset,
+        "53" => Errno::SoftwareCausedConnectionAbort,
+        "54" => Errno::ConnectionResetByPeer,
+        "55" => Errno::NoBufferSpaceAvailable,
+        "56" => Errno::SocketIsAlreadyConnected,
+        "57" => Errno::SocketIsNotConnected,
+        "58" => Errno::CantSendAfterSocketShutdown,
+        "59" => Errno::TooManyReferencesCantSplice,
+        "60" => Errno::OperationTimedOut,
+        "61" => Errno::ConnectionRefused,
+        "62" => Errno::TooManyLevelsOfSymbolicLinks,
+        "63" => Errno::FileNameTooLong,
+        "64" => Errno::HostIsDown,
+        "65" => Errno::NoRouteToHost,
+        "66" => Errno::DirectoryNotEmpty,
+        "67" => Errno::TooManyProcesses,
+        "68" => Errno::TooManyUsers,
+        "69" => Errno::DiscQuotaExceeded,
+        "70" => Errno::StaleNFSFileHandle,
+        "71" => Errno::TooManyLevelsOfRemoteInPath,
+        "72" => Errno::RPCStructIsBad,
+        "73" => Errno::RPCVersionWrong,
+        "74" => Errno::RPCProgNotAvail,
+        "75" => Errno::ProgramVersionWrong,
+        "76" => Errno::BadProcedureForProgram,
+        "77" => Errno::NoLocksAvailable,
+        "78" => Errno::FunctionNotImplemented,
+        "79" => Errno::InappropriateFileTypeOrFormat,
+        "80" => Errno::AuthenticationError,
+        "81" => Errno::NeedAuthenticator,
+        "82" => Errno::DevicePowerIsOff,
+        "83" => Errno::DeviceErrorEGPaperOut,
+        "84" => Errno::ValueTooLargeToBeStoredInDataType,
+        "85" => Errno::BadExecutable,
+        "86" => Errno::BadCPUTypeInExecutable,
+        "87" => Errno::SharedLibraryVersionMismatch,
+        "88" => Errno::MalformedMachoFile,
+        "89" => Errno::OperationCanceled,
+        "90" => Errno::IdentifierRemoved,
+        "91" => Errno::NoMessageOfDesiredType,
+        "92" => Errno::IllegalByteSequence,
+        "93" => Errno::AttributeNotFound,
+        "94" => Errno::BadMessage,
+        "95" => Errno::Reserved1,
+        "96" => Errno::NoMessageAvailableOnSTREAM,
+        "97" => Errno::Reserved2,
+        "98" => Errno::NoSTREAMResources,
+        "99" => Errno::NotASTREAM,
+        "100" => Errno::ProtocolError,
+        "101" => Errno::STREAMIoctlTimeout,
+        "102" => Errno::OperationNotSupportedOnSocket,
+        "103" => Errno::NoSuchPolicyRegistered,
+        "104" => Errno::StateNotRecoverable,
+        "105" => Errno::PreviousOwnerDied,
+        "106" => Errno::InterfaceOutputQueueIsFullMustBeEqualLargestErrno,
+        "-1" => Errno::RestartSyscall,
+        "-2" => Errno::DontModifyRegsJustReturn,
+        "-5" => Errno::RestartLookupUnderHeavyVnodePressureRecycling,
+        "-6" => Errno::RedDriveOpen,
+        "-7" => Errno::KeepLooking,
+        "-8" => Errno::DataLess,
         _ => {
             warn!("[macos-unifiedlogs] Unknown darwin errno code: {errno}");
-            "Unknown errno"
+            Errno::Unknown(errno.to_string())
         }
     }
 }
@@ -173,22 +405,22 @@ mod tests {
     fn test_errno_codes() {
         let mut test_data = "1";
         let mut result = errno_codes(test_data);
-        assert_eq!(result, "Operation not permitted");
+        assert_eq!(result, Errno::OperationNotPermitted);
 
         test_data = "35";
         result = errno_codes(test_data);
         assert_eq!(
             result,
-            "Resource temporarily unavailable, operation would block"
+            Errno::ResourceTemporarilyUnavailableOperationWouldBlock
         );
 
         test_data = "58";
         result = errno_codes(test_data);
-        assert_eq!(result, "Can't send after socket shutdown");
+        assert_eq!(result, Errno::CantSendAfterSocketShutdown);
 
         test_data = "82";
         result = errno_codes(test_data);
-        assert_eq!(result, "Device power is off");
+        assert_eq!(result, Errno::DevicePowerIsOff);
     }
 
     #[test]

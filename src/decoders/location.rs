@@ -50,72 +50,127 @@ struct LocationTrackerState {
     is_authorized_for_widgets: u8,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, strum::Display)]
+pub enum ClientAuthorizationStatus {
+    #[strum(to_string = "Not Determined")]
+    NotDetermined,
+    #[strum(to_string = "Restricted")]
+    Restricted,
+    #[strum(to_string = "Denied")]
+    Denied,
+    #[strum(to_string = "Authorized Always")]
+    AuthorizedAlways,
+    #[strum(to_string = "Authorized When In Use")]
+    AuthorizedWhenInUse,
+}
+
 /// Convert Core Location Client Autherization Status code to string
-pub(crate) fn client_authorization_status(status: &str) -> Result<String, DecoderError<'_>> {
-    let message = match status {
-        "0" => "Not Determined",
-        "1" => "Restricted",
-        "2" => "Denied",
-        "3" => "Authorized Always",
-        "4" => "Authorized When In Use",
-        _ => {
-            return Err(DecoderError::Parse {
-                input: status.as_bytes(),
-                parser_name: "client authorization status",
-                message: "Unknown Core Location client authorization status",
-            });
-        }
-    };
-    Ok(message.to_string())
+pub(crate) fn client_authorization_status(
+    status: &str,
+) -> Result<ClientAuthorizationStatus, DecoderError<'_>> {
+    match status {
+        "0" => Ok(ClientAuthorizationStatus::NotDetermined),
+        "1" => Ok(ClientAuthorizationStatus::Restricted),
+        "2" => Ok(ClientAuthorizationStatus::Denied),
+        "3" => Ok(ClientAuthorizationStatus::AuthorizedAlways),
+        "4" => Ok(ClientAuthorizationStatus::AuthorizedWhenInUse),
+        _ => Err(DecoderError::Parse {
+            input: status.as_bytes(),
+            parser_name: "client authorization status",
+            message: "Unknown Core Location client authorization status",
+        }),
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, strum::Display)]
+pub enum DaemonStatusType {
+    #[strum(to_string = "Reachability Unavailable")]
+    ReachabilityUnavailable,
+    #[strum(to_string = "Reachability Small")]
+    ReachabilitySmall,
+    #[strum(to_string = "Reachability Large")]
+    ReachabilityLarge,
+    #[strum(to_string = "Reachability Unachievable")]
+    ReachabilityUnachievable,
 }
 
 /// Convert Core Location Daemon Status type to string
-pub(crate) fn daemon_status_type(status: &str) -> Result<String, DecoderError<'_>> {
+pub(crate) fn daemon_status_type(status: &str) -> Result<DaemonStatusType, DecoderError<'_>> {
     // Found in dyldcache liblog
-    let message = match status {
-        "0" => "Reachability Unavailable",
-        "1" => "Reachability Small",
-        "2" => "Reachability Large",
-        "56" => "Reachability Unachievable",
-        _ => {
-            return Err(DecoderError::Parse {
-                input: status.as_bytes(),
-                parser_name: "daemon status type",
-                message: "Unknown Core Location daemon status type",
-            });
-        }
-    };
-    Ok(message.to_string())
+    match status {
+        "0" => Ok(DaemonStatusType::ReachabilityUnavailable),
+        "1" => Ok(DaemonStatusType::ReachabilitySmall),
+        "2" => Ok(DaemonStatusType::ReachabilityLarge),
+        "56" => Ok(DaemonStatusType::ReachabilityUnachievable),
+        _ => Err(DecoderError::Parse {
+            input: status.as_bytes(),
+            parser_name: "daemon status type",
+            message: "Unknown Core Location daemon status type",
+        }),
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, strum::Display)]
+pub enum SubharvesterIdentifier {
+    #[strum(to_string = "CellLegacy")]
+    CellLegacy,
+    #[strum(to_string = "Cell")]
+    Cell,
+    #[strum(to_string = "Wifi")]
+    Wifi,
+    #[strum(to_string = "Tracks")]
+    Tracks,
+    #[strum(to_string = "Realtime")]
+    Realtime,
+    #[strum(to_string = "App")]
+    App,
+    #[strum(to_string = "Pass")]
+    Pass,
+    #[strum(to_string = "Indoor")]
+    Indoor,
+    #[strum(to_string = "Pressure")]
+    Pressure,
+    #[strum(to_string = "Poi")]
+    Poi,
+    #[strum(to_string = "Trace")]
+    Trace,
+    #[strum(to_string = "Avenger")]
+    Avenger,
+    #[strum(to_string = "Altimeter")]
+    Altimeter,
+    #[strum(to_string = "Ionosphere")]
+    Ionosphere,
+    #[strum(to_string = "Unknown")]
+    Unknown,
 }
 
 /// Convert Core Location Subhaverester id to string
-pub(crate) fn subharvester_identifier(status: &str) -> Result<String, DecoderError<'_>> {
+pub(crate) fn subharvester_identifier(
+    status: &str,
+) -> Result<SubharvesterIdentifier, DecoderError<'_>> {
     // Found in dyldcache liblog
-    let message = match status {
-        "0" => "CellLegacy",
-        "1" => "Cell",
-        "2" => "Wifi",
-        "3" => "Tracks",
-        "4" => "Realtime",
-        "5" => "App",
-        "6" => "Pass",
-        "7" => "Indoor",
-        "8" => "Pressure",
-        "9" => "Poi",
-        "10" => "Trace",
-        "11" => "Avenger",
-        "12" => "Altimeter",
-        "13" => "Ionosphere",
-        "14" => "Unknown",
-        _ => {
-            return Err(DecoderError::Parse {
-                input: status.as_bytes(),
-                parser_name: "subharvester identifier",
-                message: "Unknown Core Location subhaverster identifier type",
-            });
-        }
-    };
-    Ok(format!("{:?}", message.to_string()))
+    match status {
+        "0" => Ok(SubharvesterIdentifier::CellLegacy),
+        "1" => Ok(SubharvesterIdentifier::Cell),
+        "2" => Ok(SubharvesterIdentifier::Wifi),
+        "3" => Ok(SubharvesterIdentifier::Tracks),
+        "4" => Ok(SubharvesterIdentifier::Realtime),
+        "5" => Ok(SubharvesterIdentifier::App),
+        "6" => Ok(SubharvesterIdentifier::Pass),
+        "7" => Ok(SubharvesterIdentifier::Indoor),
+        "8" => Ok(SubharvesterIdentifier::Pressure),
+        "9" => Ok(SubharvesterIdentifier::Poi),
+        "10" => Ok(SubharvesterIdentifier::Trace),
+        "11" => Ok(SubharvesterIdentifier::Avenger),
+        "12" => Ok(SubharvesterIdentifier::Altimeter),
+        "13" => Ok(SubharvesterIdentifier::Ionosphere),
+        "14" => Ok(SubharvesterIdentifier::Unknown),
+        _ => Err(DecoderError::Parse {
+            input: status.as_bytes(),
+            parser_name: "subharvester identifier",
+            message: "Unknown Core Location subhaverster identifier type",
+        }),
+    }
 }
 
 /// Convert Core Location SQLITE code to string
@@ -542,8 +597,7 @@ mod tests {
     fn test_client_authorization_status() {
         let test_data = "0";
         let result = client_authorization_status(test_data).unwrap();
-
-        assert_eq!(result, "Not Determined")
+        assert_eq!(result, ClientAuthorizationStatus::NotDetermined)
     }
 
     #[test]
@@ -551,7 +605,7 @@ mod tests {
         let test_data = "2";
         let result = daemon_status_type(test_data).unwrap();
 
-        assert_eq!(result, "Reachability Large")
+        assert_eq!(result, DaemonStatusType::ReachabilityLarge)
     }
 
     #[test]
@@ -559,7 +613,7 @@ mod tests {
         let test_data = "2";
         let result = subharvester_identifier(test_data).unwrap();
 
-        assert_eq!(result, "\"Wifi\"")
+        assert_eq!(result, SubharvesterIdentifier::Wifi)
     }
 
     #[test]

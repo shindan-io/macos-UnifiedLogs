@@ -23,6 +23,7 @@ base64 = "0.22.1"
 chrono = { version = "0.4.42", features = ["serde"] }
 walkdir = "2.5.0"
 sunlight = "0.1.4"
+strum = { version = "0.27.2", features = ["derive"] }
 
 [dev-dependencies]
 chrono = "0.4.42"
