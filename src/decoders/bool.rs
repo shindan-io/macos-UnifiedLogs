@@ -12,11 +12,6 @@ pub(crate) fn uppercase_bool(bool_data: &str) -> &'static str {
     (bool_data == "0").then(|| "NO").unwrap_or("YES")
 }
 
-/// Return bool value to string
-pub(crate) fn lowercase_bool(bool_data: &str) -> &'static str {
-    (bool_data == "0").then(|| "false").unwrap_or("true")
-}
-
 const FALSE_BOOL: u32 = 0;
 
 /// Return false if int is 0, true otherwise
@@ -24,12 +19,6 @@ pub(crate) fn bool_from_int(integer: impl Into<u32>) -> bool {
     integer.into() != FALSE_BOOL
 }
 
-/// Return "false" if int is 0, "true" otherwise
-pub(crate) fn lowercase_int_bool(integer: impl Into<u32>) -> &'static str {
-    (integer.into() == FALSE_BOOL)
-        .then(|| "false")
-        .unwrap_or("true")
-}
 
 #[cfg(test)]
 mod tests {
