@@ -5,8 +5,6 @@
 // is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and limitations under the License.
 
-use std::mem::size_of;
-
 use crate::chunks::firehose::firehose_log::FirehoseItemInfo;
 use crate::decoders::decoder;
 use crate::{RcString, rc_string};
@@ -16,6 +14,7 @@ use nom::branch::alt;
 use nom::bytes::complete::{is_a, is_not, take, take_until};
 use nom::character::complete::digit0;
 use regex::Regex;
+use std::mem::size_of;
 
 struct FormatAndMessage {
     formatter: RcString,
@@ -545,14 +544,14 @@ fn parse_signpost_format(signpost_format: &str) -> nom::IResult<&str, String> {
 
 // Align the message to the left and pad using zeros instead of spaces
 fn format_alignment_left(
-    format_message: RcString,
+    message: impl AsRef<str>,
     format_width: usize,
     format_precision: usize,
     formatable: FormatableType,
     plus_minus: bool,
     hashtag: bool,
 ) -> RcString {
-    let mut message = format_message;
+    let message = message.as_ref();
     let mut precision = format_precision;
 
     let plus_symbol = plus_minus.then_some(PLUS).unwrap_or_default();
@@ -560,7 +559,7 @@ fn format_alignment_left(
 
     match formatable {
         FormatableType::Float => {
-            let float_message = parse_float(&message);
+            let float_message = parse_float(message);
             if precision == 0 {
                 let message_float = float_message.to_string();
                 let float_precision: Vec<&str> = message_float.split('.').collect();
@@ -568,50 +567,49 @@ fn format_alignment_left(
                     precision = float_precision[1].len();
                 }
             }
-            message = rc_string!(format!("{plus_symbol}{float_message:0<width$.precision$}"));
+            rc_string!(format!("{plus_symbol}{float_message:0<width$.precision$}"))
         }
         FormatableType::Integer => {
-            let int_message = parse_int(&message);
-            message = rc_string!(format!("{plus_symbol}{int_message:0<width$.precision$}"));
+            let int_message = parse_int(message);
+            rc_string!(format!("{plus_symbol}{int_message:0<width$.precision$}"))
         }
         FormatableType::Hex => {
-            let hex_message = parse_int(&message);
+            let hex_message = parse_int(message);
             if hashtag {
-                message = rc_string!(format!("{plus_symbol}{hex_message:0<#width$.precision$X}"));
+                rc_string!(format!("{plus_symbol}{hex_message:0<#width$.precision$X}"))
             } else {
-                message = rc_string!(format!("{plus_symbol}{hex_message:0<width$.precision$X}"));
+                rc_string!(format!("{plus_symbol}{hex_message:0<width$.precision$X}"))
             }
         }
         FormatableType::Octal => {
-            let octal_message = parse_int(&message);
+            let octal_message = parse_int(message);
             if hashtag {
-                message = rc_string!(format!(
-                    "{plus_symbol}{octal_message:0<#width$.precision$o}",
-                ));
+                rc_string!(format!(
+                    "{plus_symbol}{octal_message:0<#width$.precision$o}"
+                ))
             } else {
-                message = rc_string!(format!("{plus_symbol}{octal_message:0<width$.precision$o}"));
+                rc_string!(format!("{plus_symbol}{octal_message:0<width$.precision$o}"))
             }
         }
         FormatableType::String => {
             if precision == 0 {
                 precision = message.len()
             }
-            message = rc_string!(format!("{plus_symbol}{message:0<width$.precision$}"));
+            rc_string!(format!("{plus_symbol}{message:0<width$.precision$}"))
         }
     }
-
-    message
 }
 
 // Align the message to the right and pad using zeros instead of spaces
 fn format_alignment_right(
-    message: RcString,
+    message: impl AsRef<str>,
     format_width: usize,
     precision: usize,
     formatable: FormatableType,
     plus_minus: bool,
     hashtag: bool,
 ) -> RcString {
+    let message = message.as_ref();
     let mut precision = precision;
 
     let plus_symbol = plus_minus.then_some(PLUS).unwrap_or_default();
@@ -619,7 +617,7 @@ fn format_alignment_right(
 
     match formatable {
         FormatableType::Float => {
-            let float_message = parse_float(&message);
+            let float_message = parse_float(message);
             if precision == 0 {
                 let message_float = float_message.to_string();
                 let float_precision: Vec<&str> = message_float.split('.').collect();
@@ -630,11 +628,11 @@ fn format_alignment_right(
             rc_string!(format!("{plus_symbol}{float_message:0>width$.precision$}"))
         }
         FormatableType::Integer => {
-            let int_message = parse_int(&message);
+            let int_message = parse_int(message);
             rc_string!(format!("{plus_symbol}{int_message:0>width$.precision$}"))
         }
         FormatableType::Hex => {
-            let hex_message = parse_int(&message);
+            let hex_message = parse_int(message);
             if hashtag {
                 rc_string!(format!("{plus_symbol}{hex_message:0>#width$.precision$X}"))
             } else {
@@ -642,7 +640,7 @@ fn format_alignment_right(
             }
         }
         FormatableType::Octal => {
-            let octal_message = parse_int(&message);
+            let octal_message = parse_int(message);
             if hashtag {
                 rc_string!(format!(
                     "{plus_symbol}{octal_message:0>#width$.precision$o}",
@@ -662,13 +660,14 @@ fn format_alignment_right(
 
 // Align the message to the left and pad using spaces
 fn format_alignment_left_space(
-    message: RcString,
+    message: impl AsRef<str>,
     format_width: usize,
     format_precision: usize,
     formatable: FormatableType,
     plus_minus: bool,
     hashtag: bool,
 ) -> RcString {
+    let message = message.as_ref();
     let mut precision = format_precision;
 
     let plus_symbol = plus_minus.then_some(PLUS).unwrap_or_default();
@@ -676,7 +675,7 @@ fn format_alignment_left_space(
 
     match formatable {
         FormatableType::Float => {
-            let float_message = parse_float(&message);
+            let float_message = parse_float(message);
             if precision == 0 {
                 let message_float = float_message.to_string();
                 let float_precision: Vec<&str> = message_float.split('.').collect();
@@ -687,11 +686,11 @@ fn format_alignment_left_space(
             rc_string!(format!("{plus_symbol}{float_message:<width$.precision$}"))
         }
         FormatableType::Integer => {
-            let int_message = parse_int(&message);
+            let int_message = parse_int(message);
             rc_string!(format!("{plus_symbol}{int_message:<width$.precision$}"))
         }
         FormatableType::Hex => {
-            let hex_message = parse_int(&message);
+            let hex_message = parse_int(message);
             if hashtag {
                 rc_string!(format!("{plus_symbol}{hex_message:<#width$.precision$X}"))
             } else {
@@ -699,7 +698,7 @@ fn format_alignment_left_space(
             }
         }
         FormatableType::Octal => {
-            let octal_message = parse_int(&message);
+            let octal_message = parse_int(message);
             if hashtag {
                 rc_string!(format!("{plus_symbol}{octal_message:<#width$.precision$o}"))
             } else {
@@ -722,13 +721,14 @@ fn format_alignment_left_space(
 
 // Align the message to the right and pad using spaces
 fn format_alignment_right_space(
-    message: RcString,
+    message: impl AsRef<str>,
     format_width: usize,
     format_precision: usize,
     formatable: FormatableType,
     plus_minus: bool,
     hashtag: bool,
 ) -> RcString {
+    let message = message.as_ref();
     let mut precision = format_precision;
 
     let plus_symbol = plus_minus.then_some(PLUS).unwrap_or_default();
@@ -777,18 +777,19 @@ fn format_alignment_right_space(
 
 // Align the message to the left
 fn format_left(
-    message: RcString,
+    message: impl AsRef<str>,
     format_precision: usize,
     formatable: FormatableType,
     plus_minus: bool,
     hashtag: bool,
 ) -> RcString {
+    let message = message.as_ref();
     let mut precision_value = format_precision;
     let plus_symbol = plus_minus.then_some(PLUS).unwrap_or_default();
 
     match formatable {
         FormatableType::Float => {
-            let float_message = parse_float(&message);
+            let float_message = parse_float(message);
             if precision_value == 0 {
                 let message_float = float_message.to_string();
                 let float_precision: Vec<&str> = message_float.split('.').collect();
@@ -800,11 +801,11 @@ fn format_left(
             rc_string!(format!("{plus_symbol}{float_message:<.precision_value$}"))
         }
         FormatableType::Integer => {
-            let int_message = parse_int(&message);
+            let int_message = parse_int(message);
             rc_string!(format!("{plus_symbol}{int_message:<.precision_value$}"))
         }
         FormatableType::Hex => {
-            let hex_message = parse_int(&message);
+            let hex_message = parse_int(message);
             if hashtag {
                 rc_string!(format!("{plus_symbol}{hex_message:<#.precision_value$X}"))
             } else {
@@ -812,7 +813,7 @@ fn format_left(
             }
         }
         FormatableType::Octal => {
-            let octal_message = parse_int(&message);
+            let octal_message = parse_int(message);
             if hashtag {
                 rc_string!(format!("{plus_symbol}{octal_message:<#.precision_value$o}"))
             } else {
@@ -830,19 +831,20 @@ fn format_left(
 
 // Align the message to the right (default)
 fn format_right(
-    message: RcString,
+    message: impl AsRef<str>,
     format_precision: usize,
     formatable: FormatableType,
     plus_minus: bool,
     hashtag: bool,
 ) -> RcString {
+    let message = message.as_ref();
     let mut precision_value = format_precision;
 
     let plus_symbol = plus_minus.then_some(PLUS).unwrap_or_default();
 
     match formatable {
         FormatableType::Float => {
-            let float_message = parse_float(&message);
+            let float_message = parse_float(message);
             if precision_value == 0 {
                 let message_float = float_message.to_string();
                 let float_precision: Vec<&str> = message_float.split('.').collect();
@@ -854,11 +856,11 @@ fn format_right(
             rc_string!(format!("{plus_symbol}{float_message:>.precision_value$}"))
         }
         FormatableType::Integer => {
-            let int_message = parse_int(&message);
+            let int_message = parse_int(message);
             rc_string!(format!("{plus_symbol}{int_message:>.precision_value$}"))
         }
         FormatableType::Hex => {
-            let hex_message = parse_int(&message);
+            let hex_message = parse_int(message);
             if hashtag {
                 rc_string!(format!("{plus_symbol}{hex_message:>#.precision_value$X}"))
             } else {
@@ -866,7 +868,7 @@ fn format_right(
             }
         }
         FormatableType::Octal => {
-            let octal_message = parse_int(&message);
+            let octal_message = parse_int(message);
             rc_string!(format!("{plus_symbol}{octal_message:>#.precision_value$o}"))
         }
         FormatableType::String => {
