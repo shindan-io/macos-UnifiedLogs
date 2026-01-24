@@ -17,8 +17,8 @@ use crate::{
             get_service_binding, parse_dns_header,
         },
         location::{
-            ClientAuthorizationStatus, DaemonStatusType, LocationStateTrackerData, SqliteError,
-            SubharvesterIdentifier, client_authorization_status,
+            ClientAuthorizationStatus, DaemonStatusType, LocationStateTrackerData,
+            LocationTrackerState, SqliteError, SubharvesterIdentifier, client_authorization_status,
             client_manager_state_tracker_state, daemon_status_type, io_message,
             location_manager_state_tracker_state, sqlite_location, subharvester_identifier,
         },
@@ -52,6 +52,7 @@ pub enum Decoded {
     SubharvesterIdentifier(SubharvesterIdentifier),
     SqliteError(SqliteError),
     LocationStateTrackerData(LocationStateTrackerData),
+    LocationTrackerState(LocationTrackerState),
     Permission(u8, u8, u8),
 }
 
@@ -71,6 +72,7 @@ impl Decoded {
             Self::SubharvesterIdentifier(value) => rc_string!(value.to_string()),
             Self::SqliteError(value) => rc_string!(value.to_string()),
             Self::LocationStateTrackerData(value) => rc_string!(value.to_string()),
+            Self::LocationTrackerState(value) => rc_string!(value.to_string()),
             Self::Uuid(value) => rc_string!(format_uuid(*value)),
             Self::Permission(user, owner, group) => {
                 rc_string!(format_permission(*user, *owner, *group))
@@ -155,10 +157,10 @@ fn to_decoded_value<'a>(
         Decoded::SqliteError(sqlite_location(&message_strings)?)
     } else if format_string.contains("location:_CLClientManagerStateTrackerState") {
         Decoded::LocationStateTrackerData(client_manager_state_tracker_state(&message_strings)?)
+    } else if format_string.contains("location:_CLLocationManagerStateTrackerState") {
+        Decoded::LocationTrackerState(location_manager_state_tracker_state(&message_strings)?)
     } else {
-        let ok = if format_string.contains("location:_CLLocationManagerStateTrackerState") {
-            location_manager_state_tracker_state(&message_strings)?
-        } else if format_string.contains("network:in6_addr") {
+        let ok = if format_string.contains("network:in6_addr") {
             ipv_six(&message_strings).map(|ip| ip.to_string())?
         } else if format_string.contains("network:in_addr") {
             ipv_four(&message_strings).map(|ip| ip.to_string())?

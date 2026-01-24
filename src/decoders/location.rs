@@ -5,24 +5,18 @@
 // is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and limitations under the License.
 
-use std::fmt::Display;
-
+use super::DecoderError;
 use crate::{decoders::bool::bool_from_int, util::decode_standard};
-
-use super::{
-    DecoderError,
-    bool::{lowercase_bool, lowercase_int_bool},
-};
 use log::warn;
 use nom::{
     IResult, Parser,
     bytes::complete::take,
-    character::Char,
     number::complete::{le_f64, le_i32, le_i64, le_u8, le_u32},
 };
+use std::fmt::Display;
 
 #[derive(Debug, Default)]
-struct LocationTrackerState {
+pub struct LocationTrackerState {
     distance_filter: f64,
     desired_accuracy: f64,
     updating_location: u8,
@@ -360,7 +354,7 @@ pub(crate) fn get_state_tracker_data(input: &[u8]) -> IResult<&[u8], LocationSta
 /// Parse location tracker state data
 pub(crate) fn location_manager_state_tracker_state(
     input: &str,
-) -> Result<String, DecoderError<'_>> {
+) -> Result<LocationTrackerState, DecoderError<'_>> {
     let decoded_data = decode_standard(input).map_err(|_| DecoderError::Parse {
         input: input.as_bytes(),
         parser_name: "location manager state tracker state",
@@ -378,7 +372,9 @@ pub(crate) fn location_manager_state_tracker_state(
 }
 
 /// Get the location state data
-pub(crate) fn get_location_tracker_state(input: &[u8]) -> nom::IResult<&[u8], String> {
+pub(crate) fn get_location_tracker_state(
+    input: &[u8],
+) -> nom::IResult<&[u8], LocationTrackerState> {
     // https://github.com/cmsj/ApplePrivateHeaders/blob/main/macOS/11.3/System/Library/Frameworks/CoreLocation.framework/Versions/A/CoreLocation/CoreLocation-Structs.h and in dyldcache
 
     // Padding? Reserved?
@@ -469,7 +465,7 @@ pub(crate) fn get_location_tracker_state(input: &[u8]) -> nom::IResult<&[u8], St
     // Return early if we only have 64 bytes to work with
     const CATALINA_SIZE: usize = 64;
     if input.len() == CATALINA_SIZE {
-        return Ok((location_data, location_tracker_object(&tracker)));
+        return Ok((location_data, tracker));
     }
 
     let mut location_tup = (le_u8, le_u8, le_u8, le_u8, le_u8, le_u8, le_u8, le_u8);
@@ -499,13 +495,16 @@ pub(crate) fn get_location_tracker_state(input: &[u8]) -> nom::IResult<&[u8], St
         ..tracker
     };
 
-    Ok((input, location_tracker_object(&tracker)))
+    Ok((input, tracker))
 }
 
 /// Create the location tracker json object
-fn location_tracker_object(tracker: &LocationTrackerState) -> String {
-    format!(
-        "{{
+
+impl Display for LocationTrackerState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{{
             \"distanceFilter\":{}, 
             \"desiredAccuracy\":{}, 
             \"updatingLocation\":{}, 
@@ -535,35 +534,36 @@ fn location_tracker_object(tracker: &LocationTrackerState) -> String {
             \"courtesyPromptNeeded\":{},
             \"isAuthorizedForWidgetUpdates\":{},
         }}",
-        tracker.distance_filter,
-        tracker.desired_accuracy,
-        lowercase_int_bool(tracker.updating_location),
-        lowercase_int_bool(tracker.requesting_location),
-        lowercase_int_bool(tracker.requesting_ranging),
-        lowercase_int_bool(tracker.updating_ranging),
-        lowercase_int_bool(tracker.updating_heading),
-        tracker.heading_filter,
-        lowercase_int_bool(tracker.allows_location_prompts),
-        lowercase_int_bool(tracker.allows_altered_locations),
-        lowercase_int_bool(tracker.dynamic_accuracy),
-        lowercase_int_bool(tracker.previous_authorization_status_valid),
-        tracker.previous_authorization_status,
-        lowercase_int_bool(tracker.limits_precision),
-        tracker.activity_type,
-        tracker.pauses_location_updates,
-        lowercase_int_bool(tracker.paused),
-        lowercase_int_bool(tracker.allows_background_updates),
-        lowercase_int_bool(tracker.shows_background_location),
-        lowercase_int_bool(tracker.allows_map_correction),
-        lowercase_int_bool(tracker.batching_location),
-        lowercase_int_bool(tracker.updating_vehicle_speed),
-        lowercase_int_bool(tracker.updating_vehicle_heading),
-        lowercase_int_bool(tracker.match_info),
-        lowercase_int_bool(tracker.ground_altitude),
-        lowercase_int_bool(tracker.fusion_info),
-        lowercase_int_bool(tracker.courtesy_prompt),
-        lowercase_int_bool(tracker.is_authorized_for_widgets),
-    )
+            self.distance_filter,
+            self.desired_accuracy,
+            bool_from_int(self.updating_location),
+            bool_from_int(self.requesting_location),
+            bool_from_int(self.requesting_ranging),
+            bool_from_int(self.updating_ranging),
+            bool_from_int(self.updating_heading),
+            self.heading_filter,
+            bool_from_int(self.allows_location_prompts),
+            bool_from_int(self.allows_altered_locations),
+            bool_from_int(self.dynamic_accuracy),
+            bool_from_int(self.previous_authorization_status_valid),
+            self.previous_authorization_status,
+            bool_from_int(self.limits_precision),
+            self.activity_type,
+            self.pauses_location_updates,
+            bool_from_int(self.paused),
+            bool_from_int(self.allows_background_updates),
+            bool_from_int(self.shows_background_location),
+            bool_from_int(self.allows_map_correction),
+            bool_from_int(self.batching_location),
+            bool_from_int(self.updating_vehicle_speed),
+            bool_from_int(self.updating_vehicle_heading),
+            bool_from_int(self.match_info),
+            bool_from_int(self.ground_altitude),
+            bool_from_int(self.fusion_info),
+            bool_from_int(self.courtesy_prompt),
+            bool_from_int(self.is_authorized_for_widgets),
+        )
+    }
 }
 
 /// Parse location tracker state data
@@ -630,15 +630,15 @@ impl Display for DaemonTrackerData {
             r#"{{"thermalLevel": {}, "reachability": "{}", "airplaneMode": {}, "batteryData":{{"wasConnected": {}, "charged": {}, "level": {}, "connected": {}, "chargerType": "{}"}}, "restrictedMode": {}, "batterySaverModeEnabled": {}, "push_service":{}}}"#,
             self.thermal_level,
             self.reachability,
-            bool_from_int(self.airplane as _),
+            bool_from_int(self.airplane),
             self.was_connected,
-            bool_from_int(self.charged as _),
+            bool_from_int(self.charged),
             self.level,
-            bool_from_int(self.connected as _),
+            bool_from_int(self.connected),
             self.charger_type,
-            bool_from_int(self.restricted as _),
-            bool_from_int(self.battery_saver as _),
-            bool_from_int(self.push_service as _)
+            bool_from_int(self.restricted),
+            bool_from_int(self.battery_saver),
+            bool_from_int(self.push_service)
         )
     }
 }
@@ -809,11 +809,8 @@ mod tests {
     #[test]
     fn test_location_tracker_object() {
         let test_data = LocationTrackerState::default();
-
-        let result = location_tracker_object(&test_data);
-
         assert_eq!(
-            result,
+            test_data.to_string(),
             "{\n            \"distanceFilter\":0, \n            \"desiredAccuracy\":0, \n            \"updatingLocation\":false, \n            \"requestingLocation\":false, \n            \"requestingRanging\":false, \n            \"updatingRanging\":false,\n            \"updatingHeading\":false,\n            \"headingFilter\":0,\n            \"allowsLocationPrompts\":false,\n            \"allowsAlteredAccessoryLocations\":false,\n            \"dynamicAccuracyReductionEnabled\":false,\n            \"previousAuthorizationStatusValid\":false,\n            \"previousAuthorizationStatus\":0,\n            \"limitsPrecision\":false,\n            \"activityType\":0,\n            \"pausesLocationUpdatesAutomatically\":0,\n            \"paused\":false,\n            \"allowsBackgroundLocationUpdates\":false,\n            \"showsBackgroundLocationIndicator\":false,\n            \"allowsMapCorrection\":false,\n            \"batchingLocation\":false,\n            \"updatingVehicleSpeed\":false,\n            \"updatingVehicleHeading\":false,\n            \"matchInfoEnabled\":false,\n            \"groundAltitudeEnabled\":false,\n            \"fusionInfoEnabled\":false,\n            \"courtesyPromptNeeded\":false,\n            \"isAuthorizedForWidgetUpdates\":false,\n        }"
         )
     }
@@ -837,7 +834,7 @@ mod tests {
         let result = location_manager_state_tracker_state(test_data).unwrap();
 
         assert_eq!(
-            result,
+            result.to_string(),
             "{\n            \"distanceFilter\":-1, \n            \"desiredAccuracy\":100, \n            \"updatingLocation\":false, \n            \"requestingLocation\":false, \n            \"requestingRanging\":false, \n            \"updatingRanging\":false,\n            \"updatingHeading\":false,\n            \"headingFilter\":1,\n            \"allowsLocationPrompts\":true,\n            \"allowsAlteredAccessoryLocations\":false,\n            \"dynamicAccuracyReductionEnabled\":false,\n            \"previousAuthorizationStatusValid\":false,\n            \"previousAuthorizationStatus\":0,\n            \"limitsPrecision\":false,\n            \"activityType\":0,\n            \"pausesLocationUpdatesAutomatically\":1,\n            \"paused\":false,\n            \"allowsBackgroundLocationUpdates\":false,\n            \"showsBackgroundLocationIndicator\":false,\n            \"allowsMapCorrection\":true,\n            \"batchingLocation\":false,\n            \"updatingVehicleSpeed\":false,\n            \"updatingVehicleHeading\":false,\n            \"matchInfoEnabled\":false,\n            \"groundAltitudeEnabled\":false,\n            \"fusionInfoEnabled\":false,\n            \"courtesyPromptNeeded\":false,\n            \"isAuthorizedForWidgetUpdates\":false,\n        }"
         )
     }
@@ -850,7 +847,7 @@ mod tests {
         let (_, result) = get_location_tracker_state(&decoded_data_result).unwrap();
 
         assert_eq!(
-            result,
+            result.to_string(),
             "{\n            \"distanceFilter\":-1, \n            \"desiredAccuracy\":100, \n            \"updatingLocation\":false, \n            \"requestingLocation\":false, \n            \"requestingRanging\":false, \n            \"updatingRanging\":false,\n            \"updatingHeading\":false,\n            \"headingFilter\":1,\n            \"allowsLocationPrompts\":true,\n            \"allowsAlteredAccessoryLocations\":false,\n            \"dynamicAccuracyReductionEnabled\":false,\n            \"previousAuthorizationStatusValid\":false,\n            \"previousAuthorizationStatus\":0,\n            \"limitsPrecision\":false,\n            \"activityType\":0,\n            \"pausesLocationUpdatesAutomatically\":1,\n            \"paused\":false,\n            \"allowsBackgroundLocationUpdates\":false,\n            \"showsBackgroundLocationIndicator\":false,\n            \"allowsMapCorrection\":true,\n            \"batchingLocation\":false,\n            \"updatingVehicleSpeed\":false,\n            \"updatingVehicleHeading\":false,\n            \"matchInfoEnabled\":false,\n            \"groundAltitudeEnabled\":false,\n            \"fusionInfoEnabled\":false,\n            \"courtesyPromptNeeded\":false,\n            \"isAuthorizedForWidgetUpdates\":false,\n        }"
         )
     }

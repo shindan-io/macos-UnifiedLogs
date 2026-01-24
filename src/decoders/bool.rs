@@ -17,16 +17,18 @@ pub(crate) fn lowercase_bool(bool_data: &str) -> &'static str {
     (bool_data == "0").then(|| "false").unwrap_or("true")
 }
 
+const FALSE_BOOL: u32 = 0;
+
 /// Return false if int is 0, true otherwise
-pub(crate) fn bool_from_int(integer: u32) -> bool {
-    const FALSE_BOOL: u32 = 0;
-    integer != 0
+pub(crate) fn bool_from_int(integer: impl Into<u32>) -> bool {
+    integer.into() != FALSE_BOOL
 }
 
 /// Return "false" if int is 0, "true" otherwise
-pub(crate) fn lowercase_int_bool(bool_data: u8) -> &'static str {
-    const FALSE_BOOL: u8 = 0;
-    (bool_data == FALSE_BOOL).then(|| "false").unwrap_or("true")
+pub(crate) fn lowercase_int_bool(integer: impl Into<u32>) -> &'static str {
+    (integer.into() == FALSE_BOOL)
+        .then(|| "false")
+        .unwrap_or("true")
 }
 
 #[cfg(test)]
@@ -57,7 +59,7 @@ mod tests {
 
     #[test]
     fn test_lowercase_int_bool() {
-        let test_data = 0;
+        let test_data = 0_u32;
         let results = lowercase_int_bool(test_data);
         assert_eq!(results, "false");
     }
