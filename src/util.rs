@@ -132,6 +132,8 @@ pub(crate) fn non_empty_cstring(input: &[u8]) -> nom::IResult<&[u8], String> {
 
 /// Extract strings that contain end of string characters
 pub(crate) fn extract_string(data: &[u8]) -> nom::IResult<&[u8], &str> {
+    // TODO : logic here seams fishy, perhaps needs rework
+
     let last_value = data.last();
     match last_value {
         Some(value) => {
@@ -155,17 +157,15 @@ pub(crate) fn extract_string(data: &[u8]) -> nom::IResult<&[u8], &str> {
         }
     }
 
-    let (input, path) = take_while(|b: u8| b != 0)(data)?;
-    let path_string = from_utf8(path);
-    match path_string {
-        Ok(results) => {
-            return Ok((input, results));
-        }
+    let (input, c_str) = take_while(|b: u8| b != NULL_BYTE)(data)?;
+
+    match from_utf8(c_str) {
+        Ok(utf8_string) => Ok((input, utf8_string)),
         Err(err) => {
             warn!("[macos-unifiedlogs] Failed to get string: {err:?}");
+            Ok((input, "Could not extract string"))
         }
     }
-    Ok((input, "Could not extract string"))
 }
 
 /// Clean and format UUIDs to be pretty

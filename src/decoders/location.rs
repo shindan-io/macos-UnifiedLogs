@@ -609,11 +609,11 @@ pub struct DaemonTrackerData {
     level: f64,
     charged: u8,
     connected: u8,
-    unknown: u8,
-    unknown2: u8,
+    _unknown: u8,
+    _unknown2: u8,
     charger_type: ChargerType,
-    unknown3: u32,
-    unknown4: u32,
+    _unknown3: u32,
+    _unknown4: u32,
     reachability: ReachabilityStatus,
     thermal_level: i32,
     airplane: u8,
@@ -707,11 +707,11 @@ pub(crate) fn get_daemon_status_tracker(input: &[u8]) -> nom::IResult<&[u8], Dae
             level,
             charged,
             connected,
-            unknown,
-            unknown2,
+            _unknown,
+            _unknown2,
             charger_type,
-            unknown3,
-            unknown4,
+            _unknown3,
+            _unknown4,
             reachability,
             thermal_level,
             airplane,
@@ -723,7 +723,7 @@ pub(crate) fn get_daemon_status_tracker(input: &[u8]) -> nom::IResult<&[u8], Dae
 
     // When these unknown values are not 0 `was_connected` is always true
     // Not 100% sure the significance or what they represent
-    let was_connected = unknown != 0 && unknown2 != 0 && unknown3 != 0;
+    let was_connected = _unknown != 0 && _unknown2 != 0 && _unknown3 != 0;
 
     let charger_type: ChargerType = charger_type.into();
     let reachability: ReachabilityStatus = reachability.into();
@@ -732,11 +732,11 @@ pub(crate) fn get_daemon_status_tracker(input: &[u8]) -> nom::IResult<&[u8], Dae
         level,
         charged,
         connected,
-        unknown,
-        unknown2,
+        _unknown,
+        _unknown2,
         charger_type,
-        unknown3,
-        unknown4,
+        _unknown3,
+        _unknown4,
         reachability,
         thermal_level,
         airplane,

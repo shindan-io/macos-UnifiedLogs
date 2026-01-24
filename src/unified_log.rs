@@ -620,7 +620,8 @@ impl Iterator for LogIterator<'_> {
                 0x3 => Statedump::parse_statedump_object(
                     &statedump.statedump_data,
                     &statedump.title_name,
-                ),
+                )
+                .to_string(),
                 _ => {
                     warn!(
                         "Unknown statedump data type: {}",

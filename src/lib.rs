@@ -107,14 +107,45 @@ mod util;
 /// Functions to parse the log string files
 pub mod uuidtext;
 
-type RcString = std::rc::Rc<String>;
+use std::{fmt::Display, rc::Rc};
+
+// type RcString = std::rc::Rc<String>;
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Default, Serialize)]
+pub struct RcString(Rc<String>);
+
+impl RcString {
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+}
+
+impl std::ops::Deref for RcString {
+    type Target = String;
+    fn deref(&self) -> &Self::Target {
+        self.0.as_ref()
+    }
+}
+
+impl AsRef<str> for RcString {
+    fn as_ref(&self) -> &str {
+        self.0.as_str()
+    }
+}
+
+impl Display for RcString {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 macro_rules! rc_string {
     ($s:expr) => {
         crate::ToRcString::to_rc_string($s)
     };
 }
+
 use rc_string;
+use serde::Serialize;
 
 trait ToRcString {
     fn to_rc_string(self) -> RcString;
@@ -122,17 +153,17 @@ trait ToRcString {
 
 impl ToRcString for &str {
     fn to_rc_string(self) -> RcString {
-        RcString::new(String::from(self))
+        RcString(Rc::new(String::from(self)))
     }
 }
 impl ToRcString for String {
     fn to_rc_string(self) -> RcString {
-        RcString::new(self)
+        RcString(Rc::new(self))
     }
 }
 impl ToRcString for &String {
     fn to_rc_string(self) -> RcString {
-        RcString::new(self.clone())
+        RcString(Rc::new(self.clone()))
     }
 }
 impl ToRcString for RcString {
@@ -142,6 +173,6 @@ impl ToRcString for RcString {
 }
 impl ToRcString for &RcString {
     fn to_rc_string(self) -> RcString {
-        self.clone()
+        RcString(self.0.clone())
     }
 }

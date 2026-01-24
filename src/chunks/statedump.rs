@@ -5,7 +5,10 @@
 // is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and limitations under the License.
 
-use crate::decoders::location::{DaemonTrackerData, LocationStateTrackerData};
+use crate::decoders::config::{FullDnsConfigOwned, FullNetworkInterfacesOwned};
+use crate::decoders::location::{
+    DaemonTrackerData, LocationStateTrackerData, LocationTrackerState,
+};
 use crate::decoders::{config, location};
 use crate::util::{clean_uuid, encode_standard, extract_string};
 use crate::{RcString, rc_string};
@@ -13,6 +16,7 @@ use log::{error, info};
 use nom::bytes::complete::take;
 use nom::number::complete::{le_u8, le_u32, le_u64};
 use plist::Value;
+use std::fmt::Display;
 use std::mem::size_of;
 use uuid::Uuid;
 
@@ -171,33 +175,31 @@ impl<'a> StatedumpStr<'a> {
     }
 
     /// Parse custom Apple objects
-    pub(crate) fn parse_statedump_object(object_data: &[u8], name: &str) -> String {
+    pub(crate) fn parse_statedump_object(object_data: &[u8], name: &str) -> StatedumpObject {
         let message_result = match name {
             "CLDaemonStatusStateTracker" => location::get_daemon_status_tracker(object_data)
-                .map(|(_, result)| result.to_string()),
-            "CLClientManagerStateTracker" => {
-                location::get_state_tracker_data(object_data).map(|(_, result)| result.to_string())
-            }
+                .map(|(_, result)| StatedumpObject::DaemonTrackerData(result)),
+            "CLClientManagerStateTracker" => location::get_state_tracker_data(object_data)
+                .map(|(_, result)| StatedumpObject::LocationStateTrackerData(result)),
             "CLLocationManagerStateTracker" => location::get_location_tracker_state(object_data)
-                .map(|(_, result)| result.to_string()),
-            "DNS Configuration" => {
-                config::get_dns_config(object_data).map(|(_, result)| result.to_string())
-            }
-            "Network information" => {
-                config::get_network_interface(object_data).map(|(_, result)| result.to_string())
-            }
+                .map(|(_, result)| StatedumpObject::LocationTrackerState(result)),
+            "DNS Configuration" => config::get_dns_config(object_data)
+                .map(|(_, result)| StatedumpObject::FullDnsConfig(result.into_owned())),
+            "Network information" => config::get_network_interface(object_data)
+                .map(|(_, result)| StatedumpObject::FullNetworkInterfaces(result.into_owned())),
             _ => {
-                return format!(
+                return StatedumpObject::Unsupported(format!(
                     "Unsupported Statedump object: {name}-{}",
                     encode_standard(object_data)
-                );
+                ));
             }
         };
+
         match message_result {
             Ok(result) => result,
             Err(err) => {
                 error!("[macos-unifiedlogs] Failed to parse statedump object {name}: {err:?}");
-                format!("Failed to parse statedump object: {name}")
+                StatedumpObject::Failed(format!("Failed to parse statedump object: {name}"))
             }
         }
     }
@@ -206,6 +208,25 @@ impl<'a> StatedumpStr<'a> {
 pub enum StatedumpObject {
     LocationStateTrackerData(LocationStateTrackerData),
     DaemonTrackerData(DaemonTrackerData),
+    LocationTrackerState(LocationTrackerState),
+    FullDnsConfig(FullDnsConfigOwned),
+    FullNetworkInterfaces(FullNetworkInterfacesOwned),
+    Unsupported(String),
+    Failed(String),
+}
+
+impl Display for StatedumpObject {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StatedumpObject::LocationStateTrackerData(data) => write!(f, "{}", data),
+            StatedumpObject::DaemonTrackerData(data) => write!(f, "{}", data),
+            StatedumpObject::LocationTrackerState(data) => write!(f, "{}", data),
+            StatedumpObject::FullDnsConfig(data) => write!(f, "{}", data),
+            StatedumpObject::FullNetworkInterfaces(data) => write!(f, "{}", data),
+            StatedumpObject::Unsupported(message) => write!(f, "{}", message),
+            StatedumpObject::Failed(message) => write!(f, "{}", message),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1107,6 +1128,7 @@ mod tests {
             255, 255, 255, 255, 0, 0, 0, 0, 0, 0, 0, 0,
         ];
         let result = Statedump::parse_statedump_object(&test_data, name);
+        let result = result.to_string();
         assert_eq!(
             result,
             "{\"thermalLevel\": -1, \"reachability\": \"kReachabilityLarge\", \"airplaneMode\": false, \"batteryData\":{\"wasConnected\": false, \"charged\": false, \"level\": -1, \"connected\": false, \"chargerType\": \"kChargerTypeUnknown\"}, \"restrictedMode\": false, \"batterySaverModeEnabled\": false, \"push_service\":false}"
