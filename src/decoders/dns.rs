@@ -60,8 +60,6 @@ fn remove_err_offset(
     }
 }
 
-pub struct DnsHeader {}
-
 /// Get the DNS header data
 fn get_dns_header(input: &[u8]) -> IResult<&[u8], String> {
     let (input, id) = be_u16(input)?;
@@ -773,7 +771,7 @@ mod tests {
         let result = parse_dns_header(test_data).unwrap();
         assert_eq!(
             result,
-            "Query ID: 0xB973, Flags: 0x100 Opcode: QUERY, \n    Query Type: 0,\n    Authoritative Answer Flag: 0, \n    Truncation Flag: 0, \n    Recursion Desired: 1, \n    Recursion Available: 0, \n    Response Code: No Error, Question Count: 1, Answer Record Count: 0, Authority Record Count: 0, Additional Record Count: 0"
+            "Query ID: 0xB973, Flags: 0x100 Opcode: QUERY,\n    Query Type: 0,\n    Authoritative Answer Flag: 0,\n    Truncation Flag: 0,\n    Recursion Desired: 1,\n    Recursion Available: 0,\n    Response Code: No Error, Question Count: 1, Answer Record Count: 0, Authority Record Count: 0, Additional Record Count: 0"
         );
     }
 
@@ -783,7 +781,7 @@ mod tests {
         let (_, result) = get_dns_header(&test_data).unwrap();
         assert_eq!(
             result,
-            "Query ID: 0xB973, Flags: 0x100 Opcode: QUERY, \n    Query Type: 0,\n    Authoritative Answer Flag: 0, \n    Truncation Flag: 0, \n    Recursion Desired: 1, \n    Recursion Available: 0, \n    Response Code: No Error, Question Count: 1, Answer Record Count: 0, Authority Record Count: 0, Additional Record Count: 0"
+            "Query ID: 0xB973, Flags: 0x100 Opcode: QUERY,\n    Query Type: 0,\n    Authoritative Answer Flag: 0,\n    Truncation Flag: 0,\n    Recursion Desired: 1,\n    Recursion Available: 0,\n    Response Code: No Error, Question Count: 1, Answer Record Count: 0, Authority Record Count: 0, Additional Record Count: 0"
         );
     }
 
@@ -793,7 +791,7 @@ mod tests {
         let (_, result) = get_dns_flags(&test_data).unwrap();
         assert_eq!(
             result.to_string(),
-            "Opcode: QUERY, \n    Query Type: 0,\n    Authoritative Answer Flag: 0, \n    Truncation Flag: 0, \n    Recursion Desired: 1, \n    Recursion Available: 0, \n    Response Code: No Error"
+            "Opcode: QUERY,\n    Query Type: 0,\n    Authoritative Answer Flag: 0,\n    Truncation Flag: 0,\n    Recursion Desired: 1,\n    Recursion Available: 0,\n    Response Code: No Error"
         );
     }
 
@@ -943,7 +941,7 @@ mod tests {
         let result = dns_idflags(test_data).unwrap();
         assert_eq!(
             result.to_string(),
-            "id: 0x7EBA, flags: 0x100 Opcode: QUERY, \n    Query Type: 0,\n    Authoritative Answer Flag: 0, \n    Truncation Flag: 0, \n    Recursion Desired: 1, \n    Recursion Available: 0, \n    Response Code: No Error"
+            "id: 0x7EBA, flags: 0x100 Opcode: QUERY,\n    Query Type: 0,\n    Authoritative Answer Flag: 0,\n    Truncation Flag: 0,\n    Recursion Desired: 1,\n    Recursion Available: 0,\n    Response Code: No Error"
         );
     }
 
@@ -954,7 +952,7 @@ mod tests {
         let (_, result) = parse_idflags(&test_data).unwrap();
         assert_eq!(
             result.to_string(),
-            "id: 0x7EBA, flags: 0x100 Opcode: QUERY, \n    Query Type: 0,\n    Authoritative Answer Flag: 0, \n    Truncation Flag: 0, \n    Recursion Desired: 1, \n    Recursion Available: 0, \n    Response Code: No Error"
+            "id: 0x7EBA, flags: 0x100 Opcode: QUERY,\n    Query Type: 0,\n    Authoritative Answer Flag: 0,\n    Truncation Flag: 0,\n    Recursion Desired: 1,\n    Recursion Available: 0,\n    Response Code: No Error"
         );
     }
 
