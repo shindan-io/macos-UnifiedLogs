@@ -13,7 +13,6 @@ use chrono::{DateTime, LocalResult, SecondsFormat, TimeZone, Utc};
 pub enum LocalDateTime {
     Single(DateTime<Utc>),
     Ambiguous(DateTime<Utc>, DateTime<Utc>),
-    None,
 }
 
 impl Display for LocalDateTime {
@@ -30,7 +29,6 @@ impl Display for LocalDateTime {
                     dt2.to_rfc3339_opts(SecondsFormat::Millis, true)
                 )
             }
-            LocalDateTime::None => write!(f, "Could not parse time"),
         }
     }
 }
