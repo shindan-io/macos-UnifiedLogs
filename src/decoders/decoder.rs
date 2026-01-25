@@ -14,9 +14,9 @@ use crate::{
         DecoderError,
         darwin::{Errno, errno_codes, format_permission, permission},
         dns::{
-            dns_acceptable, dns_addrmv, dns_counts, dns_getaddrinfo_opts, dns_idflags, dns_ip_addr,
-            dns_protocol, dns_reason, dns_records, dns_yes_no, get_dns_mac_addr, get_domain_name,
-            get_service_binding, parse_dns_header,
+            DnsIdFlags, dns_acceptable, dns_addrmv, dns_counts, dns_getaddrinfo_opts, dns_idflags,
+            dns_ip_addr, dns_protocol, dns_reason, dns_records, dns_yes_no, get_dns_mac_addr,
+            get_domain_name, get_service_binding, parse_dns_header,
         },
         location::{
             ClientAuthorizationStatus, DaemonStatusType, LocationStateTrackerData,
@@ -58,6 +58,7 @@ pub enum Decoded {
     IpAddr(IpAddr),
     SockaddrData(SockaddrData),
     LocalDateTime(LocalDateTime),
+    DnsIdFlags(DnsIdFlags),
     Permission(u8, u8, u8),
 }
 
@@ -82,6 +83,7 @@ impl Decoded {
             Self::IpAddr(value) => rc_string!(value.to_string()),
             Self::SockaddrData(value) => rc_string!(value.to_string()),
             Self::LocalDateTime(value) => rc_string!(value.to_string()),
+            Self::DnsIdFlags(value) => rc_string!(value.to_string()),
             Self::Permission(user, owner, group) => {
                 rc_string!(format_permission(*user, *owner, *group))
             }
@@ -175,6 +177,8 @@ fn to_decoded_value<'a>(
         Decoded::SockaddrData(sockaddr(&message_strings)?)
     } else if format_string.contains("time_t") {
         Decoded::LocalDateTime(parse_time(&message_strings)?)
+    } else if format_string.contains("mdns:dns.idflags") {
+        Decoded::DnsIdFlags(dns_idflags(&message_strings)?)
     } else {
         let ok = if format_string.contains("mdns:dnshdr") {
             parse_dns_header(&message_strings)?
@@ -196,8 +200,6 @@ fn to_decoded_value<'a>(
             dns_reason(&message_strings)?.to_string()
         } else if format_string.contains("mdns:protocol") {
             dns_protocol(&message_strings)?.to_string()
-        } else if format_string.contains("mdns:dns.idflags") {
-            dns_idflags(&message_strings)?
         } else if format_string.contains("mdns:dns.counts") {
             dns_counts(&message_strings)?.to_string()
         } else if format_string.contains("mdns:yesno") {

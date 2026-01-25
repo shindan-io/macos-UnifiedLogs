@@ -21,7 +21,7 @@ use nom::{
     number::complete::{be_u8, be_u16, be_u32, be_u128, le_u32},
 };
 use std::{
-    fmt::Write,
+    fmt::{Display, Write},
     mem::size_of,
     net::{Ipv4Addr, Ipv6Addr},
 };
@@ -60,6 +60,8 @@ fn remove_err_offset(
     }
 }
 
+pub struct DnsHeader {}
+
 /// Get the DNS header data
 fn get_dns_header(input: &[u8]) -> IResult<&[u8], String> {
     let (input, id) = be_u16(input)?;
@@ -76,8 +78,62 @@ fn get_dns_header(input: &[u8]) -> IResult<&[u8], String> {
     Ok((input, header_message))
 }
 
+pub struct DnsFlags {
+    pub query: u8,
+    pub opcode: u8,
+    pub authoritative_flag: u8,
+    pub truncation_flag: u8,
+    pub recursion_desired: u8,
+    pub recursion_available: u8,
+    pub _reserved: u8,
+    pub response_code: u8,
+}
+
+impl Display for DnsFlags {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let opcode_message = match self.opcode {
+            0 => "QUERY",
+            1 => "IQUERY",
+            2 => "STATUS",
+            3 => "RESERVED",
+            4 => "NOTIFY",
+            5 => "UPDATE",
+            _ => "UNKNOWN OPCODE",
+        };
+
+        let response_message = match self.response_code {
+            0 => "No Error",
+            1 => "Format Error",
+            2 => "Server Failure",
+            3 => "NX Domain",
+            4 => "Not Implemented",
+            5 => "Refused",
+            6 => "YX Domain",
+            7 => "YX RR Set",
+            8 => "NX RR Set",
+            9 => "Not Auth",
+            10 => "Not Zone",
+            _ => "Unknown Response Code",
+        };
+
+        let Self {
+            query,
+            authoritative_flag,
+            truncation_flag,
+            recursion_desired,
+            recursion_available,
+            ..
+        } = self;
+
+        write!(
+            f,
+            "Opcode: {opcode_message},\n    Query Type: {query},\n    Authoritative Answer Flag: {authoritative_flag},\n    Truncation Flag: {truncation_flag},\n    Recursion Desired: {recursion_desired},\n    Recursion Available: {recursion_available},\n    Response Code: {response_message}",
+        )
+    }
+}
+
 /// Parse the DNS bit flags
-fn get_dns_flags(input: &[u8]) -> IResult<(&[u8], usize), String> {
+fn get_dns_flags(input: &[u8]) -> IResult<(&[u8], usize), DnsFlags> {
     // https://en.wikipedia.org/wiki/Domain_Name_System#DNS_message_format
     const QR: usize = 1;
     const OPCODE: usize = 4;
@@ -100,42 +156,19 @@ fn get_dns_flags(input: &[u8]) -> IResult<(&[u8], usize), String> {
     let ((input, offset), _reserved): Ret<'_> = bits(Z)((input, offset))?;
     let ((input, _), response_code): Ret<'_> = bits(RCODE)((input, offset))?;
 
-    let opcode_message = match opcode {
-        0 => "QUERY",
-        1 => "IQUERY",
-        2 => "STATUS",
-        3 => "RESERVED",
-        4 => "NOTIFY",
-        5 => "UPDATE",
-        _ => "UNKNOWN OPCODE",
+    let flags = DnsFlags {
+        query,
+        opcode,
+        authoritative_flag,
+        truncation_flag,
+        recursion_desired,
+        recursion_available,
+        _reserved,
+        response_code,
     };
 
-    let response_message = match response_code {
-        0 => "No Error",
-        1 => "Format Error",
-        2 => "Server Failure",
-        3 => "NX Domain",
-        4 => "Not Implemented",
-        5 => "Refused",
-        6 => "YX Domain",
-        7 => "YX RR Set",
-        8 => "NX RR Set",
-        9 => "Not Auth",
-        10 => "Not Zone",
-        _ => "Unknown Response Code",
-    };
-
-    let message = format!(
-        "Opcode: {opcode_message}, 
-    Query Type: {query},
-    Authoritative Answer Flag: {authoritative_flag}, 
-    Truncation Flag: {truncation_flag}, 
-    Recursion Desired: {recursion_desired}, 
-    Recursion Available: {recursion_available}, 
-    Response Code: {response_message}",
-    );
-
-    Ok(((input, 0), message))
+    // why 0 ?? to be able to throw with `?` in the previous lines
+    Ok(((input, 0), flags))
 }
 
 /// Base64 decode the domain name. This is normally masked, but may be shown if private data is enabled
@@ -335,59 +368,161 @@ pub(crate) fn dns_addrmv(data: &str) -> String {
     String::from("rmv")
 }
 
+#[derive(Debug, PartialEq, strum::Display)]
+pub enum DnsRecordType {
+    #[strum(to_string = "A")]
+    A,
+    #[strum(to_string = "NS")]
+    NS,
+    #[strum(to_string = "CNAME")]
+    CNAME,
+    #[strum(to_string = "SOA")]
+    SOA,
+    #[strum(to_string = "NULL")]
+    NULL,
+    #[strum(to_string = "PTR")]
+    PTR,
+    #[strum(to_string = "HINFO")]
+    HINFO,
+    #[strum(to_string = "MX")]
+    MX,
+    #[strum(to_string = "TXT")]
+    TXT,
+    #[strum(to_string = "RP")]
+    RP,
+    #[strum(to_string = "AFSDB")]
+    AFSDB,
+    #[strum(to_string = "SIG")]
+    SIG,
+    #[strum(to_string = "KEY")]
+    KEY,
+    #[strum(to_string = "AAAA")]
+    AAAA,
+    #[strum(to_string = "LOC")]
+    LOC,
+    #[strum(to_string = "SRV")]
+    SRV,
+    #[strum(to_string = "NAPTR")]
+    NAPTR,
+    #[strum(to_string = "KX")]
+    KX,
+    #[strum(to_string = "CERT")]
+    CERT,
+    #[strum(to_string = "DNAME")]
+    DNAME,
+    #[strum(to_string = "APL")]
+    APL,
+    #[strum(to_string = "DS")]
+    DS,
+    #[strum(to_string = "SSHFP")]
+    SSHFP,
+    #[strum(to_string = "IPSECKEY")]
+    IPSECKEY,
+    #[strum(to_string = "RRSIG")]
+    RRSIG,
+    #[strum(to_string = "NSEC")]
+    NSEC,
+    #[strum(to_string = "DNSKEY")]
+    DNSKEY,
+    #[strum(to_string = "DHCID")]
+    DHCID,
+    #[strum(to_string = "NSEC3")]
+    NSEC3,
+    #[strum(to_string = "NSEC3PARAM")]
+    NSEC3PARAM,
+    #[strum(to_string = "TLSA")]
+    TLSA,
+    #[strum(to_string = "SMIMEA")]
+    SMIMEA,
+    #[strum(to_string = "HIP")]
+    HIP,
+    #[strum(to_string = "CDS")]
+    CDS,
+    #[strum(to_string = "CDNSKEY")]
+    CDNSKEY,
+    #[strum(to_string = "OPENPGPKEY")]
+    OPENPGPKEY,
+    #[strum(to_string = "CSYNC")]
+    CSYNC,
+    #[strum(to_string = "ZONEMD")]
+    ZONEMD,
+    #[strum(to_string = "SVCB")]
+    SVCB,
+    #[strum(to_string = "HTTPS")]
+    HTTPS,
+    #[strum(to_string = "EUI48")]
+    EUI48,
+    #[strum(to_string = "EUI64")]
+    EUI64,
+    #[strum(to_string = "TKEY")]
+    TKEY,
+    #[strum(to_string = "TSIG")]
+    TSIG,
+    #[strum(to_string = "ANY")]
+    ANY,
+    #[strum(to_string = "URI")]
+    URI,
+    #[strum(to_string = "CAA")]
+    CAA,
+    #[strum(to_string = "TA")]
+    TA,
+    #[strum(to_string = "DLV")]
+    DLV,
+}
+
 /// Translate DNS records to string
-pub(crate) fn dns_records(data: &str) -> Result<&'static str, DecoderError<'_>> {
+pub(crate) fn dns_records(data: &str) -> Result<DnsRecordType, DecoderError<'_>> {
     // Found at https://en.wikipedia.org/wiki/List_of_DNS_record_types
-    let message = match data {
-        "1" => "A",
-        "2" => "NS",
-        "5" => "CNAME",
-        "6" => "SOA",
-        "10" => "NULL",
-        "12" => "PTR",
-        "13" => "HINFO",
-        "15" => "MX",
-        "16" => "TXT",
-        "17" => "RP",
-        "18" => "AFSDB",
-        "24" => "SIG",
-        "25" => "KEY",
-        "28" => "AAAA",
-        "29" => "LOC",
-        "33" => "SRV",
-        "35" => "NAPTR",
-        "36" => "KX",
-        "37" => "CERT",
-        "39" => "DNAME",
-        "42" => "APL",
-        "43" => "DS",
-        "44" => "SSHFP",
-        "45" => "IPSECKEY",
-        "46" => "RRSIG",
-        "47" => "NSEC",
-        "48" => "DNSKEY",
-        "49" => "DHCID",
-        "50" => "NSEC3",
-        "51" => "NSEC3PARAM",
-        "52" => "TLSA",
-        "53" => "SMIMEA",
-        "55" => "HIP",
-        "59" => "CDS",
-        "60" => "CDNSKEY",
-        "61" => "OPENPGPKEY",
-        "62" => "CSYNC",
-        "63" => "ZONEMD",
-        "64" => "SVCB",
-        "65" => "HTTPS",
-        "108" => "EUI48",
-        "109" => "EUI64",
-        "249" => "TKEY",
-        "250" => "TSIG",
-        "255" => "ANY",
-        "256" => "URI",
-        "257" => "CAA",
-        "32768" => "TA",
-        "32769" => "DLV",
+    Ok(match data {
+        "1" => DnsRecordType::A,
+        "2" => DnsRecordType::NS,
+        "5" => DnsRecordType::CNAME,
+        "6" => DnsRecordType::SOA,
+        "10" => DnsRecordType::NULL,
+        "12" => DnsRecordType::PTR,
+        "13" => DnsRecordType::HINFO,
+        "15" => DnsRecordType::MX,
+        "16" => DnsRecordType::TXT,
+        "17" => DnsRecordType::RP,
+        "18" => DnsRecordType::AFSDB,
+        "24" => DnsRecordType::SIG,
+        "25" => DnsRecordType::KEY,
+        "28" => DnsRecordType::AAAA,
+        "29" => DnsRecordType::LOC,
+        "33" => DnsRecordType::SRV,
+        "35" => DnsRecordType::NAPTR,
+        "36" => DnsRecordType::KX,
+        "37" => DnsRecordType::CERT,
+        "39" => DnsRecordType::DNAME,
+        "42" => DnsRecordType::APL,
+        "43" => DnsRecordType::DS,
+        "44" => DnsRecordType::SSHFP,
+        "45" => DnsRecordType::IPSECKEY,
+        "46" => DnsRecordType::RRSIG,
+        "47" => DnsRecordType::NSEC,
+        "48" => DnsRecordType::DNSKEY,
+        "49" => DnsRecordType::DHCID,
+        "50" => DnsRecordType::NSEC3,
+        "51" => DnsRecordType::NSEC3PARAM,
+        "52" => DnsRecordType::TLSA,
+        "53" => DnsRecordType::SMIMEA,
+        "55" => DnsRecordType::HIP,
+        "59" => DnsRecordType::CDS,
+        "60" => DnsRecordType::CDNSKEY,
+        "61" => DnsRecordType::OPENPGPKEY,
+        "62" => DnsRecordType::CSYNC,
+        "63" => DnsRecordType::ZONEMD,
+        "64" => DnsRecordType::SVCB,
+        "65" => DnsRecordType::HTTPS,
+        "108" => DnsRecordType::EUI48,
+        "109" => DnsRecordType::EUI64,
+        "249" => DnsRecordType::TKEY,
+        "250" => DnsRecordType::TSIG,
+        "255" => DnsRecordType::ANY,
+        "256" => DnsRecordType::URI,
+        "257" => DnsRecordType::CAA,
+        "32768" => DnsRecordType::TA,
+        "32769" => DnsRecordType::DLV,
         _ => {
             return Err(DecoderError::Parse {
                 input: data.as_bytes(),
@@ -395,18 +530,31 @@ pub(crate) fn dns_records(data: &str) -> Result<&'static str, DecoderError<'_>> 
                 message: "Unknown DNS Resource Record Type",
             });
         }
-    };
-    Ok(message)
+    })
+}
+
+#[derive(Debug, PartialEq, strum::Display)]
+pub enum DnsReason {
+    #[strum(to_string = "no-data")]
+    NoData,
+    #[strum(to_string = "query-suppressed")]
+    QuerySuppressed,
+    #[strum(to_string = "no-dns-service")]
+    NoDnsService,
+    #[strum(to_string = "nxdomain")]
+    Nxdomain,
+    #[strum(to_string = "server error")]
+    ServerError,
 }
 
 /// Translate DNS response/reason? to string
-pub(crate) fn dns_reason(data: &str) -> Result<&'static str, DecoderError<'_>> {
+pub(crate) fn dns_reason(data: &str) -> Result<DnsReason, DecoderError<'_>> {
     let message = match data {
-        "1" => "no-data",
-        "4" => "query-suppressed",
-        "3" => "no-dns-service",
-        "2" => "nxdomain",
-        "5" => "server error",
+        "1" => DnsReason::NoData,
+        "4" => DnsReason::QuerySuppressed,
+        "3" => DnsReason::NoDnsService,
+        "2" => DnsReason::Nxdomain,
+        "5" => DnsReason::ServerError,
         _ => {
             return Err(DecoderError::Parse {
                 input: data.as_bytes(),
@@ -418,13 +566,23 @@ pub(crate) fn dns_reason(data: &str) -> Result<&'static str, DecoderError<'_>> {
     Ok(message)
 }
 
+#[derive(Debug, PartialEq, strum::Display)]
+pub enum DnsProtocol {
+    #[strum(to_string = "UDP")]
+    UDP,
+    #[strum(to_string = "TCP")]
+    TCP,
+    #[strum(to_string = "HTTPS")]
+    HTTPS,
+}
+
 /// Translate the DNS protocol used
-pub(crate) fn dns_protocol(data: &str) -> Result<&'static str, DecoderError<'_>> {
+pub(crate) fn dns_protocol(data: &str) -> Result<DnsProtocol, DecoderError<'_>> {
     let message = match data {
-        "1" => "UDP",
-        "2" => "TCP",
+        "1" => DnsProtocol::UDP,
+        "2" => DnsProtocol::TCP,
         //"3" => "HTTP",??
-        "4" => "HTTPS",
+        "4" => DnsProtocol::HTTPS,
         _ => {
             return Err(DecoderError::Parse {
                 input: data.as_bytes(),
@@ -437,7 +595,7 @@ pub(crate) fn dns_protocol(data: &str) -> Result<&'static str, DecoderError<'_>>
 }
 
 /// Get just the DNS flags associated with the DNS header
-pub(crate) fn dns_idflags(input: &str) -> Result<String, DecoderError<'_>> {
+pub(crate) fn dns_idflags(input: &str) -> Result<DnsIdFlags, DecoderError<'_>> {
     let flags = input.parse::<u32>().map_err(|_| DecoderError::Parse {
         input: input.as_bytes(),
         parser_name: "dns id flags",
@@ -463,25 +621,49 @@ pub(crate) fn dns_idflags(input: &str) -> Result<String, DecoderError<'_>> {
     Ok(result)
 }
 
-/// Parse just the DNS flags associated with the DNS header
-fn parse_idflags(data: &[u8]) -> nom::IResult<&[u8], String> {
-    let (dns_data, id) = be_u16(data)?;
-    let flag_results = get_dns_flags(dns_data);
+pub struct DnsIdFlags {
+    pub id: u16,
+    pub flags: u16,
+    pub decoded_flags: Option<DnsFlags>,
+}
 
-    let message = match flag_results {
-        Ok((_, result)) => result,
-        Err(err) => {
-            error!("[macos-unifiedlogs] Failed to parse ID Flags: {err:?}");
-            String::from("Failed to parse ID Flags")
+impl Display for DnsIdFlags {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(decoded_flags) = &self.decoded_flags {
+            write!(
+                f,
+                "id: {:#X?}, flags: {:#X?} {decoded_flags}",
+                self.id, self.flags
+            )
+        } else {
+            write!(
+                f,
+                "id: {:#X?}, flags: {:#X?} Failed to parse ID Flags",
+                self.id, self.flags
+            )
         }
-    };
+    }
+}
+
+/// Parse just the DNS flags associated with the DNS header
+fn parse_idflags(input: &[u8]) -> nom::IResult<&[u8], DnsIdFlags> {
+    let (input, id) = be_u16(input)?;
+    let flag_results = get_dns_flags(input)
+        .inspect_err(|err| {
+            error!("[macos-unifiedlogs] Failed to parse ID Flags: {err:?}");
+        })
+        .ok();
 
     // todo: should be the `get_dns_flags` parser that output what can be used as `flags`
     // the responsibility for the `dns_data` format knowledge should not be shared into multiple functions
-    let (_, flags) = be_u16(dns_data)?;
+    let (_, flags) = be_u16(input)?;
     Ok((
-        dns_data,
-        format!("id: {id:#X?}, flags: {flags:#X?} {message}"),
+        input,
+        DnsIdFlags {
+            id,
+            flags,
+            decoded_flags: flag_results.map(|(_, flags)| flags),
+        },
     ))
 }
 
@@ -610,7 +792,7 @@ mod tests {
         let test_data = [1, 0];
         let (_, result) = get_dns_flags(&test_data).unwrap();
         assert_eq!(
-            result,
+            result.to_string(),
             "Opcode: QUERY, \n    Query Type: 0,\n    Authoritative Answer Flag: 0, \n    Truncation Flag: 0, \n    Recursion Desired: 1, \n    Recursion Available: 0, \n    Response Code: No Error"
         );
     }
@@ -735,7 +917,7 @@ mod tests {
         let test_data = "65";
 
         let result = dns_records(test_data).unwrap();
-        assert_eq!(result, "HTTPS");
+        assert_eq!(result, DnsRecordType::HTTPS);
     }
 
     #[test]
@@ -743,7 +925,7 @@ mod tests {
         let test_data = "1";
 
         let result = dns_reason(test_data).unwrap();
-        assert_eq!(result, "no-data");
+        assert_eq!(result, DnsReason::NoData);
     }
 
     #[test]
@@ -751,7 +933,7 @@ mod tests {
         let test_data = "1";
 
         let result = dns_protocol(test_data).unwrap();
-        assert_eq!(result, "UDP");
+        assert_eq!(result, DnsProtocol::UDP);
     }
 
     #[test]
@@ -760,7 +942,7 @@ mod tests {
 
         let result = dns_idflags(test_data).unwrap();
         assert_eq!(
-            result,
+            result.to_string(),
             "id: 0x7EBA, flags: 0x100 Opcode: QUERY, \n    Query Type: 0,\n    Authoritative Answer Flag: 0, \n    Truncation Flag: 0, \n    Recursion Desired: 1, \n    Recursion Available: 0, \n    Response Code: No Error"
         );
     }
@@ -771,7 +953,7 @@ mod tests {
 
         let (_, result) = parse_idflags(&test_data).unwrap();
         assert_eq!(
-            result,
+            result.to_string(),
             "id: 0x7EBA, flags: 0x100 Opcode: QUERY, \n    Query Type: 0,\n    Authoritative Answer Flag: 0, \n    Truncation Flag: 0, \n    Recursion Desired: 1, \n    Recursion Available: 0, \n    Response Code: No Error"
         );
     }
