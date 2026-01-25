@@ -5,6 +5,8 @@
 // is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and limitations under the License.
 
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+
 use crate::{
     RcString,
     chunks::firehose::firehose_log::FirehoseItemInfo,
@@ -22,7 +24,7 @@ use crate::{
             client_manager_state_tracker_state, daemon_status_type, io_message,
             location_manager_state_tracker_state, sqlite_location, subharvester_identifier,
         },
-        network::{ipv_four, ipv_six, sockaddr},
+        network::{SockaddrData, ipv_four, ipv_six, sockaddr},
         opendirectory::{
             MemberDetails, MemberIdType, OdError, SidDetails, errors, member_details,
             member_id_type, sid_details,
@@ -53,6 +55,8 @@ pub enum Decoded {
     SqliteError(SqliteError),
     LocationStateTrackerData(LocationStateTrackerData),
     LocationTrackerState(LocationTrackerState),
+    IpAddr(IpAddr),
+    SockaddrData(SockaddrData),
     Permission(u8, u8, u8),
 }
 
@@ -62,6 +66,7 @@ impl Decoded {
             Self::Other(value) | Self::Error(value) | Self::Masked(value) => value.clone(),
             Self::UpBool(value) => rc_string!(value.then(|| "NO").unwrap_or("YES")),
             Self::LoBool(value) => rc_string!(value.then(|| "false").unwrap_or("true")),
+            Self::Uuid(value) => rc_string!(format_uuid(*value)),
             Self::Errno(value) => rc_string!(value.to_string()),
             Self::OdError(value) => rc_string!(value.to_string()),
             Self::MemberIdType(value) => rc_string!(value.to_string()),
@@ -73,7 +78,8 @@ impl Decoded {
             Self::SqliteError(value) => rc_string!(value.to_string()),
             Self::LocationStateTrackerData(value) => rc_string!(value.to_string()),
             Self::LocationTrackerState(value) => rc_string!(value.to_string()),
-            Self::Uuid(value) => rc_string!(format_uuid(*value)),
+            Self::IpAddr(value) => rc_string!(value.to_string()),
+            Self::SockaddrData(value) => rc_string!(value.to_string()),
             Self::Permission(user, owner, group) => {
                 rc_string!(format_permission(*user, *owner, *group))
             }
@@ -159,14 +165,14 @@ fn to_decoded_value<'a>(
         Decoded::LocationStateTrackerData(client_manager_state_tracker_state(&message_strings)?)
     } else if format_string.contains("location:_CLLocationManagerStateTrackerState") {
         Decoded::LocationTrackerState(location_manager_state_tracker_state(&message_strings)?)
+    } else if format_string.contains("network:in6_addr") {
+        Decoded::IpAddr(ipv_six(&message_strings)?.into())
+    } else if format_string.contains("network:in_addr") {
+        Decoded::IpAddr(ipv_four(&message_strings)?.into())
+    } else if format_string.contains("network:sockaddr") {
+        Decoded::SockaddrData(sockaddr(&message_strings)?)
     } else {
-        let ok = if format_string.contains("network:in6_addr") {
-            ipv_six(&message_strings).map(|ip| ip.to_string())?
-        } else if format_string.contains("network:in_addr") {
-            ipv_four(&message_strings).map(|ip| ip.to_string())?
-        } else if format_string.contains("network:sockaddr") {
-            sockaddr(&message_strings)?
-        } else if format_string.contains("time_t") {
+        let ok = if format_string.contains("time_t") {
             parse_time(&message_strings)?
         } else if format_string.contains("mdns:dnshdr") {
             parse_dns_header(&message_strings)?

@@ -13,7 +13,10 @@ use nom::{
     combinator::map,
     number::complete::{be_u8, be_u16, be_u32, be_u128},
 };
-use std::net::{Ipv4Addr, Ipv6Addr};
+use std::{
+    fmt::Display,
+    net::{IpAddr, Ipv4Addr, Ipv6Addr},
+};
 
 /// Parse an IPv6 address
 pub(crate) fn ipv_six(input: &str) -> Result<Ipv6Addr, DecoderError<'_>> {
@@ -50,9 +53,9 @@ pub(crate) fn ipv_four(input: &str) -> Result<Ipv4Addr, DecoderError<'_>> {
 }
 
 /// Parse a sockaddr structure
-pub(crate) fn sockaddr(input: &str) -> Result<String, DecoderError<'_>> {
+pub(crate) fn sockaddr(input: &str) -> Result<SockaddrData, DecoderError<'_>> {
     if input.is_empty() {
-        return Ok(String::from("<NULL>"));
+        return Ok(SockaddrData::Unknown { family: 0 });
     }
 
     let decoded_data = decode_standard(input).map_err(|_| DecoderError::Parse {
@@ -70,43 +73,93 @@ pub(crate) fn sockaddr(input: &str) -> Result<String, DecoderError<'_>> {
     Ok(result)
 }
 
+#[allow(non_camel_case_types)]
+pub enum SockaddrData {
+    AF_INET {
+        family: u8,
+        ip_addr: Ipv4Addr,
+        port: u16,
+    },
+    AF_INET6 {
+        family: u8,
+        ip_addr: Ipv6Addr,
+        port: u16,
+        flow: u32,
+        scope: u32,
+    },
+    Unknown {
+        family: u8,
+    },
+}
+
+impl Display for SockaddrData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SockaddrData::AF_INET { ip_addr, port, .. } => {
+                if *port == 0 {
+                    write!(f, "{ip_addr}")
+                } else {
+                    write!(f, "{ip_addr}:{port}")
+                }
+            }
+            SockaddrData::AF_INET6 {
+                ip_addr,
+                port,
+                flow,
+                scope,
+                ..
+            } => {
+                if *port == 0 {
+                    write!(f, "{ip_addr}, Flow ID: {flow}, Scope ID: {scope}")
+                } else {
+                    write!(f, "{ip_addr}:{port}, Flow ID: {flow}, Scope ID: {scope}")
+                }
+            }
+            SockaddrData::Unknown { family } => {
+                write!(f, "Unknown sockaddr family: {family}")
+            }
+        }
+    }
+}
+
 /// Get the sockaddr data
-fn get_sockaddr_data(input: &[u8]) -> nom::IResult<&[u8], String> {
-    let mut family_tup = (be_u8, be_u8);
-    let (input, (_total_length, family)) = family_tup.parse(input)?;
+fn get_sockaddr_data(input: &[u8]) -> nom::IResult<&[u8], SockaddrData> {
+    let (input, (_total_length, family)) = (be_u8, be_u8).parse(input)?;
 
     // Family types seen so far (AF_INET should be used most often)
-    match family {
+    Ok(match family {
         2 => {
             // AF_INET
             let (input, port) = be_u16(input)?;
             let (input, ip_addr) = get_ip_four(input)?;
-
-            match port {
-                0 => Ok((input, ip_addr.to_string())),
-                _ => Ok((input, format!("{ip_addr}:{port}"))),
-            }
+            (
+                input,
+                SockaddrData::AF_INET {
+                    family,
+                    ip_addr,
+                    port,
+                },
+            )
         }
         30 => {
             let mut tup = (be_u16, be_u32, get_ip_six, be_u32);
             let (input, (port, flow, ip_addr, scope)) = tup.parse(input)?;
-
-            match port {
-                0 => Ok((
-                    input,
-                    format!("{ip_addr}, Flow ID: {flow}, Scope ID: {scope}"),
-                )),
-                _ => Ok((
-                    input,
-                    format!("{ip_addr}:{port}, Flow ID: {flow}, Scope ID: {scope}"),
-                )),
-            }
+            (
+                input,
+                SockaddrData::AF_INET6 {
+                    family,
+                    ip_addr,
+                    port,
+                    flow,
+                    scope,
+                },
+            )
         }
         _ => {
-            warn!("[macos-unifiedlogs] Unknown sockaddr family: {family}. From: {input:?}",);
-            Ok((input, format!("Unknown sockaddr family: {family}",)))
+            warn!("[macos-unifiedlogs] Unknown sockaddr family: {family}. From: {input:?}");
+            (input, SockaddrData::Unknown { family })
         }
-    }
+    })
 }
 
 /// Get the IPv4 data
@@ -163,11 +216,11 @@ mod tests {
     fn test_sockaddr() {
         let mut test_data = "EAIAALgciWcAAAAAAAAAAA==";
         let mut result = sockaddr(test_data).unwrap();
-        assert_eq!(result, "184.28.137.103");
+        assert_eq!(result.to_string(), "184.28.137.103");
 
         test_data = "HB4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==";
         result = sockaddr(test_data).unwrap();
-        assert_eq!(result, "::, Flow ID: 0, Scope ID: 0");
+        assert_eq!(result.to_string(), "::, Flow ID: 0, Scope ID: 0");
     }
 
     #[test]
@@ -176,6 +229,6 @@ mod tests {
         let decoded_data_result = decode_standard(test_data).unwrap();
 
         let (_, result) = get_sockaddr_data(&decoded_data_result).unwrap();
-        assert_eq!(result, "184.28.137.103");
+        assert_eq!(result.to_string(), "184.28.137.103");
     }
 }
