@@ -14,6 +14,7 @@ use macos_unifiedlogs::{
     unified_log::UnifiedLogData,
 };
 use std::{collections::HashMap, fs::File, path::PathBuf};
+use uuid::Uuid;
 
 fn big_sur_parse_log(path: &str) {
     let handle = File::open(PathBuf::from(path).as_path()).unwrap();
@@ -23,7 +24,7 @@ fn big_sur_parse_log(path: &str) {
 fn bench_build_log(
     log_data: &UnifiedLogData,
     provider: &mut dyn FileProvider,
-    timesync_data: &HashMap<String, TimesyncBoot>,
+    timesync_data: &HashMap<Uuid, TimesyncBoot>,
     exclude_missing: bool,
 ) {
     let (_, _) = build_log(log_data, provider, timesync_data, exclude_missing);
