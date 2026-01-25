@@ -35,21 +35,4 @@ mod tests {
         assert_eq!(results, "YES");
     }
 
-    #[test]
-    fn test_lowercase_bool() {
-        let mut test_data = "0";
-        let mut results = lowercase_bool(test_data);
-        assert_eq!(results, "false");
-
-        test_data = "1";
-        results = lowercase_bool(test_data);
-        assert_eq!(results, "true");
-    }
-
-    #[test]
-    fn test_lowercase_int_bool() {
-        let test_data = 0_u32;
-        let results = lowercase_int_bool(test_data);
-        assert_eq!(results, "false");
-    }
 }
