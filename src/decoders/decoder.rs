@@ -29,7 +29,7 @@ use crate::{
             MemberDetails, MemberIdType, OdError, SidDetails, errors, member_details,
             member_id_type, sid_details,
         },
-        time::parse_time,
+        time::{LocalDateTime, parse_time},
         uuid::parse_uuid,
     },
     rc_string,
@@ -57,6 +57,7 @@ pub enum Decoded {
     LocationTrackerState(LocationTrackerState),
     IpAddr(IpAddr),
     SockaddrData(SockaddrData),
+    LocalDateTime(LocalDateTime),
     Permission(u8, u8, u8),
 }
 
@@ -80,6 +81,7 @@ impl Decoded {
             Self::LocationTrackerState(value) => rc_string!(value.to_string()),
             Self::IpAddr(value) => rc_string!(value.to_string()),
             Self::SockaddrData(value) => rc_string!(value.to_string()),
+            Self::LocalDateTime(value) => rc_string!(value.to_string()),
             Self::Permission(user, owner, group) => {
                 rc_string!(format_permission(*user, *owner, *group))
             }
@@ -171,10 +173,10 @@ fn to_decoded_value<'a>(
         Decoded::IpAddr(ipv_four(&message_strings)?.into())
     } else if format_string.contains("network:sockaddr") {
         Decoded::SockaddrData(sockaddr(&message_strings)?)
+    } else if format_string.contains("time_t") {
+        Decoded::LocalDateTime(parse_time(&message_strings)?)
     } else {
-        let ok = if format_string.contains("time_t") {
-            parse_time(&message_strings)?
-        } else if format_string.contains("mdns:dnshdr") {
+        let ok = if format_string.contains("mdns:dnshdr") {
             parse_dns_header(&message_strings)?
         } else if format_string.contains("mdns:rd.svcb") {
             get_service_binding(&message_strings)?
