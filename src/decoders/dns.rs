@@ -27,7 +27,7 @@ use std::{
 };
 
 /// Parse the DNS header
-pub(crate) fn parse_dns_header(data: &str) -> Result<String, DecoderError<'_>> {
+pub(crate) fn parse_dns_header(data: &str) -> Result<DnsHeader, DecoderError<'_>> {
     let decoded_data = decode_standard(data).map_err(|_| DecoderError::Parse {
         input: data.as_bytes(),
         parser_name: "dns header",
@@ -60,20 +60,42 @@ fn remove_err_offset(
     }
 }
 
+pub struct DnsHeader {
+    pub id: u16,
+    pub flags: u16,
+    pub decoded_flags: DnsFlags,
+    pub counts: DnsCounts,
+}
+
+impl Display for DnsHeader {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Query ID: {:#X?}, Flags: {:#X?} {}, {}",
+            self.id, self.flags, self.decoded_flags, self.counts
+        )
+    }
+}
+
 /// Get the DNS header data
-fn get_dns_header(input: &[u8]) -> IResult<&[u8], String> {
+fn get_dns_header(input: &[u8]) -> IResult<&[u8], DnsHeader> {
     let (input, id) = be_u16(input)?;
 
     let (input, flag_data) = take(size_of::<u16>())(input)?;
-    let ((_, _), message) = get_dns_flags(flag_data).map_err(remove_err_offset)?;
+    let ((_, _), decoded_flags) = get_dns_flags(flag_data).map_err(remove_err_offset)?;
     let (_, flags) = be_u16(flag_data)?;
 
-    let (input, count_message) = parse_counts(input)?;
+    let (input, counts) = parse_counts(input)?;
 
-    let header_message =
-        format!("Query ID: {id:#X?}, Flags: {flags:#X?} {message}, {count_message}");
-
-    Ok((input, header_message))
+    Ok((
+        input,
+        DnsHeader {
+            id,
+            flags,
+            decoded_flags: decoded_flags,
+            counts,
+        },
+    ))
 }
 
 pub struct DnsFlags {
@@ -770,7 +792,7 @@ mod tests {
         let test_data = "uXMBAAABAAAAAAAA";
         let result = parse_dns_header(test_data).unwrap();
         assert_eq!(
-            result,
+            result.to_string(),
             "Query ID: 0xB973, Flags: 0x100 Opcode: QUERY,\n    Query Type: 0,\n    Authoritative Answer Flag: 0,\n    Truncation Flag: 0,\n    Recursion Desired: 1,\n    Recursion Available: 0,\n    Response Code: No Error, Question Count: 1, Answer Record Count: 0, Authority Record Count: 0, Additional Record Count: 0"
         );
     }
@@ -780,7 +802,7 @@ mod tests {
         let test_data = [185, 115, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0];
         let (_, result) = get_dns_header(&test_data).unwrap();
         assert_eq!(
-            result,
+            result.to_string(),
             "Query ID: 0xB973, Flags: 0x100 Opcode: QUERY,\n    Query Type: 0,\n    Authoritative Answer Flag: 0,\n    Truncation Flag: 0,\n    Recursion Desired: 1,\n    Recursion Available: 0,\n    Response Code: No Error, Question Count: 1, Answer Record Count: 0, Authority Record Count: 0, Additional Record Count: 0"
         );
     }
