@@ -235,6 +235,8 @@ pub(crate) fn get_service_binding(input: &str) -> Result<String, DecoderError<'_
     Ok(result)
 }
 
+struct DnsSvcBindingRecord {}
+
 /// Parse DNS SVC Binding record
 fn parse_svcb(input: &[u8]) -> nom::IResult<&[u8], String> {
     // Format/documentation found at https://datatracker.ietf.org/doc/draft-ietf-dnsop-svcb-https/00/?include_text=1
