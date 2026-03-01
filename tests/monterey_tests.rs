@@ -228,7 +228,7 @@ fn test_parse_all_logs_monterey_noalloc() {
             NoAllocLogStream::with_oversize_cache(&buf, &timesync_data, oversize_cache);
         while let Some(entry) = stream.next_entry() {
             // continue;
-            if let Some(logs) = stream.resolve(&entry, &mut provider) {
+            if let Ok(logs) = stream.resolve(&entry, &mut provider) {
                 total_count += 1;
 
                 if logs.message.contains("Failed to get string message from ")

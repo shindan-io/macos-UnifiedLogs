@@ -23,6 +23,7 @@
 //! }
 //! ```
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 use log::{debug, error, warn};
@@ -50,6 +51,32 @@ use crate::traits::FileProvider;
 use crate::unified_log::{EventType, LogData, LogType};
 use crate::util::{padding_size_8, u64_to_usize, unixepoch_to_datetime};
 use crate::{empty_rc_string, rc_string};
+
+// ── ResolveError ───────────────────────────────────────────────────────────
+
+/// Error type returned when a [`NoAllocEntry`] cannot be resolved into [`LogData`].
+#[derive(Debug)]
+pub enum ResolveError {
+    /// Entry's decomp buffer was overwritten (stale generation).
+    StaleEntry,
+    /// No catalog available for resolution.
+    NoCatalog,
+    /// Sub-type parse failure.
+    ParseError(String),
+    /// String lookup failure (UUID/DSC).
+    StringLookupFailed(String),
+}
+
+impl std::fmt::Display for ResolveError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::StaleEntry => write!(f, "Stale entry: decomp buffer was overwritten"),
+            Self::NoCatalog => write!(f, "No catalog available for resolution"),
+            Self::ParseError(msg) => write!(f, "Parse error: {msg}"),
+            Self::StringLookupFailed(msg) => write!(f, "String lookup failed: {msg}"),
+        }
+    }
+}
 
 // ── NoAllocEntry ───────────────────────────────────────────────────────────
 
@@ -209,12 +236,15 @@ fn get_event_type(event_type: u8) -> EventType {
 // ── Internal State Types ───────────────────────────────────────────────────
 
 /// Tracks whether decompressed data is owned (compressed chunkset) or borrowed (uncompressed).
-enum DecompSource<'file> {
+enum DecompSource {
     None,
     /// Data is in `self.decomp_buf`
     Owned,
-    /// Data is a slice from `file_buf` (uncompressed chunkset)
-    Borrowed(&'file [u8]),
+    /// Data is a range within `file_buf` (uncompressed chunkset)
+    BorrowedRange {
+        offset: usize,
+        len: usize,
+    },
 }
 
 /// Multi-level cursor state for resumable iteration within a decompressed chunkset.
@@ -252,7 +282,7 @@ struct PreambleIterState {
 /// Yields [`NoAllocEntry`] structs containing only scalar fields (no allocations).
 /// Entries can be selectively resolved into full [`LogData`] via [`resolve()`](Self::resolve).
 pub struct NoAllocLogStream<'file, 'ts> {
-    file_buf: &'file [u8],
+    file_buf: Cow<'file, [u8]>,
     cursor: usize,
     boot_uuid: Uuid,
     timezone_path: String,
@@ -261,7 +291,7 @@ pub struct NoAllocLogStream<'file, 'ts> {
     catalog_index: u32,
 
     decomp_buf: Vec<u8>,
-    decomp_source: DecompSource<'file>,
+    decomp_source: DecompSource,
     decomp_generation: u32,
 
     oversize_cache: Vec<Oversize>,
@@ -288,6 +318,31 @@ impl<'file, 'ts> NoAllocLogStream<'file, 'ts> {
     /// Create a new stream with an existing oversize cache (carried from a previous file).
     pub fn with_oversize_cache(
         data: &'file [u8],
+        timesync: &'ts HashMap<Uuid, TimesyncBoot>,
+        cache: Vec<Oversize>,
+    ) -> Self {
+        Self::from_cow(Cow::Borrowed(data), timesync, cache)
+    }
+
+    /// Create a stream that owns its data. Returns `NoAllocLogStream<'static, 'ts>`.
+    pub fn from_owned(
+        data: Vec<u8>,
+        timesync: &'ts HashMap<Uuid, TimesyncBoot>,
+    ) -> NoAllocLogStream<'static, 'ts> {
+        NoAllocLogStream::from_owned_with_oversize_cache(data, timesync, Vec::new())
+    }
+
+    /// Create an owned stream with an existing oversize cache.
+    pub fn from_owned_with_oversize_cache(
+        data: Vec<u8>,
+        timesync: &'ts HashMap<Uuid, TimesyncBoot>,
+        cache: Vec<Oversize>,
+    ) -> NoAllocLogStream<'static, 'ts> {
+        NoAllocLogStream::from_cow(Cow::Owned(data), timesync, cache)
+    }
+
+    fn from_cow(
+        data: Cow<'file, [u8]>,
         timesync: &'ts HashMap<Uuid, TimesyncBoot>,
         cache: Vec<Oversize>,
     ) -> Self {
@@ -360,7 +415,9 @@ impl<'file, 'ts> NoAllocLogStream<'file, 'ts> {
                     let decomp_data = match &self.decomp_source {
                         DecompSource::None => None,
                         DecompSource::Owned => Some(self.decomp_buf.as_slice()),
-                        DecompSource::Borrowed(s) => Some(*s),
+                        DecompSource::BorrowedRange { offset, len } => {
+                            self.file_buf.get(*offset..*offset + *len)
+                        }
                     };
                     if let Some(decomp_data) = decomp_data {
                         let abs_cursor = preamble.public_data_start + preamble.entry_cursor;
@@ -444,33 +501,37 @@ impl<'file, 'ts> NoAllocLogStream<'file, 'ts> {
     /// format strings from DSC/UUIDText, resolving oversize entries, and formatting
     /// the log message via printf-style expansion.
     ///
-    /// Returns `None` if:
+    /// Returns `Err` if:
     /// - The entry's `decomp_generation` doesn't match the current generation
     ///   (the decompression buffer has been overwritten by a newer chunkset)
+    /// - No catalog is available
     /// - The sub-type parser fails
     /// - The string lookup fails
     pub fn resolve(
         &mut self,
         entry: &NoAllocEntry,
         provider: &mut dyn FileProvider,
-    ) -> Option<LogData> {
+    ) -> Result<LogData, ResolveError> {
         // Safety check: entry must be from the current chunkset
         if entry.decomp_generation != self.decomp_generation {
             warn!(
                 "[noalloc_iterator] Stale entry: generation {} != current {}",
                 entry.decomp_generation, self.decomp_generation
             );
-            return None;
+            return Err(ResolveError::StaleEntry);
         }
 
         // Simpledump/statedump: return pre-resolved LogData stashed by next_entry()
         if entry.log_activity_type == SIMPLEDUMP_TYPE || entry.log_activity_type == STATEDUMP_TYPE {
-            return self.last_resolved_dump.take();
+            return self
+                .last_resolved_dump
+                .take()
+                .ok_or(ResolveError::StaleEntry);
         }
 
         // Take catalog out temporarily to avoid borrow conflict
         // (resolve_* methods need &mut self for oversize_cache access)
-        let catalog = self.current_catalog.take()?;
+        let catalog = self.current_catalog.take().ok_or(ResolveError::NoCatalog)?;
 
         // Get the raw firehose data from the decomp source
         let offset = entry.decomp_data_offset as usize;
@@ -484,7 +545,9 @@ impl<'file, 'ts> NoAllocLogStream<'file, 'ts> {
                 }
                 None => {
                     self.current_catalog = Some(catalog);
-                    return None;
+                    return Err(ResolveError::ParseError(format!(
+                        "Invalid decomp slice offset={offset} len={len}"
+                    )));
                 }
             }
         }
@@ -549,7 +612,12 @@ impl<'file, 'ts> NoAllocLogStream<'file, 'ts> {
         // Put catalog back
         self.current_catalog = Some(catalog);
 
-        result.map(|()| log_data)
+        result.map(|()| log_data).ok_or_else(|| {
+            ResolveError::ParseError(format!(
+                "Failed to resolve activity_type={}",
+                entry.log_activity_type
+            ))
+        })
     }
 
     // ── Level 3: entry from preamble ───────────────────────────────────
@@ -661,7 +729,12 @@ impl<'file, 'ts> NoAllocLogStream<'file, 'ts> {
         let decomp_data = match &self.decomp_source {
             DecompSource::None => return None,
             DecompSource::Owned => self.decomp_buf.as_slice(),
-            DecompSource::Borrowed(s) => s,
+            DecompSource::BorrowedRange { offset, len } => {
+                match self.file_buf.get(*offset..*offset + *len) {
+                    Some(s) => s,
+                    None => return None,
+                }
+            }
         };
 
         while inner.inner_cursor + CHUNK_PREAMBLE_SIZE <= inner.inner_data_len {
@@ -901,13 +974,15 @@ impl<'file, 'ts> NoAllocLogStream<'file, 'ts> {
     /// Try to advance to the next top-level chunk. Returns false at EOF.
     fn try_advance_top_level_chunk(&mut self) -> bool {
         while self.cursor + CHUNK_PREAMBLE_SIZE <= self.file_buf.len() {
-            let input = &self.file_buf[self.cursor..];
-
-            let preamble = match LogPreamble::detect_preamble(input) {
-                Ok((_, p)) => p,
-                Err(err) => {
-                    error!("[noalloc_iterator] Failed to detect preamble: {err:?}");
-                    return false;
+            // Parse preamble — borrow is dropped before any &mut self call
+            let preamble = {
+                let input = &self.file_buf[self.cursor..];
+                match LogPreamble::detect_preamble(input) {
+                    Ok((_, p)) => p,
+                    Err(err) => {
+                        error!("[noalloc_iterator] Failed to detect preamble: {err:?}");
+                        return false;
+                    }
                 }
             };
 
@@ -922,9 +997,10 @@ impl<'file, 'ts> NoAllocLogStream<'file, 'ts> {
                 return false;
             }
 
-            let chunk_data = &self.file_buf[self.cursor..self.cursor + total_chunk_size];
+            // Record range, advance cursor, then process via range-based methods
+            let chunk_start = self.cursor;
+            let chunk_end = self.cursor + total_chunk_size;
 
-            // Advance cursor past chunk + padding
             self.cursor += total_chunk_size;
             let padding = padding_size_8(preamble.chunk_data_size) as usize;
             if self.cursor + padding <= self.file_buf.len() {
@@ -933,19 +1009,24 @@ impl<'file, 'ts> NoAllocLogStream<'file, 'ts> {
 
             match preamble.chunk_tag {
                 HEADER_CHUNK => {
-                    self.parse_header(chunk_data);
+                    self.parse_header_range(chunk_start, chunk_end);
                 }
-                CATALOG_CHUNK => match CatalogChunk::parse_catalog(chunk_data) {
-                    Ok((_, catalog)) => {
-                        self.current_catalog = Some(catalog);
-                        self.catalog_index += 1;
+                CATALOG_CHUNK => {
+                    // CatalogChunk::parse_catalog doesn't need &mut self
+                    match CatalogChunk::parse_catalog(&self.file_buf[chunk_start..chunk_end]) {
+                        Ok((_, catalog)) => {
+                            self.current_catalog = Some(catalog);
+                            self.catalog_index += 1;
+                        }
+                        Err(err) => {
+                            error!("[noalloc_iterator] Failed to parse catalog: {err:?}");
+                        }
                     }
-                    Err(err) => {
-                        error!("[noalloc_iterator] Failed to parse catalog: {err:?}");
-                    }
-                },
+                }
                 CHUNKSET_CHUNK => {
-                    if self.current_catalog.is_some() && self.process_chunkset(chunk_data) {
+                    if self.current_catalog.is_some()
+                        && self.process_chunkset_range(chunk_start, chunk_end)
+                    {
                         return true; // inner_state is now set up
                     }
                     if self.current_catalog.is_none() {
@@ -962,7 +1043,8 @@ impl<'file, 'ts> NoAllocLogStream<'file, 'ts> {
     }
 
     /// Parse a header chunk and extract `boot_uuid` + `timezone_path`.
-    fn parse_header(&mut self, chunk_data: &[u8]) {
+    fn parse_header_range(&mut self, start: usize, end: usize) {
+        let chunk_data = &self.file_buf[start..end];
         match HeaderChunkStr::parse_header(chunk_data) {
             Ok((_, header)) => {
                 self.boot_uuid = header.boot_uuid;
@@ -980,12 +1062,13 @@ impl<'file, 'ts> NoAllocLogStream<'file, 'ts> {
 
     /// Parse a chunkset: decompress if needed, set up `inner_state`.
     /// Returns true if `inner_state` was successfully set up.
-    fn process_chunkset(&mut self, chunk_data: &[u8]) -> bool {
+    fn process_chunkset_range(&mut self, chunk_start: usize, chunk_end: usize) -> bool {
         // Skip the 16-byte chunk preamble to get the chunkset data
-        let inner = match chunk_data.get(CHUNK_PREAMBLE_SIZE..) {
-            Some(d) => d,
-            None => return false,
-        };
+        let inner_start = chunk_start + CHUNK_PREAMBLE_SIZE;
+        if inner_start >= chunk_end {
+            return false;
+        }
+        let inner = &self.file_buf[inner_start..chunk_end];
 
         let (input, signature) = match le_u32::<_, nom::error::Error<&[u8]>>(inner) {
             Ok(r) => r,
@@ -999,16 +1082,14 @@ impl<'file, 'ts> NoAllocLogStream<'file, 'ts> {
         self.decomp_generation += 1;
 
         if signature == BV41_UNCOMPRESSED {
-            // Uncompressed data — borrow from file_buf
-            let data_start = (chunk_data.as_ptr() as usize)
-                .saturating_sub(self.file_buf.as_ptr() as usize)
-                + CHUNK_PREAMBLE_SIZE
-                + 8; // 4 (signature) + 4 (uncompress_size)
-
+            // Uncompressed data — reference range within file_buf
+            let data_start = inner_start + 8; // 4 (signature) + 4 (uncompress_size)
             let data_len = uncompress_size as usize;
             if data_start + data_len <= self.file_buf.len() {
-                let borrowed = &self.file_buf[data_start..data_start + data_len];
-                self.decomp_source = DecompSource::Borrowed(borrowed);
+                self.decomp_source = DecompSource::BorrowedRange {
+                    offset: data_start,
+                    len: data_len,
+                };
                 self.inner_state = Some(InnerIterState {
                     inner_cursor: 0,
                     inner_data_len: data_len,
@@ -1058,7 +1139,9 @@ impl<'file, 'ts> NoAllocLogStream<'file, 'ts> {
         match &self.decomp_source {
             DecompSource::None => None,
             DecompSource::Owned => Some(self.decomp_buf.as_slice()),
-            DecompSource::Borrowed(s) => Some(s),
+            DecompSource::BorrowedRange { offset, len } => {
+                self.file_buf.get(*offset..*offset + *len)
+            }
         }
     }
 
@@ -2000,7 +2083,7 @@ mod tests {
         while let Some(entry) = stream.next_entry() {
             // Only resolve first few non-activity entries
             if entry.is_non_activity() && resolved_count < 5 {
-                if let Some(log_data) = stream.resolve(&entry, &mut provider) {
+                if let Ok(log_data) = stream.resolve(&entry, &mut provider) {
                     assert_eq!(log_data.pid, entry.pid);
                     assert_eq!(log_data.euid, entry.euid);
                     assert_eq!(log_data.thread_id, entry.thread_id);

@@ -100,8 +100,6 @@ pub mod noalloc_iterator;
 /// Functions to extract and assemble log entries from the macOS Unified Log
 pub mod parser;
 mod preamble;
-/// On-demand string resolution for structural entries
-pub mod string_resolver;
 /// Functions to parse time data associated with the Unified Log
 pub mod timesync;
 /// Zero-allocation streaming API for tracev3 files

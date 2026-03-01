@@ -5,16 +5,17 @@
 // is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and limitations under the License.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 
 use uuid::Uuid;
 
 use crate::chunks::oversize::Oversize;
-use crate::iterator::UnifiedLogIterator;
-use crate::parser::build_log;
+use crate::noalloc_iterator::{NoAllocEntry, NoAllocLogStream, ResolveError};
 use crate::timesync::TimesyncBoot;
 use crate::traits::FileProvider;
 use crate::unified_log::{LogData, UnifiedLogData};
+use crate::util::unixepoch_to_datetime;
+use crate::{empty_rc_string, rc_string};
 
 /// An item yielded by [`LogDataIterator`].
 #[derive(Debug)]
@@ -27,8 +28,8 @@ pub enum LogIteratorItem {
 
 /// Streaming iterator that yields individual [`LogIteratorItem`] entries from a tracev3 file.
 ///
-/// Wraps [`UnifiedLogIterator`] and automatically calls [`build_log`] on each chunk,
-/// managing the oversize string cache internally.
+/// Uses [`NoAllocLogStream`] internally for efficient single-pass iteration. Each entry
+/// is resolved on demand via [`NoAllocLogStream::resolve()`].
 ///
 /// # Example
 /// ```no_run
@@ -51,13 +52,9 @@ pub enum LogIteratorItem {
 /// }
 /// ```
 pub struct LogDataIterator<'a> {
-    inner: UnifiedLogIterator,
+    stream: NoAllocLogStream<'static, 'a>,
     provider: &'a mut dyn FileProvider,
-    timesync_data: &'a HashMap<Uuid, TimesyncBoot>,
     exclude_missing: bool,
-    buffer: VecDeque<LogData>,
-    pending_missing: Option<UnifiedLogData>,
-    oversize_cache: Vec<Oversize>,
 }
 
 impl<'a> LogDataIterator<'a> {
@@ -84,24 +81,52 @@ impl<'a> LogDataIterator<'a> {
         oversize_cache: Vec<Oversize>,
     ) -> Self {
         Self {
-            inner: UnifiedLogIterator::new(data),
+            stream: NoAllocLogStream::from_owned_with_oversize_cache(
+                data,
+                timesync_data,
+                oversize_cache,
+            ),
             provider,
-            timesync_data,
             exclude_missing,
-            buffer: VecDeque::new(),
-            pending_missing: None,
-            oversize_cache,
         }
     }
 
     /// Peek at the current oversize cache.
     pub fn oversize_cache(&self) -> &[Oversize] {
-        &self.oversize_cache
+        self.stream.oversize_cache()
     }
 
     /// Consume the iterator and return the oversize cache for use with the next tracev3 file.
     pub fn into_oversize_cache(self) -> Vec<Oversize> {
-        self.oversize_cache
+        self.stream.into_oversize_cache()
+    }
+}
+
+/// Create a minimal error [`LogData`] from a [`NoAllocEntry`] and error description.
+///
+/// This matches the old `build_log` behavior where unresolvable entries still produce
+/// a `LogData` with the error as the `message` field.
+fn error_to_log_data(entry: &NoAllocEntry, error: &ResolveError) -> LogData {
+    LogData {
+        subsystem: empty_rc_string(),
+        thread_id: entry.thread_id,
+        pid: entry.pid,
+        euid: entry.euid,
+        library: empty_rc_string(),
+        library_uuid: Uuid::nil(),
+        activity_id: 0,
+        time: entry.timestamp,
+        timestamp: unixepoch_to_datetime(entry.timestamp as i64),
+        category: empty_rc_string(),
+        log_type: entry.log_type_enum(),
+        event_type: entry.event_type_enum(),
+        process: empty_rc_string(),
+        process_uuid: Uuid::nil(),
+        message: rc_string!(format!("{error}")),
+        raw_message: empty_rc_string(),
+        boot_uuid: entry.boot_uuid,
+        timezone_name: empty_rc_string(),
+        message_entries: Vec::new(),
     }
 }
 
@@ -110,42 +135,23 @@ impl Iterator for LogDataIterator<'_> {
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            // 1. Drain buffered log entries first
-            if let Some(entry) = self.buffer.pop_front() {
-                return Some(LogIteratorItem::Log(entry));
+            let entry = self.stream.next_entry()?;
+            match self.stream.resolve(&entry, self.provider) {
+                Ok(log_data) => {
+                    if self.exclude_missing && log_data.message.contains("<Missing message data>") {
+                        continue; // skip, may find strings in later files
+                    }
+                    return Some(LogIteratorItem::Log(log_data));
+                }
+                Err(e) => {
+                    if self.exclude_missing {
+                        continue; // skip unresolvable
+                    }
+                    // Produce a minimal LogData with the error as message,
+                    // matching old build_log behavior (never drops entries)
+                    return Some(LogIteratorItem::Log(error_to_log_data(&entry, &e)));
+                }
             }
-
-            // 2. Yield pending missing data
-            if let Some(missing) = self.pending_missing.take() {
-                return Some(LogIteratorItem::MissingData(missing));
-            }
-
-            // 3. Fetch next chunk from the inner iterator
-            let mut chunk = self.inner.next()?;
-
-            // Swap in our oversize cache
-            chunk.oversize.append(&mut self.oversize_cache);
-
-            // Build resolved log entries
-            let (results, missing_logs) = build_log(
-                &chunk,
-                self.provider,
-                self.timesync_data,
-                self.exclude_missing,
-            );
-
-            // Save oversize data back for next chunk / next file
-            self.oversize_cache = chunk.oversize;
-
-            // Buffer results
-            self.buffer = VecDeque::from(results);
-
-            // Track missing data if non-empty
-            if !missing_logs.catalog_data.is_empty() || !missing_logs.oversize.is_empty() {
-                self.pending_missing = Some(missing_logs);
-            }
-
-            // Loop back to drain buffer (handles empty chunks gracefully)
         }
     }
 }
