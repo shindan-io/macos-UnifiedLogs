@@ -80,8 +80,6 @@ pub mod parser;
 mod preamble;
 /// Functions to parse time data associated with the Unified Log
 pub mod timesync;
-/// Zero-allocation streaming API for tracev3 files
-pub mod tracev3_stream;
 pub mod traits;
 /// Functions to parse tracev3 files
 pub mod unified_log;

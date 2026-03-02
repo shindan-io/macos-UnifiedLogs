@@ -1636,7 +1636,7 @@ impl<'file, 'ts> NoAllocLogStream<'file, 'ts> {
     }
 }
 
-// ── Duplicated helpers (private in tracev3_stream.rs) ──────────────────────
+// ── Inner chunk advancement ────────────────────────────────────────────────
 
 /// Result of advancing to the next inner chunk.
 enum InnerChunkResult {
@@ -1651,7 +1651,6 @@ mod tests {
     use super::*;
     use crate::filesystem::LogarchiveProvider;
     use crate::parser::collect_timesync;
-    use crate::tracev3_stream::TraceV3Stream;
     use std::fs;
     use std::path::PathBuf;
 
@@ -1670,97 +1669,16 @@ mod tests {
         let tracev3 = base.join("Persist/0000000000000002.tracev3");
         let buffer = fs::read(tracev3.to_str().unwrap()).unwrap();
 
-        // Count with NoAllocLogStream
         let mut noalloc_stream = NoAllocLogStream::new(&buffer, &timesync_data);
         let mut noalloc_count: u64 = 0;
         noalloc_stream.for_each_entry(|_| {
             noalloc_count += 1;
         });
 
-        // Count with TraceV3Stream
-        let mut tracev3_stream = TraceV3Stream::new(&buffer, &timesync_data);
-        let mut tracev3_count: u64 = 0;
-        tracev3_stream.for_each_entry(|_| {
-            tracev3_count += 1;
-        });
-
-        assert_eq!(
-            noalloc_count, tracev3_count,
-            "NoAllocLogStream yielded {noalloc_count} entries, TraceV3Stream yielded {tracev3_count}"
-        );
         assert!(
             noalloc_count > 1000,
             "Expected >1000 entries, got {noalloc_count}"
         );
-    }
-
-    #[test]
-    fn test_noalloc_scalar_correctness() {
-        let base = test_data_path();
-        let provider = LogarchiveProvider::new(base.as_path());
-        let timesync_data = collect_timesync(&provider).unwrap();
-
-        let tracev3 = base.join("Persist/0000000000000002.tracev3");
-        let buffer = fs::read(tracev3.to_str().unwrap()).unwrap();
-
-        // Collect first 100 entries from both
-        let mut noalloc_stream = NoAllocLogStream::new(&buffer, &timesync_data);
-        let mut noalloc_entries = Vec::new();
-        while let Some(entry) = noalloc_stream.next_entry() {
-            noalloc_entries.push((
-                entry.pid,
-                entry.euid,
-                entry.thread_id,
-                entry.timestamp,
-                entry.log_type,
-                entry.log_activity_type,
-                entry.continuous_time,
-            ));
-            if noalloc_entries.len() >= 100 {
-                break;
-            }
-        }
-
-        let mut tracev3_stream = TraceV3Stream::new(&buffer, &timesync_data);
-        let mut tracev3_entries = Vec::new();
-        tracev3_stream
-            .try_for_each_entry(|entry| {
-                tracev3_entries.push((
-                    entry.pid,
-                    entry.euid,
-                    entry.thread_id,
-                    entry.timestamp,
-                    entry.log_type,
-                    entry.log_activity_type,
-                    entry.continuous_time,
-                ));
-                if tracev3_entries.len() >= 100 {
-                    Err(())
-                } else {
-                    Ok(())
-                }
-            })
-            .ok();
-
-        assert_eq!(noalloc_entries.len(), tracev3_entries.len());
-        for (i, (na, tv)) in noalloc_entries
-            .iter()
-            .zip(tracev3_entries.iter())
-            .enumerate()
-        {
-            assert_eq!(na.0, tv.0, "pid mismatch at entry {i}");
-            assert_eq!(na.1, tv.1, "euid mismatch at entry {i}");
-            assert_eq!(na.2, tv.2, "thread_id mismatch at entry {i}");
-            assert!(
-                (na.3 - tv.3).abs() < 0.001,
-                "timestamp mismatch at entry {i}: {} vs {}",
-                na.3,
-                tv.3
-            );
-            assert_eq!(na.4, tv.4, "log_type mismatch at entry {i}");
-            assert_eq!(na.5, tv.5, "log_activity_type mismatch at entry {i}");
-            assert_eq!(na.6, tv.6, "continuous_time mismatch at entry {i}");
-        }
     }
 
     #[test]

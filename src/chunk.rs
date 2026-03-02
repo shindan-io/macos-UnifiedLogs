@@ -260,7 +260,7 @@ impl ChunksIterator<'_> {
 }
 
 /// Decompress a chunkset's inner data (BV41 compressed or uncompressed).
-pub(crate) fn decompress_chunkset(data: &[u8]) -> Option<Vec<u8>> {
+fn decompress_chunkset(data: &[u8]) -> Option<Vec<u8>> {
     let (input, signature) = le_u32::<_, nom::error::Error<&[u8]>>(data).ok()?;
     let (input, uncompress_size) = le_u32::<_, nom::error::Error<&[u8]>>(input).ok()?;
 
