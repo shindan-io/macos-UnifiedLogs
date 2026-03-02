@@ -1,7 +1,5 @@
-use nom::{
-  IResult, Parser,
-  number::complete::{le_u32, le_u64},
-};
+use super::*;
+use nom::number::complete::{le_u32, le_u64};
 
 /// Typed chunk tag — identifies the kind of chunk in a tracev3 file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, num_enum::IntoPrimitive, num_enum::FromPrimitive)]

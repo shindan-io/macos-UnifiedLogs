@@ -1,7 +1,5 @@
+use super::{chunks::*, *};
 use nom::bytes::complete::take;
-
-use super::chunks::*;
-use super::error::*;
 
 /// A parsed top-level chunk reference: preamble + borrowed payload.
 #[derive(Debug)]
@@ -12,7 +10,7 @@ pub struct RawChunk<'a> {
 
 #[derive(Debug)]
 pub struct RawChunksReader<'a> {
-  data: &'a [u8],
+  _data: &'a [u8],
   input: &'a [u8],
   padding: usize,
 }
@@ -25,7 +23,7 @@ impl<'a> RawChunksReader<'a> {
   /// Create a reader over the entire contents of a tracev3 file.
   pub fn new(input: &'a [u8], padding: usize) -> Self {
     Self {
-      data: input,
+      _data: input,
       input,
       padding,
     }

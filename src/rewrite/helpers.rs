@@ -1,8 +1,4 @@
-/// Calculate 8-byte alignment padding for `n` bytes.
-#[inline]
-pub fn padding_size_8(n: usize) -> usize {
-  (8 - (n & 7)) & 7
-}
+pub(crate) const INVALID_UTF8: &str = "<Invalid UTF-8>";
 
 #[cfg(test)]
 pub mod tests {
