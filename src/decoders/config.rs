@@ -450,7 +450,7 @@ type NetworkInterfaceStr<'a> = NetworkInterface<&'a str>;
 type NetworkInterfaceOwned = NetworkInterface<RcString>;
 
 #[derive(Debug)]
-struct NetworkInterface<S>
+pub struct NetworkInterface<S>
 where
     S: Display,
 {

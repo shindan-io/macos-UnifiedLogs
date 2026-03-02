@@ -257,7 +257,6 @@ impl NoAllocEntry {
     }
 }
 
-// Duplicated from unified_log.rs (private there), adapted for EntryKind
 fn get_log_type(log_type: u8, kind: &EntryKind) -> LogType {
     match log_type {
         LOG_TYPE_INFO => {
@@ -284,7 +283,6 @@ fn get_log_type(log_type: u8, kind: &EntryKind) -> LogType {
     }
 }
 
-// Duplicated from unified_log.rs (private there), adapted for EntryKind
 fn get_event_type(kind: &EntryKind) -> EventType {
     match kind {
         EntryKind::NonActivity { .. } => EventType::Log,

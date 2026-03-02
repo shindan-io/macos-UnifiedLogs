@@ -76,12 +76,12 @@ pub(crate) fn sockaddr(input: &str) -> Result<SockaddrData, DecoderError<'_>> {
 #[allow(non_camel_case_types)]
 pub enum SockaddrData {
     AF_INET {
-        family: u8,
+        _family: u8,
         ip_addr: Ipv4Addr,
         port: u16,
     },
     AF_INET6 {
-        family: u8,
+        _family: u8,
         ip_addr: Ipv6Addr,
         port: u16,
         flow: u32,
@@ -135,7 +135,7 @@ fn get_sockaddr_data(input: &[u8]) -> nom::IResult<&[u8], SockaddrData> {
             (
                 input,
                 SockaddrData::AF_INET {
-                    family,
+                    _family: family,
                     ip_addr,
                     port,
                 },
@@ -147,7 +147,7 @@ fn get_sockaddr_data(input: &[u8]) -> nom::IResult<&[u8], SockaddrData> {
             (
                 input,
                 SockaddrData::AF_INET6 {
-                    family,
+                    _family: family,
                     ip_addr,
                     port,
                     flow,

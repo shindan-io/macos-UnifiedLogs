@@ -15,7 +15,6 @@ use crate::chunks::firehose::firehose_log::{FirehoseItemInfo, FirehosePreamble};
 use crate::chunks::oversize::Oversize;
 use crate::chunks::simpledump::SimpleDumpOwned;
 use crate::chunks::statedump::StatedumpOwned;
-use crate::constants::*;
 use crate::header::HeaderChunkOwned;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
@@ -96,53 +95,10 @@ pub struct LogData {
     pub timestamp: DateTime<Utc>,
 }
 
-impl LogData {
-    /// Return log type based on parsed log data
-    fn get_log_type(log_type: u8, activity_type: u8) -> LogType {
-        match log_type {
-            LOG_TYPE_INFO => {
-                if activity_type == ACTIVITY_TYPE {
-                    LogType::Create
-                } else {
-                    LogType::Info
-                }
-            }
-            LOG_TYPE_DEBUG => LogType::Debug,
-            LOG_TYPE_USERACTION => LogType::Useraction,
-            LOG_TYPE_ERROR => LogType::Error,
-            LOG_TYPE_FAULT => LogType::Fault,
-            LOG_TYPE_PROCESS_SIGNPOST_EVENT => LogType::ProcessSignpostEvent,
-            LOG_TYPE_PROCESS_SIGNPOST_START => LogType::ProcessSignpostStart,
-            LOG_TYPE_PROCESS_SIGNPOST_END => LogType::ProcessSignpostEnd,
-            LOG_TYPE_SYSTEM_SIGNPOST_EVENT => LogType::SystemSignpostEvent, // Not seen but may exist?
-            LOG_TYPE_SYSTEM_SIGNPOST_START => LogType::SystemSignpostStart,
-            LOG_TYPE_SYSTEM_SIGNPOST_END => LogType::SystemSignpostEnd,
-            LOG_TYPE_THREAD_SIGNPOST_EVENT => LogType::ThreadSignpostEvent, // Not seen but may exist?
-            LOG_TYPE_THREAD_SIGNPOST_START => LogType::ThreadSignpostStart,
-            LOG_TYPE_THREAD_SIGNPOST_END => LogType::ThreadSignpostEnd,
-            _ => LogType::Default,
-        }
-    }
-
-    /// Return the log event type based on parsed log data
-    fn get_event_type(event_type: u8) -> EventType {
-        match event_type {
-            NON_ACTIVITY_TYPE => EventType::Log,
-            ACTIVITY_TYPE => EventType::Activity,
-            TRACE_TYPE => EventType::Trace,
-            SIGNPOST_TYPE => EventType::Signpost,
-            LOSS_TYPE => EventType::Loss,
-            _ => EventType::Unknown,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use chrono::DateTime;
     use uuid::Uuid;
-
-    use super::LogData;
     use crate::{
         filesystem::LogarchiveProvider,
         log_data_iterator::LogDataIterator,
@@ -201,24 +157,5 @@ mod tests {
             results[0].timestamp,
             DateTime::parse_from_rfc3339("2022-01-16T03:05:26.434850816Z").unwrap()
         );
-    }
-
-    #[test]
-    fn test_get_log_type() {
-        let mut log_type = 0x2;
-        let activity_type = 0x2;
-
-        let mut log_string = LogData::get_log_type(log_type, activity_type);
-        assert_eq!(log_string, LogType::Debug);
-        log_type = 0x1;
-        log_string = LogData::get_log_type(log_type, activity_type);
-        assert_eq!(log_string, LogType::Create);
-    }
-
-    #[test]
-    fn test_get_event_type() {
-        let event_type = 0x2;
-        let event_string = LogData::get_event_type(event_type);
-        assert_eq!(event_string, EventType::Activity);
     }
 }
