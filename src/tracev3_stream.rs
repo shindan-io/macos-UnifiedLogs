@@ -45,12 +45,11 @@
 use std::collections::HashMap;
 
 use log::{debug, error, warn};
-use lz4_flex::decompress;
-use nom::bytes::complete::{take, take_while};
 use nom::number::complete::{le_u8, le_u16, le_u32, le_u64};
 use uuid::Uuid;
 
 use crate::catalog::CatalogChunk;
+use crate::chunk::{decompress_chunkset, extract_subtype_scalars, skip_zero_padding};
 use crate::chunks::oversize::Oversize;
 use crate::constants::*;
 use crate::header::HeaderChunkStr;
@@ -342,67 +341,29 @@ impl<'file, 'ts> TraceV3Stream<'file, 'ts> {
         catalog: &CatalogChunk,
         f: &mut impl FnMut(StructuralEntry<'_, '_>) -> Result<(), E>,
     ) -> Result<(), E> {
-        // Parse chunkset header to get compressed/uncompressed data
-        let (_, chunkset_preamble) = match le_u32::<_, nom::error::Error<&[u8]>>(chunk_data) {
-            Ok(r) => r,
-            Err(_) => return Ok(()),
-        };
-        let _ = chunkset_preamble; // chunk_tag already known
-
-        // Skip preamble to get to signature
         let inner = match chunk_data.get(CHUNK_PREAMBLE_SIZE..) {
             Some(d) => d,
             None => return Ok(()),
         };
 
-        let (input, signature) = match le_u32::<_, nom::error::Error<&[u8]>>(inner) {
-            Ok(r) => r,
-            Err(_) => return Ok(()),
-        };
-        let (input, uncompress_size) = match le_u32::<_, nom::error::Error<&[u8]>>(input) {
-            Ok(r) => r,
-            Err(_) => return Ok(()),
-        };
-
-        if signature == BV41_UNCOMPRESSED {
-            // Already decompressed data
-            let (_, uncompressed_data) =
-                match take::<_, _, nom::error::Error<&[u8]>>(uncompress_size as usize)(input) {
-                    Ok(r) => r,
-                    Err(_) => return Ok(()),
-                };
-            // Use directly — no need to copy into decomp_buf
-            self.process_decompressed_chunks(uncompressed_data, catalog, f)?;
-        } else if signature == BV41_COMPRESSED {
-            // Compressed data
-            let (input, block_size) = match le_u32::<_, nom::error::Error<&[u8]>>(input) {
-                Ok(r) => r,
-                Err(_) => return Ok(()),
-            };
-            let compressed_data = match input.get(..block_size as usize) {
-                Some(d) => d,
-                None => return Ok(()),
-            };
-
-            // Reuse decomp buffer: resize if needed
-            let target_size = uncompress_size as usize;
-            match decompress(compressed_data, target_size) {
-                Ok(decompressed) => {
-                    self.decomp_buf = decompressed;
-                    self.process_decompressed_chunks_owned(catalog, f)?;
-                }
-                Err(err) => {
-                    error!("[tracev3_stream] LZ4 decompression failed: {err:?}");
-                }
+        match decompress_chunkset(inner) {
+            Some(data) => {
+                self.decomp_buf = data;
+                // Take the buffer out so we can borrow it immutably
+                // while still mutating self.oversize_cache
+                let decomp_buf = std::mem::take(&mut self.decomp_buf);
+                let result = self.process_decompressed_chunks(&decomp_buf, catalog, f);
+                self.decomp_buf = decomp_buf;
+                result
             }
-        } else {
-            warn!("[tracev3_stream] Unknown chunkset signature: 0x{signature:08x}");
+            None => {
+                error!("[tracev3_stream] Chunkset decompression failed");
+                Ok(())
+            }
         }
-
-        Ok(())
     }
 
-    /// Process decompressed chunkset data from a borrowed slice (uncompressed case).
+    /// Process decompressed chunkset data.
     fn process_decompressed_chunks<E>(
         &mut self,
         data: &[u8],
@@ -463,23 +424,6 @@ impl<'file, 'ts> TraceV3Stream<'file, 'ts> {
         }
 
         Ok(())
-    }
-
-    /// Process decompressed data from self.decomp_buf (compressed case).
-    /// This is separate because we can't borrow self.decomp_buf while also mutating self.
-    /// We work around this by taking the buffer out temporarily.
-    fn process_decompressed_chunks_owned<E>(
-        &mut self,
-        catalog: &CatalogChunk,
-        f: &mut impl FnMut(StructuralEntry<'_, '_>) -> Result<(), E>,
-    ) -> Result<(), E> {
-        // Take the buffer out of self so we can borrow it immutably
-        // while still mutating self.oversize_cache
-        let decomp_buf = std::mem::take(&mut self.decomp_buf);
-        let result = self.process_decompressed_chunks(&decomp_buf, catalog, f);
-        // Put it back for reuse
-        self.decomp_buf = decomp_buf;
-        result
     }
 
     /// Parse a firehose preamble and yield StructuralEntry for each firehose entry within it.
@@ -680,237 +624,6 @@ impl<'file, 'ts> TraceV3Stream<'file, 'ts> {
         }
 
         Ok(())
-    }
-}
-
-/// Extract key scalar values from a firehose sub-type header without full parsing.
-/// Returns (data_ref_value, subsystem_value, number_items).
-fn extract_subtype_scalars(raw_data: &[u8], log_activity_type: u8, flags: u16) -> (u32, u16, u8) {
-    let mut data_ref_value: u32 = 0;
-    let mut subsystem_value: u16 = 0;
-    let mut number_items: u8 = 0;
-
-    if raw_data.is_empty() {
-        return (data_ref_value, subsystem_value, number_items);
-    }
-
-    // The sub-type header varies by log_activity_type and flags.
-    // We need to skip through the conditional fields to find subsystem/data_ref/number_items.
-    // This mirrors the logic in nonactivity.rs, activity.rs, signpost.rs etc.
-    //
-    // For now, we do a minimal extraction using nom on the raw data.
-    // This is still zero-alloc since nom works on &[u8] slices.
-
-    match log_activity_type {
-        NON_ACTIVITY_TYPE => {
-            if let Ok((_, vals)) = parse_nonactivity_scalars(raw_data, flags) {
-                data_ref_value = vals.0;
-                subsystem_value = vals.1;
-                number_items = vals.2;
-            }
-        }
-        ACTIVITY_TYPE => {
-            // Activity entries don't have subsystem or data_ref
-            // Just need number_items which is after the sub-type header
-            if let Ok((_, n)) = parse_activity_item_count(raw_data, flags) {
-                number_items = n;
-            }
-        }
-        SIGNPOST_TYPE => {
-            if let Ok((_, vals)) = parse_signpost_scalars(raw_data, flags) {
-                subsystem_value = vals.0;
-                number_items = vals.1;
-            }
-        }
-        TRACE_TYPE => {
-            // Trace entries: just get number_items
-            if let Ok((_, n)) = parse_trace_item_count(raw_data) {
-                number_items = n;
-            }
-        }
-        LOSS_TYPE => {
-            // Loss entries don't have items
-        }
-        _ => {}
-    }
-
-    (data_ref_value, subsystem_value, number_items)
-}
-
-/// Parse non-activity sub-type header to extract data_ref, subsystem, and item count.
-fn parse_nonactivity_scalars(data: &[u8], flags: u16) -> nom::IResult<&[u8], (u32, u16, u8)> {
-    let mut input = data;
-    let mut data_ref_value: u32 = 0;
-    let mut subsystem_value: u16 = 0;
-
-    if (flags & FLAG_HAS_CURRENT_AID) != 0 {
-        let (i, _) = le_u32(input)?;
-        let (i, _) = le_u32(i)?;
-        input = i;
-    }
-
-    if (flags & FLAG_HAS_PRIVATE_DATA) != 0 {
-        let (i, _) = le_u16(input)?;
-        let (i, _) = le_u16(i)?;
-        input = i;
-    }
-
-    if (flags & FLAG_HAS_UNKNOWN_REF) != 0 {
-        let (i, _) = le_u32(input)?;
-        input = i;
-    }
-
-    if (flags & FLAG_HAS_SUBSYSTEM) != 0 {
-        let (i, val) = le_u16(input)?;
-        subsystem_value = val;
-        input = i;
-    }
-
-    if (flags & FLAG_HAS_RULES) != 0 {
-        let (i, _) = le_u8(input)?;
-        input = i;
-    }
-
-    if (flags & FLAG_HAS_OVERSIZE) != 0 {
-        let (i, val) = le_u32(input)?;
-        data_ref_value = val;
-        input = i;
-    }
-
-    let number_items = extract_number_items_after_formatters(input, flags);
-
-    Ok((&[], (data_ref_value, subsystem_value, number_items)))
-}
-
-/// Parse activity sub-type header to extract item count.
-fn parse_activity_item_count(data: &[u8], flags: u16) -> nom::IResult<&[u8], u8> {
-    let mut input = data;
-
-    // Activity always has current_aid
-    let (i, _) = le_u64(input)?;
-    let (i, _) = le_u32(i)?;
-    input = i;
-
-    if (flags & FLAG_HAS_CURRENT_AID) != 0 {
-        let (i, _) = le_u32(input)?;
-        let (i, _) = le_u32(i)?;
-        input = i;
-    }
-
-    let number_items = extract_number_items_after_formatters(input, flags);
-    Ok((&[], number_items))
-}
-
-/// Parse signpost sub-type header to extract subsystem and item count.
-fn parse_signpost_scalars(data: &[u8], flags: u16) -> nom::IResult<&[u8], (u16, u8)> {
-    let mut input = data;
-    let mut subsystem_value: u16 = 0;
-
-    // Signpost always has these:
-    let (i, _) = le_u64(input)?;
-    let (i, _) = le_u32(i)?;
-    input = i;
-
-    if (flags & FLAG_HAS_CURRENT_AID) != 0 {
-        let (i, _) = le_u32(input)?;
-        let (i, _) = le_u32(i)?;
-        input = i;
-    }
-
-    if (flags & FLAG_HAS_PRIVATE_DATA) != 0 {
-        let (i, _) = le_u16(input)?;
-        let (i, _) = le_u16(i)?;
-        input = i;
-    }
-
-    if (flags & FLAG_HAS_SUBSYSTEM) != 0 {
-        let (i, val) = le_u16(input)?;
-        subsystem_value = val;
-        input = i;
-    }
-
-    if (flags & FLAG_HAS_RULES) != 0 {
-        let (i, _) = le_u8(input)?;
-        input = i;
-    }
-
-    // Signpost name
-    if (flags & FLAG_HAS_NAME) != 0 {
-        if input.len() >= 8 {
-            input = &input[8..];
-        }
-    } else if input.len() >= 4 {
-        input = &input[4..];
-    }
-
-    let number_items = extract_number_items_after_formatters(input, flags);
-    Ok((&[], (subsystem_value, number_items)))
-}
-
-/// Parse trace sub-type header to extract item count.
-fn parse_trace_item_count(data: &[u8]) -> nom::IResult<&[u8], u8> {
-    // Trace has: unknown_pc_id (u32) then formatters then items
-    if data.len() < 4 {
-        return Ok((&[], 0));
-    }
-    let input = &data[4..]; // skip unknown_pc_id
-
-    // For trace, we don't have flags-dependent formatters
-    // The item count is found after skipping formatter data
-    // Trace uses a simpler structure
-    if input.len() >= 2 {
-        Ok((&[], input[1])) // unknown_item at [0], number_items at [1]
-    } else {
-        Ok((&[], 0))
-    }
-}
-
-/// Skip past FirehoseFormatters fields to extract the number_items byte.
-///
-/// The formatters section encodes where to find the format string (main exe, shared cache, uuid, etc).
-/// After formatters come: unknown_item (u8) + number_items (u8).
-fn extract_number_items_after_formatters(data: &[u8], flags: u16) -> u8 {
-    let mut offset: usize = 0;
-
-    // FirehoseFormatters flags:
-    // main_exe (0x0002): no extra data
-    // absolute (0x0004): has unknown_pc_id u32
-    // uuid (0x0010): has uuidtext_ref u16
-    // has_large_offset (0x8000): u32 instead of u16 for large shared cache
-    // shared_cache (0x0020): has shared_cache_ref u16 (or u32 with 0x8000)
-
-    // absolute flag
-    if (flags & 0x0004) != 0 {
-        offset += 4; // unknown_pc_id
-    }
-
-    // uuid flag
-    if (flags & 0x0010) != 0 {
-        offset += 2; // uuidtext_ref
-    }
-
-    // shared_cache flag
-    if (flags & 0x0020) != 0 {
-        if (flags & 0x8000) != 0 {
-            offset += 4; // large shared cache ref
-        } else {
-            offset += 2; // shared cache ref
-        }
-    }
-
-    // After formatters: unknown_item (u8) + number_items (u8)
-    if data.len() > offset + 1 {
-        data[offset + 1]
-    } else {
-        0
-    }
-}
-
-/// Skip zero-padding bytes at the start of a slice.
-fn skip_zero_padding(data: &[u8]) -> &[u8] {
-    match take_while::<_, _, nom::error::Error<&[u8]>>(|b: u8| b == 0)(data) {
-        Ok((remaining, _)) => remaining,
-        Err(_) => data,
     }
 }
 
