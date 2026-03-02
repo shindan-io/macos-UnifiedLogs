@@ -86,6 +86,9 @@ pub mod unified_log;
 mod util;
 /// Functions to parse the log string files
 pub mod uuidtext;
+/// Clean rewrite of the parsing layer — zero-copy, no nom
+#[doc(hidden)]
+pub mod rewrite;
 
 use std::{fmt::Display, rc::Rc};
 
