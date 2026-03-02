@@ -223,7 +223,7 @@ mod tests {
         let buf = std::fs::read(test_path.join("logdata.LiveData.tracev3")).unwrap();
         let mut stream = crate::noalloc_iterator::NoAllocLogStream::new(&buf, &timesync_data);
         while let Some(entry) = stream.next_entry() {
-            if entry.log_activity_type == crate::constants::TRACE_TYPE {
+            if entry.is_trace() {
                 let log_data = stream.resolve(&entry, &mut provider).unwrap();
                 // Trace entries have the message content in `message`, not `raw_message`
                 assert_eq!(log_data.message.as_str(), "starting metadata download");

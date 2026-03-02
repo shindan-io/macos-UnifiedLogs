@@ -24,10 +24,6 @@ pub(crate) const SIGNPOST_TYPE: u8 = 0x6;
 pub(crate) const LOSS_TYPE: u8 = 0x7;
 pub(crate) const REMNANT_DATA: u8 = 0x0;
 
-// Synthetic types (not real chunk tags — used by NoAllocLogStream)
-pub(crate) const SIMPLEDUMP_TYPE: u8 = 0xF0;
-pub(crate) const STATEDUMP_TYPE: u8 = 0xF1;
-
 // ── Structural Sizes ──
 
 pub(crate) const CHUNK_PREAMBLE_SIZE: usize = 16;

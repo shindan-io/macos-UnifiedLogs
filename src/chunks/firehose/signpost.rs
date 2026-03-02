@@ -263,7 +263,7 @@ mod tests {
         let buf = std::fs::read(test_path.join("Signpost/0000000000000001.tracev3")).unwrap();
         let mut stream = crate::noalloc_iterator::NoAllocLogStream::new(&buf, &timesync_data);
         while let Some(entry) = stream.next_entry() {
-            if entry.log_activity_type == crate::constants::SIGNPOST_TYPE {
+            if entry.is_signpost() {
                 let log_data = stream.resolve(&entry, &mut provider).unwrap();
                 assert_eq!(log_data.raw_message.as_str(), "");
                 assert_eq!(log_data.library.as_str(), "/usr/libexec/kernelmanagerd");

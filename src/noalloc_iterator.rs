@@ -34,9 +34,7 @@ use regex::Regex;
 use uuid::Uuid;
 
 use crate::catalog::CatalogChunk;
-use crate::chunk::{
-    extract_subtype_scalars, next_inner_chunk, next_top_level_chunk, skip_zero_padding,
-};
+use crate::chunk::{extract_entry_kind, next_inner_chunk, next_top_level_chunk, skip_zero_padding};
 use crate::chunks::firehose::activity::FirehoseActivity;
 use crate::chunks::firehose::firehose_log::{FirehoseItemData, FirehosePreamble};
 use crate::chunks::firehose::nonactivity::FirehoseNonActivity;
@@ -80,6 +78,72 @@ impl std::fmt::Display for ResolveError {
     }
 }
 
+// ── EntryKind ──────────────────────────────────────────────────────────────
+
+/// Discriminated kind of a firehose log entry, carrying variant-specific scalar fields.
+///
+/// Replaces the raw `log_activity_type: u8` discriminant and the per-variant fields
+/// (`data_ref_value`, `subsystem_value`, `number_items`) that were previously stored
+/// flat on `NoAllocEntry`.
+#[derive(Debug, Clone, Copy)]
+pub enum EntryKind {
+    NonActivity {
+        data_ref_value: u32,
+        subsystem_value: u16,
+        number_items: u8,
+    },
+    Activity {
+        number_items: u8,
+    },
+    Signpost {
+        subsystem_value: u16,
+        number_items: u8,
+    },
+    Trace {
+        number_items: u8,
+    },
+    Loss,
+    Simpledump,
+    Statedump,
+}
+
+impl EntryKind {
+    /// Oversize data reference (only set for NonActivity).
+    #[inline]
+    pub fn data_ref_value(&self) -> Option<u32> {
+        match self {
+            EntryKind::NonActivity { data_ref_value, .. } => Some(*data_ref_value),
+            _ => None,
+        }
+    }
+
+    /// Subsystem value (only set for NonActivity and Signpost).
+    #[inline]
+    pub fn subsystem_value(&self) -> Option<u16> {
+        match self {
+            EntryKind::NonActivity {
+                subsystem_value, ..
+            }
+            | EntryKind::Signpost {
+                subsystem_value, ..
+            } => Some(*subsystem_value),
+            _ => None,
+        }
+    }
+
+    /// Number of message items (set for firehose types, not for Loss/Simpledump/Statedump).
+    #[inline]
+    pub fn number_items(&self) -> Option<u8> {
+        match self {
+            EntryKind::NonActivity { number_items, .. }
+            | EntryKind::Activity { number_items, .. }
+            | EntryKind::Signpost { number_items, .. }
+            | EntryKind::Trace { number_items, .. } => Some(*number_items),
+            _ => None,
+        }
+    }
+}
+
 // ── NoAllocEntry ───────────────────────────────────────────────────────────
 
 /// A scalar-only, `Copy` log entry with no references or lifetimes.
@@ -99,28 +163,25 @@ pub struct NoAllocEntry {
     pub timestamp: f64,
 
     // ── Classification ──
-    /// 0x2=activity, 0x4=nonactivity, 0x6=signpost, 0x3=trace, 0x7=loss
-    pub log_activity_type: u8,
     /// Info/debug/error/fault/signpost variants
     pub log_type: u8,
     pub flags: u16,
 
     // ── String pointers (NOT resolved) ──
     pub format_string_location: u32,
-    /// >0 means this entry has oversize data
-    pub data_ref_value: u32,
 
     // ── Boot/process context ──
     pub boot_uuid: Uuid,
     pub first_proc_id: u64,
     pub second_proc_id: u32,
-    pub subsystem_value: u16,
 
     // ── Data layout ──
     pub data_size: u16,
-    pub number_items: u8,
     pub private_data_virtual_offset: u16,
     pub ttl: u8,
+
+    // ── Discriminated kind (replaces log_activity_type + variant-specific fields) ──
+    pub kind: EntryKind,
 
     // ── Internal: raw data location in decomp buffer (for resolve) ──
     #[allow(dead_code)]
@@ -138,7 +199,7 @@ impl NoAllocEntry {
     /// Whether this entry references oversize data.
     #[inline]
     pub fn has_oversize(&self) -> bool {
-        self.data_ref_value != 0
+        self.kind.data_ref_value().is_some_and(|v| v != 0)
     }
 
     /// Whether this is a Fault log entry.
@@ -156,51 +217,51 @@ impl NoAllocEntry {
     /// Whether this is a non-activity entry (standard log).
     #[inline]
     pub fn is_non_activity(&self) -> bool {
-        self.log_activity_type == NON_ACTIVITY_TYPE
+        matches!(self.kind, EntryKind::NonActivity { .. })
     }
 
     /// Whether this is an activity entry.
     #[inline]
     pub fn is_activity(&self) -> bool {
-        self.log_activity_type == ACTIVITY_TYPE
+        matches!(self.kind, EntryKind::Activity { .. })
     }
 
     /// Whether this is a signpost entry.
     #[inline]
     pub fn is_signpost(&self) -> bool {
-        self.log_activity_type == SIGNPOST_TYPE
+        matches!(self.kind, EntryKind::Signpost { .. })
     }
 
     /// Whether this is a trace entry.
     #[inline]
     pub fn is_trace(&self) -> bool {
-        self.log_activity_type == TRACE_TYPE
+        matches!(self.kind, EntryKind::Trace { .. })
     }
 
     /// Whether this is a loss entry.
     #[inline]
     pub fn is_loss(&self) -> bool {
-        self.log_activity_type == LOSS_TYPE
+        matches!(self.kind, EntryKind::Loss)
     }
 
     /// Get the resolved [`LogType`] enum value.
     #[inline]
     pub fn log_type_enum(&self) -> LogType {
-        get_log_type(self.log_type, self.log_activity_type)
+        get_log_type(self.log_type, &self.kind)
     }
 
     /// Get the resolved [`EventType`] enum value.
     #[inline]
     pub fn event_type_enum(&self) -> EventType {
-        get_event_type(self.log_activity_type)
+        get_event_type(&self.kind)
     }
 }
 
-// Duplicated from unified_log.rs (private there)
-fn get_log_type(log_type: u8, activity_type: u8) -> LogType {
+// Duplicated from unified_log.rs (private there), adapted for EntryKind
+fn get_log_type(log_type: u8, kind: &EntryKind) -> LogType {
     match log_type {
         LOG_TYPE_INFO => {
-            if activity_type == ACTIVITY_TYPE {
+            if matches!(kind, EntryKind::Activity { .. }) {
                 LogType::Create
             } else {
                 LogType::Info
@@ -223,15 +284,16 @@ fn get_log_type(log_type: u8, activity_type: u8) -> LogType {
     }
 }
 
-// Duplicated from unified_log.rs (private there)
-fn get_event_type(event_type: u8) -> EventType {
-    match event_type {
-        NON_ACTIVITY_TYPE => EventType::Log,
-        ACTIVITY_TYPE => EventType::Activity,
-        TRACE_TYPE => EventType::Trace,
-        SIGNPOST_TYPE => EventType::Signpost,
-        LOSS_TYPE => EventType::Loss,
-        _ => EventType::Unknown,
+// Duplicated from unified_log.rs (private there), adapted for EntryKind
+fn get_event_type(kind: &EntryKind) -> EventType {
+    match kind {
+        EntryKind::NonActivity { .. } => EventType::Log,
+        EntryKind::Activity { .. } => EventType::Activity,
+        EntryKind::Trace { .. } => EventType::Trace,
+        EntryKind::Signpost { .. } => EventType::Signpost,
+        EntryKind::Loss => EventType::Loss,
+        EntryKind::Simpledump => EventType::Simpledump,
+        EntryKind::Statedump => EventType::Statedump,
     }
 }
 
@@ -387,19 +449,16 @@ impl<'file, 'ts> NoAllocLogStream<'file, 'ts> {
                     thread_id: 0,
                     continuous_time: 0,
                     timestamp: 0.0,
-                    log_activity_type: SIMPLEDUMP_TYPE, // marker type
                     log_type: 0,
                     flags: 0,
                     format_string_location: 0,
-                    data_ref_value: 0,
                     boot_uuid: self.boot_uuid,
                     first_proc_id: 0,
                     second_proc_id: 0,
-                    subsystem_value: 0,
                     data_size: 0,
-                    number_items: 0,
                     private_data_virtual_offset: 0,
                     ttl: 0,
+                    kind: EntryKind::Simpledump,
                     catalog_index: 0,
                     decomp_generation: self.decomp_generation,
                     decomp_data_offset: 0,
@@ -524,7 +583,7 @@ impl<'file, 'ts> NoAllocLogStream<'file, 'ts> {
         }
 
         // Simpledump/statedump: return pre-resolved LogData stashed by next_entry()
-        if entry.log_activity_type == SIMPLEDUMP_TYPE || entry.log_activity_type == STATEDUMP_TYPE {
+        if matches!(entry.kind, EntryKind::Simpledump | EntryKind::Statedump) {
             return self
                 .last_resolved_dump
                 .take()
@@ -584,30 +643,26 @@ impl<'file, 'ts> NoAllocLogStream<'file, 'ts> {
             message_entries: Vec::new(),
         };
 
-        let result = match entry.log_activity_type {
-            NON_ACTIVITY_TYPE => {
+        let result = match entry.kind {
+            EntryKind::NonActivity { .. } => {
                 self.resolve_non_activity(entry, &raw_data_owned, &catalog, provider, &mut log_data)
             }
-            ACTIVITY_TYPE => {
+            EntryKind::Activity { .. } => {
                 self.resolve_activity(entry, &raw_data_owned, &catalog, provider, &mut log_data)
             }
-            SIGNPOST_TYPE => {
+            EntryKind::Signpost { .. } => {
                 self.resolve_signpost(entry, &raw_data_owned, &catalog, provider, &mut log_data)
             }
-            TRACE_TYPE => {
+            EntryKind::Trace { .. } => {
                 self.resolve_trace(entry, &raw_data_owned, &catalog, provider, &mut log_data)
             }
-            LOSS_TYPE => {
+            EntryKind::Loss => {
                 log_data.event_type = EventType::Loss;
                 log_data.log_type = LogType::Loss;
                 Some(())
             }
-            _ => {
-                warn!(
-                    "[noalloc_iterator] Unknown log_activity_type: {}",
-                    entry.log_activity_type
-                );
-                None
+            EntryKind::Simpledump | EntryKind::Statedump => {
+                unreachable!("handled above")
             }
         };
 
@@ -615,10 +670,7 @@ impl<'file, 'ts> NoAllocLogStream<'file, 'ts> {
         self.current_catalog = Some(catalog);
 
         result.map(|()| log_data).ok_or_else(|| {
-            ResolveError::ParseError(format!(
-                "Failed to resolve activity_type={}",
-                entry.log_activity_type
-            ))
+            ResolveError::ParseError(format!("Failed to resolve entry kind={:?}", entry.kind))
         })
     }
 
@@ -688,9 +740,8 @@ impl<'file, 'ts> NoAllocLogStream<'file, 'ts> {
             preamble.base_continuous_time,
         );
 
-        // Extract scalars from sub-type header
-        let (data_ref_value, subsystem_value, number_items) =
-            extract_subtype_scalars(raw_firehose_data, log_activity_type, flags);
+        // Extract entry kind from sub-type header
+        let kind = extract_entry_kind(raw_firehose_data, log_activity_type, flags);
 
         // Record the absolute offset of the raw firehose data in the decomp buffer
         let decomp_data_offset = abs_cursor + FIREHOSE_ENTRY_HEADER_SIZE;
@@ -701,19 +752,16 @@ impl<'file, 'ts> NoAllocLogStream<'file, 'ts> {
             thread_id,
             continuous_time: absolute_continuous_time,
             timestamp,
-            log_activity_type,
             log_type,
             flags,
             format_string_location,
-            data_ref_value,
             boot_uuid,
             first_proc_id: preamble.first_proc_id,
             second_proc_id: preamble.second_proc_id,
-            subsystem_value,
             data_size,
-            number_items,
             private_data_virtual_offset: preamble.private_data_virtual_offset,
             ttl: preamble.ttl,
+            kind,
             catalog_index,
             decomp_generation,
             decomp_data_offset: decomp_data_offset as u32,
@@ -1305,9 +1353,11 @@ impl<'file, 'ts> NoAllocLogStream<'file, 'ts> {
 
                 let item_data = self.collect_items_for_entry(entry, raw_data);
 
-                let mut log_message = if entry.data_ref_value != 0 {
+                let mut log_message = if let Some(data_ref) = entry.kind.data_ref_value()
+                    && data_ref != 0
+                {
                     let oversize_strings = Oversize::get_oversize_strings(
-                        entry.data_ref_value,
+                        data_ref,
                         entry.first_proc_id,
                         entry.second_proc_id,
                         &self.oversize_cache,
@@ -1462,19 +1512,21 @@ impl<'file, 'ts> NoAllocLogStream<'file, 'ts> {
 
         // Re-parse to get the remainder after the sub-type header
         let raw_data = _raw_data;
-        let remainder = match entry.log_activity_type {
-            NON_ACTIVITY_TYPE => FirehoseNonActivity::parse_non_activity(raw_data, &entry.flags)
-                .ok()
-                .map(|(r, _)| r),
-            ACTIVITY_TYPE => {
+        let remainder = match entry.kind {
+            EntryKind::NonActivity { .. } => {
+                FirehoseNonActivity::parse_non_activity(raw_data, &entry.flags)
+                    .ok()
+                    .map(|(r, _)| r)
+            }
+            EntryKind::Activity { .. } => {
                 FirehoseActivity::parse_activity(raw_data, &entry.flags, &entry.log_type)
                     .ok()
                     .map(|(r, _)| r)
             }
-            SIGNPOST_TYPE => FirehoseSignpost::parse_signpost(raw_data, &entry.flags)
+            EntryKind::Signpost { .. } => FirehoseSignpost::parse_signpost(raw_data, &entry.flags)
                 .ok()
                 .map(|(r, _)| r),
-            TRACE_TYPE => FirehoseTrace::parse_firehose_trace(raw_data)
+            EntryKind::Trace { .. } => FirehoseTrace::parse_firehose_trace(raw_data)
                 .ok()
                 .map(|(r, _)| r),
             _ => None,

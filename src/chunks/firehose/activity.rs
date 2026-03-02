@@ -243,7 +243,7 @@ mod tests {
         let buf = std::fs::read(test_path.join("Persist/0000000000000004.tracev3")).unwrap();
         let mut stream = crate::noalloc_iterator::NoAllocLogStream::new(&buf, &timesync_data);
         while let Some(entry) = stream.next_entry() {
-            if entry.log_activity_type == crate::constants::ACTIVITY_TYPE {
+            if entry.is_activity() {
                 let log_data = stream.resolve(&entry, &mut provider).unwrap();
                 assert_eq!(
                     log_data.raw_message.as_str(),

@@ -10,6 +10,7 @@ use nom::number::complete::{le_u8, le_u16, le_u32, le_u64};
 
 use crate::catalog::CatalogChunk;
 use crate::constants::*;
+use crate::noalloc_iterator::EntryKind;
 use crate::preamble::LogPreamble;
 use crate::util::{padding_size_8, u64_to_usize};
 
@@ -121,52 +122,76 @@ pub(crate) fn parse_catalogs(data: &[u8]) -> Vec<CatalogChunk> {
 
 // ── Firehose subtype scalar extraction ──────────────────────────────────
 
-/// Extract key scalar values from a firehose sub-type header without full parsing.
-/// Returns (data_ref_value, subsystem_value, number_items).
-pub(crate) fn extract_subtype_scalars(
-    raw_data: &[u8],
-    log_activity_type: u8,
-    flags: u16,
-) -> (u32, u16, u8) {
-    let mut data_ref_value: u32 = 0;
-    let mut subsystem_value: u16 = 0;
-    let mut number_items: u8 = 0;
-
+/// Extract an [`EntryKind`] from a firehose sub-type header without full parsing.
+///
+/// Each variant carries only the scalar fields relevant to that entry type.
+pub(crate) fn extract_entry_kind(raw_data: &[u8], log_activity_type: u8, flags: u16) -> EntryKind {
     if raw_data.is_empty() {
-        return (data_ref_value, subsystem_value, number_items);
+        return match log_activity_type {
+            NON_ACTIVITY_TYPE => EntryKind::NonActivity {
+                data_ref_value: 0,
+                subsystem_value: 0,
+                number_items: 0,
+            },
+            ACTIVITY_TYPE => EntryKind::Activity { number_items: 0 },
+            SIGNPOST_TYPE => EntryKind::Signpost {
+                subsystem_value: 0,
+                number_items: 0,
+            },
+            TRACE_TYPE => EntryKind::Trace { number_items: 0 },
+            LOSS_TYPE => EntryKind::Loss,
+            _ => EntryKind::Loss, // unreachable in practice (caller checks valid types)
+        };
     }
 
     match log_activity_type {
         NON_ACTIVITY_TYPE => {
-            if let Ok((_, vals)) = parse_nonactivity_scalars(raw_data, flags) {
-                data_ref_value = vals.0;
-                subsystem_value = vals.1;
-                number_items = vals.2;
+            if let Ok((_, (data_ref_value, subsystem_value, number_items))) =
+                parse_nonactivity_scalars(raw_data, flags)
+            {
+                EntryKind::NonActivity {
+                    data_ref_value,
+                    subsystem_value,
+                    number_items,
+                }
+            } else {
+                EntryKind::NonActivity {
+                    data_ref_value: 0,
+                    subsystem_value: 0,
+                    number_items: 0,
+                }
             }
         }
         ACTIVITY_TYPE => {
-            if let Ok((_, n)) = parse_activity_item_count(raw_data, flags) {
-                number_items = n;
-            }
+            let number_items = parse_activity_item_count(raw_data, flags)
+                .map(|(_, n)| n)
+                .unwrap_or(0);
+            EntryKind::Activity { number_items }
         }
         SIGNPOST_TYPE => {
-            if let Ok((_, vals)) = parse_signpost_scalars(raw_data, flags) {
-                subsystem_value = vals.0;
-                number_items = vals.1;
+            if let Ok((_, (subsystem_value, number_items))) =
+                parse_signpost_scalars(raw_data, flags)
+            {
+                EntryKind::Signpost {
+                    subsystem_value,
+                    number_items,
+                }
+            } else {
+                EntryKind::Signpost {
+                    subsystem_value: 0,
+                    number_items: 0,
+                }
             }
         }
         TRACE_TYPE => {
-            if let Ok((_, n)) = parse_trace_item_count(raw_data) {
-                number_items = n;
-            }
+            let number_items = parse_trace_item_count(raw_data)
+                .map(|(_, n)| n)
+                .unwrap_or(0);
+            EntryKind::Trace { number_items }
         }
-        LOSS_TYPE => {
-            // Loss entries don't have items
-        }
-        _ => {}
+        LOSS_TYPE => EntryKind::Loss,
+        _ => EntryKind::Loss, // unreachable in practice
     }
-
-    (data_ref_value, subsystem_value, number_items)
 }
 
 /// Parse non-activity sub-type header to extract data_ref, subsystem, and item count.
