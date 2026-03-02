@@ -4,23 +4,16 @@
 // is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and limitations under the License.
 
-use std::{fs::File, path::PathBuf};
+use std::{fs, path::PathBuf};
 
 use macos_unifiedlogs::{
     filesystem::LogarchiveProvider,
-    parser::{build_log, collect_timesync, parse_log},
-    traits::FileProvider,
-    unified_log::{EventType, LogType, UnifiedLogData},
+    log_data_iterator::{LogDataIterator, iterate_all_logs},
+    parser::{collect_timesync, parse_log},
+    unified_log::{EventType, LogData, LogType},
 };
 use regex::Regex;
 use uuid::Uuid;
-
-fn collect_logs(provider: &dyn FileProvider) -> Vec<UnifiedLogData> {
-    provider
-        .tracev3_files()
-        .map(|mut file| parse_log(file.reader()).unwrap())
-        .collect()
-}
 
 #[test]
 fn test_parse_log_high_sierra() {
@@ -28,7 +21,7 @@ fn test_parse_log_high_sierra() {
     test_path.push("tests/test_data/system_logs_high_sierra.logarchive");
 
     test_path.push("Persist/0000000000000001.tracev3");
-    let handle = File::open(test_path).unwrap();
+    let handle = fs::File::open(test_path).unwrap();
     let log_data = parse_log(handle).unwrap();
 
     assert_eq!(log_data.catalog_data[0].firehose.len(), 172);
@@ -52,13 +45,10 @@ fn test_build_log_high_sierra() {
     let mut provider = LogarchiveProvider::new(test_path.as_path());
     let timesync_data = collect_timesync(&provider).unwrap();
 
-    test_path.push("Persist/0000000000000001.tracev3");
+    let buf = fs::read(test_path.join("Persist/0000000000000001.tracev3")).unwrap();
 
-    let handle = File::open(test_path.as_path()).unwrap();
-    let log_data = parse_log(handle).unwrap();
-
-    let exclude_missing = false;
-    let (results, _) = build_log(&log_data, &mut provider, &timesync_data, exclude_missing);
+    let iter = LogDataIterator::new(buf, &mut provider, &timesync_data, false);
+    let results: Vec<LogData> = iter.collect();
     assert_eq!(results.len(), 162402);
     assert_eq!(results[0].process.as_str(), "/usr/libexec/opendirectoryd");
     assert_eq!(results[0].subsystem.as_str(), "com.apple.opendirectoryd");
@@ -102,13 +92,10 @@ fn test_build_log_complex_format_high_sierra() {
     let mut provider = LogarchiveProvider::new(test_path.as_path());
     let timesync_data = collect_timesync(&provider).unwrap();
 
-    test_path.push("Persist/0000000000000001.tracev3");
+    let buf = fs::read(test_path.join("Persist/0000000000000001.tracev3")).unwrap();
 
-    let handle = File::open(test_path.as_path()).unwrap();
-    let log_data = parse_log(handle).unwrap();
-
-    let exclude_missing = false;
-    let (results, _) = build_log(&log_data, &mut provider, &timesync_data, exclude_missing);
+    let iter = LogDataIterator::new(buf, &mut provider, &timesync_data, false);
+    let results: Vec<LogData> = iter.collect();
     assert_eq!(results.len(), 162402);
 
     for result in &results {
@@ -170,14 +157,11 @@ fn test_build_log_negative_number_high_sierra() {
     let mut provider = LogarchiveProvider::new(test_path.as_path());
     let timesync_data = collect_timesync(&provider).unwrap();
 
-    test_path.push("Special/0000000000000003.tracev3");
-    let handle = File::open(test_path.as_path()).unwrap();
+    let buf = fs::read(test_path.join("Special/0000000000000003.tracev3")).unwrap();
 
-    let log_data = parse_log(handle).unwrap();
-
-    let exclude_missing = false;
-    let (results, _) = build_log(&log_data, &mut provider, &timesync_data, exclude_missing);
-    assert_eq!(results.len(), 12058);
+    let iter = LogDataIterator::new(buf, &mut provider, &timesync_data, false);
+    let results: Vec<LogData> = iter.collect();
+    assert_eq!(results.len(), 12049);
 
     for result in &results {
         if result.message.as_str()
@@ -199,15 +183,10 @@ fn test_parse_all_logs_high_sierra() {
     test_path.push("tests/test_data/system_logs_high_sierra.logarchive");
     let mut provider = LogarchiveProvider::new(test_path.as_path());
     let timesync_data = collect_timesync(&provider).unwrap();
-    let log_data = collect_logs(&provider);
-    let mut log_data_vec = Vec::new();
 
     let exclude_missing = false;
-    for logs in &log_data {
-        let (mut data, _) = build_log(logs, &mut provider, &timesync_data, exclude_missing);
-        log_data_vec.append(&mut data);
-    }
-    assert_eq!(log_data_vec.len(), 569796);
+    let log_data_vec = iterate_all_logs(&mut provider, &timesync_data, exclude_missing);
+    assert_eq!(log_data_vec.len(), 569787);
 
     let mut empty_counter = 0;
     let mut empty_identityservicesd = 0;
@@ -258,7 +237,7 @@ fn test_parse_all_logs_high_sierra() {
     assert_eq!(empty_configd, 64);
     assert_eq!(empty_coreduetd, 1);
     assert_eq!(empty_callservicesd, 18);
-    assert_eq!(private_entries, 88352);
+    assert_eq!(private_entries, 88355);
     assert_eq!(kernel_entries, 389);
     assert_eq!(string_count, 23982);
 

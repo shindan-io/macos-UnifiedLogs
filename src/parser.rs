@@ -19,6 +19,9 @@ use std::collections::HashMap;
 use std::io::Read;
 use std::path::PathBuf;
 
+// Re-export iterate_all_logs from log_data_iterator for convenience
+pub use crate::log_data_iterator::{iterate_all_logs, iterate_all_logs_callback};
+
 /// Parse a tracev3 file and return the deconstructed log data
 pub fn parse_log(mut reader: impl Read) -> Result<UnifiedLogData, ParserError> {
     let mut buf = Vec::new();
@@ -37,83 +40,6 @@ pub fn parse_log(mut reader: impl Read) -> Result<UnifiedLogData, ParserError> {
             Err(ParserError::Tracev3Parse)
         }
     }
-}
-
-/// Reconstruct Unified Log entries. Provide a bool to ignore log entries that are not able to be recontructed. You may be able to reconstruct after parsing additional log files
-/// # Example
-/// ```rust
-///    use macos_unifiedlogs::filesystem::LogarchiveProvider;
-///    use macos_unifiedlogs::traits::FileProvider;
-///    use macos_unifiedlogs::parser::collect_timesync;
-///    use macos_unifiedlogs::iterator::UnifiedLogIterator;
-///    use macos_unifiedlogs::unified_log::UnifiedLogData;
-///    use macos_unifiedlogs::parser::build_log;
-///    use std::path::PathBuf;
-///
-///    let mut test_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-///    test_path.push("tests/test_data/system_logs_big_sur.logarchive");
-///    let mut provider = LogarchiveProvider::new(test_path.as_path());
-///    let timesync_data = collect_timesync(&provider).unwrap();
-///
-///    // We need to persist the Oversize log entries (they contain large strings that don't fit in normal log entries)
-///    let mut oversize_strings = UnifiedLogData {
-///        header: Vec::new(),
-///        catalog_data: Vec::new(),
-///        oversize: Vec::new(),
-///    };
-///    for mut entry in provider.tracev3_files() {
-///      println!("TraceV3 file: {}", entry.source_path());
-///      let mut buf = Vec::new();
-///      entry.reader().read_to_end(&mut buf);
-///      let log_iterator = UnifiedLogIterator::new(buf);
-///      // If we exclude entries that are missing strings, we may find them in later log files
-///      let exclude = true;
-///      for mut chunk in log_iterator {
-///        chunk.oversize.append(&mut oversize_strings.oversize);
-///        let (results, _missing_logs) = build_log(
-///            &chunk,
-///            &mut provider,
-///            &timesync_data,
-///            exclude,
-///        );
-///        oversize_strings.oversize = chunk.oversize;
-///        println!("Got {} log entries", results.len());
-///         break;
-///      }
-///      break;
-///    }
-/// ```
-pub fn build_log(
-    unified_data: &UnifiedLogData,
-    provider: &mut dyn FileProvider,
-    timesync_data: &HashMap<Uuid, TimesyncBoot>,
-    exclude_missing: bool,
-) -> (Vec<LogData>, UnifiedLogData) {
-    LogData::build_log(unified_data, provider, timesync_data, exclude_missing)
-}
-
-/// Like [`build_log`], but skips message formatting for entries not matching `filter`.
-///
-/// The filter receives a partially-populated [`LogData`] with `pid`, `time`, `log_type`,
-/// `event_type`, `euid`, `thread_id`, and `boot_uuid` already set. Fields like
-/// `message`, `subsystem`, `process`, and `library` are empty at filter time.
-///
-/// Return `true` from the filter to include and fully format the entry.
-/// Return `false` to skip it, avoiding the expensive message formatting.
-pub fn build_log_filtered<'a>(
-    unified_data: &'a UnifiedLogData,
-    provider: &'a mut dyn FileProvider,
-    timesync_data: &'a HashMap<Uuid, TimesyncBoot>,
-    exclude_missing: bool,
-    filter: impl Fn(&LogData) -> bool + 'a,
-) -> (Vec<LogData>, UnifiedLogData) {
-    LogData::build_log_filtered(
-        unified_data,
-        provider,
-        timesync_data,
-        exclude_missing,
-        filter,
-    )
 }
 
 /// Parse all UUID files in provided directory. The directory should follow the same layout as the live system (ex: path/to/files/\<two character UUID\>/\<remaining UUID name\>)
@@ -237,9 +163,8 @@ mod tests {
     use uuid::Uuid;
 
     use crate::filesystem::LogarchiveProvider;
-    use crate::parser::{
-        build_log, collect_shared_strings, collect_strings, collect_timesync, parse_log,
-    };
+    use crate::log_data_iterator::LogDataIterator;
+    use crate::parser::{collect_shared_strings, collect_strings, collect_timesync, parse_log};
     use crate::unified_log::{EventType, LogType};
     use std::path::PathBuf;
 
@@ -438,15 +363,12 @@ mod tests {
         let mut test_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         test_path.push("tests/test_data/system_logs_big_sur.logarchive");
         let mut provider = LogarchiveProvider::new(test_path.as_path());
-
-        test_path.push("Persist/0000000000000002.tracev3");
-        let handle = std::fs::File::open(&test_path).unwrap();
-        let log_data = parse_log(handle).unwrap();
-
         let timesync_data = collect_timesync(&provider).unwrap();
 
-        let exclude_missing = false;
-        let (results, _) = build_log(&log_data, &mut provider, &timesync_data, exclude_missing);
+        let buf = std::fs::read(test_path.join("Persist/0000000000000002.tracev3")).unwrap();
+
+        let iter = LogDataIterator::new(buf, &mut provider, &timesync_data, false);
+        let results: Vec<_> = iter.collect();
         assert_eq!(results.len(), 207366);
         assert_eq!(
             results[10].process.as_str(),

@@ -35,46 +35,24 @@
 //!
 //! A full example can found on [GitHub](https://github.com/mandiant/macos-UnifiedLogs)
 //! ## Example
-//! ```rust
+//! ```rust,no_run
 //!    use macos_unifiedlogs::filesystem::LiveSystemProvider;
-//!    use macos_unifiedlogs::traits::FileProvider;
-//!    use macos_unifiedlogs::parser::collect_timesync;
-//!    use macos_unifiedlogs::iterator::UnifiedLogIterator;
-//!    use macos_unifiedlogs::unified_log::UnifiedLogData;
-//!    use macos_unifiedlogs::parser::build_log;
+//!    use macos_unifiedlogs::parser::{collect_timesync, iterate_all_logs_callback};
 //!
 //!    // Run on live macOS system
-//!     let mut provider = LiveSystemProvider::default();
-//!     let timesync_data = collect_timesync(&provider).unwrap();
+//!    let mut provider = LiveSystemProvider::default();
+//!    let timesync_data = collect_timesync(&provider).unwrap();
 //!
-//!     // We need to persist the Oversize log entries (they contain large strings that don't fit in normal log entries)
-//!     let mut oversize_strings = UnifiedLogData {
-//!        header: Vec::new(),
-//!        catalog_data: Vec::new(),
-//!        oversize: Vec::new(),
-//!     };
-//!     for mut entry in provider.tracev3_files() {
-//!         println!("TraceV3 file: {}", entry.source_path());
-//!         let mut buf = Vec::new();
-//!         entry.reader().read_to_end(&mut buf);
-//!         let log_iterator = UnifiedLogIterator::new(buf);
-//!         // If we exclude entries that are missing strings, we may find them in later log files
-//!         let exclude = true;
-//!         for mut chunk in log_iterator {
-//!             chunk.oversize.append(&mut oversize_strings.oversize);
-//!             let (results, _missing_logs) = build_log(
-//!                 &chunk,
-//!                 &mut provider,
-//!                 &timesync_data,
-//!                 exclude,
-//!             );
-//!             oversize_strings.oversize = chunk.oversize;
-//!             println!("Got {} log entries", results.len());
-//!             break;
-//!         }
-//!         break;
-//!     }
-//!
+//!    // Iterate all log entries with automatic oversize string resolution
+//!    let exclude_missing = true;
+//!    iterate_all_logs_callback(
+//!        &mut provider,
+//!        &timesync_data,
+//!        exclude_missing,
+//!        &mut |entry| {
+//!            println!("{}: {}", entry.process, entry.message);
+//!        },
+//!    );
 //! ```
 
 /// Functions to parse catalog information from tracev3 files
@@ -90,7 +68,6 @@ mod error;
 /// Providers to parse Unified Log data on a live system or a provided logarchive
 pub mod filesystem;
 mod header;
-pub mod iterator;
 /// Streaming per-entry iterator that yields individual log entries
 pub mod log_data_iterator;
 /// Functions to assemble the log message

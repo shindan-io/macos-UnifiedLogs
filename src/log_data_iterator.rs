@@ -6,27 +6,21 @@
 // See the License for the specific language governing permissions and limitations under the License.
 
 use std::collections::HashMap;
+use std::io::Read;
+use std::path::Path;
 
+use log::debug;
 use uuid::Uuid;
 
 use crate::chunks::oversize::Oversize;
 use crate::noalloc_iterator::{NoAllocEntry, NoAllocLogStream, ResolveError};
 use crate::timesync::TimesyncBoot;
 use crate::traits::FileProvider;
-use crate::unified_log::{LogData, UnifiedLogData};
+use crate::unified_log::LogData;
 use crate::util::unixepoch_to_datetime;
 use crate::{empty_rc_string, rc_string};
 
-/// An item yielded by [`LogDataIterator`].
-#[derive(Debug)]
-pub enum LogIteratorItem {
-    /// A fully resolved log entry.
-    Log(LogData),
-    /// A chunk of log data that could not be fully resolved (missing strings).
-    MissingData(UnifiedLogData),
-}
-
-/// Streaming iterator that yields individual [`LogIteratorItem`] entries from a tracev3 file.
+/// Streaming iterator that yields individual [`LogData`] entries from a tracev3 file.
 ///
 /// Uses [`NoAllocLogStream`] internally for efficient single-pass iteration. Each entry
 /// is resolved on demand via [`NoAllocLogStream::resolve()`].
@@ -35,7 +29,7 @@ pub enum LogIteratorItem {
 /// ```no_run
 /// use macos_unifiedlogs::filesystem::LogarchiveProvider;
 /// use macos_unifiedlogs::parser::collect_timesync;
-/// use macos_unifiedlogs::log_data_iterator::{LogDataIterator, LogIteratorItem};
+/// use macos_unifiedlogs::log_data_iterator::LogDataIterator;
 /// use std::path::PathBuf;
 ///
 /// let path = PathBuf::from("system_logs.logarchive");
@@ -44,17 +38,15 @@ pub enum LogIteratorItem {
 ///
 /// let buf = std::fs::read("system_logs.logarchive/Persist/0000000000000002.tracev3").unwrap();
 /// let iter = LogDataIterator::new(buf, &mut provider, &timesync, true);
-/// for item in iter {
-///     match item {
-///         LogIteratorItem::Log(entry) => println!("{}: {}", entry.pid, entry.message),
-///         LogIteratorItem::MissingData(_) => {}
-///     }
+/// for entry in iter {
+///     println!("{}: {}", entry.pid, entry.message);
 /// }
 /// ```
 pub struct LogDataIterator<'a> {
     stream: NoAllocLogStream<'static, 'a>,
     provider: &'a mut dyn FileProvider,
     exclude_missing: bool,
+    had_missing_data: bool,
 }
 
 impl<'a> LogDataIterator<'a> {
@@ -88,7 +80,14 @@ impl<'a> LogDataIterator<'a> {
             ),
             provider,
             exclude_missing,
+            had_missing_data: false,
         }
+    }
+
+    /// Returns `true` if any entry resolved to `<Missing message data>` and was skipped
+    /// (only meaningful when `exclude_missing = true`).
+    pub fn had_missing_data(&self) -> bool {
+        self.had_missing_data
     }
 
     /// Peek at the current oversize cache.
@@ -131,7 +130,7 @@ fn error_to_log_data(entry: &NoAllocEntry, error: &ResolveError) -> LogData {
 }
 
 impl Iterator for LogDataIterator<'_> {
-    type Item = LogIteratorItem;
+    type Item = LogData;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -139,9 +138,10 @@ impl Iterator for LogDataIterator<'_> {
             match self.stream.resolve(&entry, self.provider) {
                 Ok(log_data) => {
                     if self.exclude_missing && log_data.message.contains("<Missing message data>") {
+                        self.had_missing_data = true;
                         continue; // skip, may find strings in later files
                     }
-                    return Some(LogIteratorItem::Log(log_data));
+                    return Some(log_data);
                 }
                 Err(e) => {
                     if self.exclude_missing {
@@ -149,11 +149,123 @@ impl Iterator for LogDataIterator<'_> {
                     }
                     // Produce a minimal LogData with the error as message,
                     // matching old build_log behavior (never drops entries)
-                    return Some(LogIteratorItem::Log(error_to_log_data(&entry, &e)));
+                    return Some(error_to_log_data(&entry, &e));
                 }
             }
         }
     }
+}
+
+/// Read a tracev3 file from a source, skipping macOS resource fork files (._*).
+fn read_tracev3(source: &mut dyn crate::traits::SourceFile) -> Option<Vec<u8>> {
+    if Path::new(source.source_path())
+        .file_name()
+        .is_some_and(|f| f.to_str().unwrap_or("").starts_with("._"))
+    {
+        return None;
+    }
+    let mut buf = Vec::new();
+    if let Err(err) = source.reader().read_to_end(&mut buf) {
+        log::error!(
+            "Failed to read tracev3 file {}: {err:?}",
+            source.source_path()
+        );
+        return None;
+    }
+    Some(buf)
+}
+
+/// Collect the complete oversize cache from all tracev3 files.
+///
+/// This is a fast pre-pass that parses chunk structure without resolving messages,
+/// accumulating all oversize entries across all files.
+fn collect_oversize_cache(
+    provider: &mut dyn FileProvider,
+    timesync_data: &HashMap<Uuid, TimesyncBoot>,
+) -> Vec<Oversize> {
+    let mut cache: Vec<Oversize> = Vec::new();
+    for mut source in provider.tracev3_files() {
+        let Some(buf) = read_tracev3(source.as_mut()) else {
+            continue;
+        };
+        let mut stream =
+            NoAllocLogStream::from_owned_with_oversize_cache(buf, timesync_data, cache);
+        // Exhaust the stream to collect oversize entries (no message resolution)
+        while stream.next_entry().is_some() {}
+        cache = stream.into_oversize_cache();
+    }
+    cache
+}
+
+/// Process all tracev3 files from a provider, collecting log entries into a `Vec`.
+///
+/// Uses a two-pass approach to handle oversize strings that span files:
+/// 1. **Pre-pass:** quickly parse all files to collect the complete oversize cache
+///    (no message resolution, very fast)
+/// 2. **Main pass:** iterate all files with the full oversize cache, resolving all
+///    entries that can be resolved
+///
+/// This replaces the old `build_log` + `UnifiedLogIterator` + manual retry loop pattern.
+pub fn iterate_all_logs(
+    provider: &mut dyn FileProvider,
+    timesync_data: &HashMap<Uuid, TimesyncBoot>,
+    exclude_missing: bool,
+) -> Vec<LogData> {
+    let mut results = Vec::new();
+    iterate_all_logs_callback(provider, timesync_data, exclude_missing, &mut |entry| {
+        results.push(entry);
+    });
+    results
+}
+
+/// Process all tracev3 files from a provider, calling `callback` for each log entry.
+///
+/// Like [`iterate_all_logs`] but avoids collecting into a `Vec` — suitable for streaming
+/// output (e.g., writing to JSON/CSV as entries are produced).
+///
+/// Uses a two-pass approach to handle oversize strings that span files:
+/// 1. **Pre-pass:** quickly parse all files to collect the complete oversize cache
+///    (no message resolution, very fast)
+/// 2. **Main pass:** iterate all files with the full oversize cache, resolving all
+///    entries that can be resolved
+pub fn iterate_all_logs_callback(
+    provider: &mut dyn FileProvider,
+    timesync_data: &HashMap<Uuid, TimesyncBoot>,
+    exclude_missing: bool,
+    callback: &mut dyn FnMut(LogData),
+) {
+    // Pre-pass: collect all oversize entries from all files.
+    // This is fast because we only parse chunk structure, not resolve messages.
+    let oversize_cache = collect_oversize_cache(provider, timesync_data);
+    debug!(
+        "Pre-pass complete: {} oversize entries collected",
+        oversize_cache.len()
+    );
+
+    // Main pass: iterate all files with the complete oversize cache.
+    // Since we have all oversize data upfront, entries that would have been
+    // "<Missing message data>" due to cross-file oversize references now resolve correctly.
+    let mut log_count: u64 = 0;
+    let mut cache = oversize_cache;
+    for mut source in provider.tracev3_files() {
+        let Some(buf) = read_tracev3(source.as_mut()) else {
+            continue;
+        };
+        let iter = LogDataIterator::with_oversize_cache(
+            buf,
+            provider,
+            timesync_data,
+            exclude_missing,
+            cache,
+        );
+        let mut iter = iter;
+        for entry in &mut iter {
+            log_count += 1;
+            callback(entry);
+        }
+        cache = iter.into_oversize_cache();
+    }
+    debug!("Main pass complete: {log_count} entries");
 }
 
 #[cfg(test)]
@@ -184,13 +296,7 @@ mod tests {
         let buf = persist_file();
 
         let iter = LogDataIterator::new(buf, &mut provider, &timesync_data, false);
-
-        let mut total = 0;
-        for item in iter {
-            if let LogIteratorItem::Log(_) = item {
-                total += 1;
-            }
-        }
+        let total = iter.count();
 
         assert_eq!(total, 207_366);
     }
@@ -204,13 +310,7 @@ mod tests {
 
         let iter = LogDataIterator::new(buf, &mut provider, &timesync_data, false);
 
-        let entries: Vec<LogData> = iter
-            .filter_map(|item| match item {
-                LogIteratorItem::Log(entry) => Some(entry),
-                _ => None,
-            })
-            .take(11)
-            .collect();
+        let entries: Vec<LogData> = iter.take(11).collect();
 
         assert!(entries.len() == 11);
         let entry = &entries[10];

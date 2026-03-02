@@ -6,42 +6,19 @@
 // See the License for the specific language governing permissions and limitations under the License.
 
 use chrono::{SecondsFormat, TimeZone, Utc};
-use log::{LevelFilter, debug, error, info};
+use log::{LevelFilter, error, info};
 use macos_unifiedlogs::filesystem::{LiveSystemProvider, LogarchiveProvider};
-use macos_unifiedlogs::iterator::UnifiedLogIterator;
-use macos_unifiedlogs::parser::{build_log, collect_timesync, parse_log};
-use macos_unifiedlogs::timesync::TimesyncBoot;
-use macos_unifiedlogs::traits::FileProvider;
-use macos_unifiedlogs::unified_log::{LogData, UnifiedLogData};
+use macos_unifiedlogs::log_data_iterator::{iterate_all_logs_callback, LogDataIterator};
+use macos_unifiedlogs::parser::collect_timesync;
+use macos_unifiedlogs::unified_log::LogData;
 use simplelog::{ColorChoice, Config, TermLogger, TerminalMode};
-use std::collections::HashMap;
 use std::error::Error;
-use std::fmt::Display;
 use std::fs;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use clap::{Parser, ValueEnum, builder};
 use csv::Writer;
-
-#[derive(Clone, Debug)]
-enum RuntimeError {
-    FileOpen { path: String, message: String },
-    FileParse { path: String, message: String },
-}
-
-impl Display for RuntimeError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match &self {
-            RuntimeError::FileOpen { path, message } => {
-                f.write_str(&format!("Failed to open source file {path}: {message}"))
-            }
-            RuntimeError::FileParse { path, message } => {
-                f.write_str(&format!("Failed to parse {path}: {message}"))
-            }
-        }
-    }
-}
 
 #[derive(Parser, Debug)]
 #[clap(version, about, long_about = None)]
@@ -145,46 +122,42 @@ fn main() {
 
 fn parse_single_file(path: &Path, writer: &mut OutputWriter) {
     let mut provider = LogarchiveProvider::new(path);
-    let results = match fs::File::open(path)
-        .map_err(|e| RuntimeError::FileOpen {
-            path: path.to_string_lossy().to_string(),
-            message: e.to_string(),
-        })
-        .and_then(|mut reader| {
-            parse_log(&mut reader).map_err(|err| RuntimeError::FileParse {
-                path: path.to_string_lossy().to_string(),
-                message: format!("{err}"),
-            })
-        })
-        .map(|ref log| {
-            let (results, _) = build_log(log, &mut provider, &HashMap::new(), false);
-            results
-        }) {
-        Ok(reader) => reader,
+    let timesync_data = collect_timesync(&provider).unwrap();
+
+    let buf = match fs::read(path) {
+        Ok(buf) => buf,
         Err(e) => {
-            error!("Failed to parse {path:?}: {e}");
+            error!("Failed to read {path:?}: {e}");
             return;
         }
     };
-    for row in results {
-        if let Err(e) = writer.write_record(&row) {
+
+    let iter = LogDataIterator::new(buf, &mut provider, &timesync_data, false);
+    for entry in iter {
+        if let Err(e) = writer.write_record(&entry) {
             error!("Error writing record: {e}");
-        };
+        }
     }
 }
 
 // Parse a provided directory path. Currently, expect the path to follow macOS log collect structure
 fn parse_log_archive(path: &Path, writer: &mut OutputWriter) {
     let mut provider = LogarchiveProvider::new(path);
-
-    // Parse all timesync files
     let timesync_data = collect_timesync(&provider).unwrap();
 
-    // Keep UUID, UUID cache, timesync files in memory while we parse all tracev3 files
-    // Allows for faster lookups
-    parse_trace_file(&timesync_data, &mut provider, writer);
-
-    info!("Finished parsing Unified Log data.");
+    let mut log_count: u64 = 0;
+    iterate_all_logs_callback(
+        &mut provider,
+        &timesync_data,
+        false,
+        &mut |entry| {
+            log_count += 1;
+            if let Err(err) = writer.write_record(&entry) {
+                log::error!("Failed to output log data: {err:?}");
+            }
+        },
+    );
+    info!("Parsed {log_count} log entries");
 }
 
 // Parse a live macOS system
@@ -192,112 +165,19 @@ fn parse_live_system(writer: &mut OutputWriter) {
     let mut provider = LiveSystemProvider::default();
     let timesync_data = collect_timesync(&provider).unwrap();
 
-    parse_trace_file(&timesync_data, &mut provider, writer);
-
-    info!("Finished parsing Unified Log data.");
-}
-
-// Use the provided strings, shared strings, timesync data to parse the Unified Log data at provided path.
-fn parse_trace_file(
-    timesync_data: &HashMap<String, TimesyncBoot>,
-    provider: &mut dyn FileProvider,
-    writer: &mut OutputWriter,
-) {
-    // We need to persist the Oversize log entries (they contain large strings that don't fit in normal log entries)
-    // Some log entries have Oversize strings located in different tracev3 files.
-    // This is very rare. Seen in ~20 log entries out of ~700,000. Seen in ~700 out of ~18 million
-    let mut oversize_strings = UnifiedLogData {
-        header: Vec::new(),
-        catalog_data: Vec::new(),
-        oversize: Vec::new(),
-    };
-
-    let mut missing_data: Vec<UnifiedLogData> = Vec::new();
-
-    // Loop through all tracev3 files in Persist directory
-    let mut log_count = 0;
-    for mut source in provider.tracev3_files() {
-        if Path::new(source.source_path())
-            .file_name()
-            .is_some_and(|f| f.to_str().unwrap().starts_with("._"))
-        {
-            continue;
-        }
-        println!("Parsing: {}", source.source_path());
-        log_count += iterate_chunks(
-            source.reader(),
-            &mut missing_data,
-            provider,
-            timesync_data,
-            writer,
-            &mut oversize_strings,
-        );
-        debug!("count: {log_count}");
-    }
-    let include_missing = false;
-    debug!("Oversize cache size: {}", oversize_strings.oversize.len());
-    debug!("Logs with missing Oversize strings: {}", missing_data.len());
-    debug!("Checking Oversize cache one more time...");
-
-    // Since we have all Oversize entries now. Go through any log entries that we were not able to build before
-    for mut leftover_data in missing_data {
-        // Add all of our previous oversize data to logs for lookups
-        leftover_data.oversize = oversize_strings.oversize.clone();
-
-        // Exclude_missing = false
-        // If we fail to find any missing data its probably due to the logs rolling
-        // Ex: tracev3A rolls, tracev3B references Oversize entry in tracev3A will trigger missing data since tracev3A is gone
-        let (results, _) = build_log(&leftover_data, provider, timesync_data, include_missing);
-        log_count += results.len();
-
-        if let Err(err) = output(&results, writer) {
-            log::error!("Failed to output remaining log data: {err:?}");
-        }
-    }
+    let mut log_count: u64 = 0;
+    iterate_all_logs_callback(
+        &mut provider,
+        &timesync_data,
+        false,
+        &mut |entry| {
+            log_count += 1;
+            if let Err(err) = writer.write_record(&entry) {
+                log::error!("Failed to output log data: {err:?}");
+            }
+        },
+    );
     info!("Parsed {log_count} log entries");
-}
-
-fn iterate_chunks(
-    mut reader: impl Read,
-    missing: &mut Vec<UnifiedLogData>,
-    provider: &mut dyn FileProvider,
-    timesync_data: &HashMap<String, TimesyncBoot>,
-    writer: &mut OutputWriter,
-    oversize_strings: &mut UnifiedLogData,
-) -> usize {
-    let mut buf = Vec::new();
-
-    if let Err(err) = reader.read_to_end(&mut buf) {
-        log::error!("Failed to read tracev3 file: {err:?}");
-        return 0;
-    }
-
-    let log_iterator = UnifiedLogIterator::new(buf);
-
-    // Exclude missing data from returned output. Keep separate until we parse all oversize entries.
-    // Then after parsing all logs, go through all missing data and check all parsed oversize entries again
-    let exclude_missing = true;
-
-    let mut count = 0;
-    for mut chunk in log_iterator {
-        chunk.oversize.append(&mut oversize_strings.oversize);
-        let (results, missing_logs) = build_log(&chunk, provider, timesync_data, exclude_missing);
-        count += results.len();
-        oversize_strings.oversize = chunk.oversize;
-        if let Err(err) = output(&results, writer) {
-            log::error!("Failed to output log data: {err:?}");
-        }
-        if missing_logs.catalog_data.is_empty()
-            && missing_logs.header.is_empty()
-            && missing_logs.oversize.is_empty()
-        {
-            continue;
-        }
-        // Track possible missing log data due to oversize strings being in another file
-        missing.push(missing_logs);
-    }
-
-    count
 }
 
 pub struct OutputWriter {
@@ -357,20 +237,20 @@ impl OutputWriter {
                     date_time.to_rfc3339_opts(SecondsFormat::Millis, true),
                     format!("{:?}", record.event_type),
                     format!("{:?}", record.log_type),
-                    record.subsystem.to_owned(),
+                    record.subsystem.to_string(),
                     record.thread_id.to_string(),
                     record.pid.to_string(),
                     record.euid.to_string(),
-                    record.library.to_owned(),
-                    record.library_uuid.to_owned(),
+                    record.library.to_string(),
+                    record.library_uuid.to_string(),
                     record.activity_id.to_string(),
-                    record.category.to_owned(),
-                    record.process.to_owned(),
-                    record.process_uuid.to_owned(),
-                    record.message.to_owned(),
-                    record.raw_message.to_owned(),
-                    record.boot_uuid.to_owned(),
-                    record.timezone_name.to_owned(),
+                    record.category.to_string(),
+                    record.process.to_string(),
+                    record.process_uuid.to_string(),
+                    record.message.to_string(),
+                    record.raw_message.to_string(),
+                    record.boot_uuid.to_string(),
+                    record.timezone_name.to_string(),
                 ])?;
             }
             OutputWriterEnum::Json(json_writer) => {
@@ -387,13 +267,4 @@ impl OutputWriter {
         }
         Ok(())
     }
-}
-
-// Append or create csv file
-fn output(results: &Vec<LogData>, writer: &mut OutputWriter) -> Result<(), Box<dyn Error>> {
-    for data in results {
-        writer.write_record(data)?;
-    }
-    writer.flush()?;
-    Ok(())
 }

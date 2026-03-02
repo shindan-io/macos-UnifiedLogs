@@ -8,26 +8,14 @@
 use criterion::{Criterion, criterion_group, criterion_main};
 use macos_unifiedlogs::{
     filesystem::LogarchiveProvider,
-    parser::{build_log, collect_timesync, parse_log},
-    timesync::TimesyncBoot,
-    traits::FileProvider,
-    unified_log::UnifiedLogData,
+    log_data_iterator::LogDataIterator,
+    parser::{collect_timesync, parse_log},
 };
-use std::{collections::HashMap, fs::File, path::PathBuf};
-use uuid::Uuid;
+use std::{fs, path::PathBuf};
 
 fn big_sur_parse_log(path: &str) {
-    let handle = File::open(PathBuf::from(path).as_path()).unwrap();
+    let handle = fs::File::open(PathBuf::from(path).as_path()).unwrap();
     let _ = parse_log(handle).unwrap();
-}
-
-fn bench_build_log(
-    log_data: &UnifiedLogData,
-    provider: &mut dyn FileProvider,
-    timesync_data: &HashMap<Uuid, TimesyncBoot>,
-    exclude_missing: bool,
-) {
-    let (_, _) = build_log(log_data, provider, timesync_data, exclude_missing);
 }
 
 fn big_sur_single_log_benchpress(c: &mut Criterion) {
@@ -40,27 +28,28 @@ fn big_sur_single_log_benchpress(c: &mut Criterion) {
     });
 }
 
-fn big_sur_build_log_benchbress(c: &mut Criterion) {
+fn big_sur_build_log_benchpress(c: &mut Criterion) {
     let mut test_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     test_path.push("tests/test_data/system_logs_big_sur.logarchive");
 
-    let mut provider = LogarchiveProvider::new(test_path.as_path());
+    let provider = LogarchiveProvider::new(test_path.as_path());
     let timesync_data = collect_timesync(&provider).unwrap();
 
-    test_path.push("Persist/0000000000000004.tracev3");
-    let exclude_missing = false;
-    let handle = File::open(test_path.as_path()).unwrap();
-
-    let log_data = parse_log(handle).unwrap();
+    let file_path = test_path.join("Persist/0000000000000004.tracev3");
+    let buf = fs::read(&file_path).unwrap();
 
     c.bench_function("Benching Building One Big Sur Log", |b| {
-        b.iter(|| bench_build_log(&log_data, &mut provider, &timesync_data, exclude_missing))
+        b.iter(|| {
+            let mut provider = LogarchiveProvider::new(test_path.as_path());
+            let iter = LogDataIterator::new(buf.clone(), &mut provider, &timesync_data, false);
+            for _ in iter {}
+        })
     });
 }
 
 criterion_group!(
     benches,
     big_sur_single_log_benchpress,
-    big_sur_build_log_benchbress
+    big_sur_build_log_benchpress
 );
 criterion_main!(benches);
