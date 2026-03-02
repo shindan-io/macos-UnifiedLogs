@@ -5,15 +5,26 @@
 // is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and limitations under the License.
 
-use log::{error, info};
+use log::{error, info, warn};
+use lz4_flex::decompress;
+use nom::bytes::complete::{take, take_while};
+use nom::number::complete::le_u32;
 use uuid::Uuid;
 
+use crate::catalog::CatalogChunk;
+use crate::chunks::firehose::firehose_log::FirehosePreamble;
+use crate::chunks::oversize::Oversize;
+use crate::chunks::simpledump::SimpleDump;
+use crate::chunks::statedump::Statedump;
+use crate::constants::*;
 use crate::dsc::{SharedCacheStrings, SharedCacheStringsOwned};
 use crate::error::ParserError;
+use crate::header::HeaderChunkStr;
+use crate::preamble::LogPreamble;
 use crate::timesync::TimesyncBoot;
 use crate::traits::FileProvider;
-use crate::unified_log::{LogData, UnifiedLogData};
-use crate::util::parse_uuid_from_str;
+use crate::unified_log::{UnifiedLogCatalogData, UnifiedLogData};
+use crate::util::{padding_size_8, parse_uuid_from_str, u64_to_usize};
 use crate::uuidtext::UUIDText;
 use std::collections::HashMap;
 use std::io::Read;
@@ -32,13 +43,184 @@ pub fn parse_log(mut reader: impl Read) -> Result<UnifiedLogData, ParserError> {
 
     info!("Read {} bytes from tracev3 file", buf.len());
 
-    let log_data_results = LogData::parse_unified_log(&buf);
-    match log_data_results {
-        Ok((_, log_data)) => Ok(log_data),
-        Err(err) => {
-            error!("[macos-unifiedlogs] Failed to parse the tracev3 file: {err:?}");
-            Err(ParserError::Tracev3Parse)
+    let mut unified_log_data = UnifiedLogData {
+        header: Vec::new(),
+        catalog_data: Vec::new(),
+        oversize: Vec::new(),
+    };
+    let mut catalog_data = UnifiedLogCatalogData::default();
+    let mut input = buf.as_slice();
+
+    // Walk top-level preambles
+    while input.len() >= CHUNK_PREAMBLE_SIZE {
+        let preamble = match LogPreamble::detect_preamble(input) {
+            Ok((_, p)) => p,
+            Err(err) => {
+                error!("[macos-unifiedlogs] Failed to detect preamble: {err:?}");
+                break;
+            }
+        };
+
+        let chunk_size = match u64_to_usize(preamble.chunk_data_size) {
+            Some(c) => c,
+            None => {
+                error!("[macos-unifiedlogs] Chunk data size exceeds system usize");
+                return Err(ParserError::Tracev3Parse);
+            }
+        };
+
+        let total_chunk_size = chunk_size + CHUNK_PREAMBLE_SIZE;
+        if total_chunk_size > input.len() {
+            warn!(
+                "[macos-unifiedlogs] Chunk extends beyond buffer ({total_chunk_size} > {})",
+                input.len()
+            );
+            break;
         }
+
+        let chunk_data = &input[..total_chunk_size];
+
+        match preamble.chunk_tag {
+            HEADER_CHUNK => match HeaderChunkStr::parse_header(chunk_data) {
+                Ok((_, header)) => unified_log_data.header.push(header.into_owned()),
+                Err(err) => error!("[macos-unifiedlogs] Failed to parse header data: {err:?}"),
+            },
+            CATALOG_CHUNK => {
+                // Push any pending catalog before starting a new one
+                if catalog_data.catalog.chunk_tag != 0 {
+                    unified_log_data.catalog_data.push(catalog_data);
+                }
+                catalog_data = UnifiedLogCatalogData::default();
+
+                match CatalogChunk::parse_catalog(chunk_data) {
+                    Ok((_, catalog)) => catalog_data.catalog = catalog,
+                    Err(err) => {
+                        error!("[macos-unifiedlogs] Failed to parse catalog data: {err:?}")
+                    }
+                }
+            }
+            CHUNKSET_CHUNK => {
+                let decompressed = decompress_chunkset(&chunk_data[CHUNK_PREAMBLE_SIZE..]);
+                if let Some(data) = decompressed {
+                    parse_chunkset_entries(&data, &mut catalog_data);
+                    unified_log_data.oversize.append(&mut catalog_data.oversize);
+                }
+            }
+            other => {
+                error!("[macos-unifiedlogs] Unknown chunk type: 0x{other:04x}");
+            }
+        }
+
+        // Advance past chunk + padding
+        let padding = padding_size_8(preamble.chunk_data_size) as usize;
+        let advance = total_chunk_size + padding;
+        if advance > input.len() {
+            break;
+        }
+        input = &input[advance..];
+    }
+
+    // Push the final pending catalog
+    if catalog_data.catalog.chunk_tag != 0 {
+        unified_log_data.catalog_data.push(catalog_data);
+    }
+
+    Ok(unified_log_data)
+}
+
+/// Decompress a chunkset's inner data (BV41 compressed or uncompressed).
+fn decompress_chunkset(data: &[u8]) -> Option<Vec<u8>> {
+    let (input, signature) = le_u32::<_, nom::error::Error<&[u8]>>(data).ok()?;
+    let (input, uncompress_size) = le_u32::<_, nom::error::Error<&[u8]>>(input).ok()?;
+
+    if signature == BV41_UNCOMPRESSED {
+        let (_, raw) =
+            take::<_, _, nom::error::Error<&[u8]>>(uncompress_size as usize)(input).ok()?;
+        return Some(raw.to_vec());
+    }
+
+    if signature != BV41_COMPRESSED {
+        error!(
+            "[macos-unifiedlogs] Incorrect compression signature expected bv41, got: {signature:?}"
+        );
+        return None;
+    }
+
+    let (input, block_size) = le_u32::<_, nom::error::Error<&[u8]>>(input).ok()?;
+    let compressed = input.get(..block_size as usize)?;
+
+    match decompress(compressed, uncompress_size as usize) {
+        Ok(decompressed) => Some(decompressed),
+        Err(err) => {
+            error!("[macos-unifiedlogs] Failed to decompress log data: {err:?}");
+            None
+        }
+    }
+}
+
+/// Walk inner chunks of a decompressed chunkset and populate catalog data.
+fn parse_chunkset_entries(data: &[u8], catalog_data: &mut UnifiedLogCatalogData) {
+    let mut input = data;
+
+    while input.len() >= CHUNK_PREAMBLE_SIZE {
+        let preamble = match LogPreamble::detect_preamble(input) {
+            Ok((_, p)) => p,
+            Err(_) => break,
+        };
+
+        let chunk_size = match u64_to_usize(preamble.chunk_data_size) {
+            Some(c) => c,
+            None => break,
+        };
+
+        let total = chunk_size + CHUNK_PREAMBLE_SIZE;
+        if total > input.len() {
+            break;
+        }
+
+        let chunk_data = &input[..total];
+
+        match preamble.chunk_tag {
+            FIREHOSE_CHUNK => match FirehosePreamble::parse_firehose_preamble(chunk_data) {
+                Ok((_, firehose)) => catalog_data.firehose.push(firehose),
+                Err(err) => error!(
+                    "[macos-unifiedlogs] Failed to parse firehose log entry (chunk): {err:?}"
+                ),
+            },
+            OVERSIZE_CHUNK => match Oversize::parse_oversize(chunk_data) {
+                Ok((_, oversize)) => catalog_data.oversize.push(oversize),
+                Err(err) => error!(
+                    "[macos-unifiedlogs] Failed to parse oversize log entry (chunk): {err:?}"
+                ),
+            },
+            STATEDUMP_CHUNK => match Statedump::parse_statedump(chunk_data) {
+                Ok((_, statedump)) => catalog_data.statedump.push(statedump.into_owned()),
+                Err(err) => error!(
+                    "[macos-unifiedlogs] Failed to parse statedump log entry (chunk): {err:?}"
+                ),
+            },
+            SIMPLEDUMP_CHUNK => match SimpleDump::parse_simpledump(chunk_data) {
+                Ok((_, simpledump)) => catalog_data.simpledump.push(simpledump.into_owned()),
+                Err(err) => error!(
+                    "[macos-unifiedlogs] Failed to parse simpledump log entry (chunk): {err:?}"
+                ),
+            },
+            other => {
+                error!("[macos-unifiedlogs] Unknown chunkset type: 0x{other:04x}");
+            }
+        }
+
+        // Skip past chunk + zero padding
+        let remaining = &input[total..];
+        let trimmed = match take_while::<_, _, nom::error::Error<&[u8]>>(|b: u8| b == 0)(remaining)
+        {
+            Ok((rest, _)) => rest,
+            Err(_) => remaining,
+        };
+        if trimmed.is_empty() {
+            break;
+        }
+        input = trimmed;
     }
 }
 

@@ -58,7 +58,6 @@
 /// Functions to parse catalog information from tracev3 files
 mod catalog;
 mod chunks;
-mod chunkset;
 mod constants;
 /// Parsers to extract specific log objects
 mod decoders;
