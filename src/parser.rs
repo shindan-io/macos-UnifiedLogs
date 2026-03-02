@@ -8,12 +8,11 @@
 use log::{error, info};
 use uuid::Uuid;
 
-use crate::chunk::{Chunk, ChunksIterator};
 use crate::dsc::{SharedCacheStrings, SharedCacheStringsOwned};
 use crate::error::ParserError;
+use crate::noalloc_iterator::{NoAllocEntry, NoAllocLogStream};
 use crate::timesync::TimesyncBoot;
 use crate::traits::FileProvider;
-use crate::unified_log::{UnifiedLogCatalogData, UnifiedLogData};
 use crate::util::parse_uuid_from_str;
 use crate::uuidtext::UUIDText;
 use std::collections::HashMap;
@@ -23,8 +22,15 @@ use std::path::PathBuf;
 // Re-export iterate_all_logs from log_data_iterator for convenience
 pub use crate::log_data_iterator::{iterate_all_logs, iterate_all_logs_callback};
 
-/// Parse a tracev3 file and return the deconstructed log data
-pub fn parse_log(mut reader: impl Read) -> Result<UnifiedLogData, ParserError> {
+/// Parse a tracev3 file, returning all entries as scalar [`NoAllocEntry`] values.
+///
+/// This is the simple replacement for the former `parse_log()` API. Entries contain
+/// only scalar fields (no heap allocations). Use [`NoAllocLogStream::resolve()`] to
+/// get full [`LogData`] with formatted messages for individual entries.
+pub fn parse_entries(
+    mut reader: impl Read,
+    timesync: &HashMap<Uuid, TimesyncBoot>,
+) -> Result<Vec<NoAllocEntry>, ParserError> {
     let mut buf = Vec::new();
     reader.read_to_end(&mut buf).map_err(|err| {
         error!("[macos-unifiedlogs] Failed to read the tracev3 file: {err:?}");
@@ -33,31 +39,10 @@ pub fn parse_log(mut reader: impl Read) -> Result<UnifiedLogData, ParserError> {
 
     info!("Read {} bytes from tracev3 file", buf.len());
 
-    let mut result = UnifiedLogData::default();
-    let mut catalog_data = UnifiedLogCatalogData::default();
-
-    for chunk in ChunksIterator::new(&buf) {
-        match chunk {
-            Ok(Chunk::Header(h)) => result.header.push(h),
-            Ok(Chunk::Catalog(c)) => {
-                if catalog_data.catalog.chunk_tag != 0 {
-                    result.catalog_data.push(catalog_data);
-                }
-                catalog_data = UnifiedLogCatalogData::default();
-                catalog_data.catalog = c;
-            }
-            Ok(Chunk::Firehose(f)) => catalog_data.firehose.push(f),
-            Ok(Chunk::Oversize(o)) => result.oversize.push(o),
-            Ok(Chunk::Simpledump(s)) => catalog_data.simpledump.push(s),
-            Ok(Chunk::Statedump(s)) => catalog_data.statedump.push(s),
-            Err(e) => error!("[macos-unifiedlogs] {e}"),
-        }
-    }
-
-    if catalog_data.catalog.chunk_tag != 0 {
-        result.catalog_data.push(catalog_data);
-    }
-    Ok(result)
+    let mut stream = NoAllocLogStream::new(&buf, timesync);
+    let mut entries = Vec::new();
+    stream.for_each_entry(|entry| entries.push(entry));
+    Ok(entries)
 }
 
 /// Parse all UUID files in provided directory. The directory should follow the same layout as the live system (ex: path/to/files/\<two character UUID\>/\<remaining UUID name\>)
@@ -180,9 +165,10 @@ pub fn collect_timesync(
 mod tests {
     use uuid::Uuid;
 
+    use crate::chunk::parse_first_catalog;
     use crate::filesystem::LogarchiveProvider;
     use crate::log_data_iterator::LogDataIterator;
-    use crate::parser::{collect_shared_strings, collect_strings, collect_timesync, parse_log};
+    use crate::parser::{collect_shared_strings, collect_strings, collect_timesync, parse_entries};
     use crate::unified_log::{EventType, LogType};
     use std::path::PathBuf;
 
@@ -355,25 +341,22 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_log() {
+    fn test_parse_entries() {
         let mut test_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         test_path.push("tests/test_data/system_logs_big_sur.logarchive");
 
-        test_path.push("Persist/0000000000000002.tracev3");
-        let handle = std::fs::File::open(test_path).unwrap();
-        let log_data = parse_log(handle).unwrap();
+        let provider = LogarchiveProvider::new(test_path.as_path());
+        let timesync_data = collect_timesync(&provider).unwrap();
 
-        assert_eq!(log_data.catalog_data[0].firehose.len(), 99);
-        assert_eq!(log_data.catalog_data[0].simpledump.len(), 0);
-        assert_eq!(log_data.header.len(), 1);
-        assert_eq!(
-            log_data.catalog_data[0]
-                .catalog
-                .catalog_process_info_entries
-                .len(),
-            46
-        );
-        assert_eq!(log_data.catalog_data[0].statedump.len(), 0);
+        let tracev3_path = test_path.join("Persist/0000000000000002.tracev3");
+        let buf = std::fs::read(&tracev3_path).unwrap();
+
+        let catalog = parse_first_catalog(&buf).unwrap();
+        assert_eq!(catalog.catalog_process_info_entries.len(), 46);
+
+        let handle = std::fs::File::open(&tracev3_path).unwrap();
+        let entries = parse_entries(handle, &timesync_data).unwrap();
+        assert!(entries.len() > 1000);
     }
 
     #[test]

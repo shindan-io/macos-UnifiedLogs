@@ -34,7 +34,9 @@ use regex::Regex;
 use uuid::Uuid;
 
 use crate::catalog::CatalogChunk;
-use crate::chunk::{extract_subtype_scalars, skip_zero_padding};
+use crate::chunk::{
+    extract_subtype_scalars, next_inner_chunk, next_top_level_chunk, skip_zero_padding,
+};
 use crate::chunks::firehose::activity::FirehoseActivity;
 use crate::chunks::firehose::firehose_log::{FirehoseItemData, FirehosePreamble};
 use crate::chunks::firehose::nonactivity::FirehoseNonActivity;
@@ -46,11 +48,10 @@ use crate::chunks::statedump::{Statedump, StatedumpStr};
 use crate::constants::*;
 use crate::header::HeaderChunkStr;
 use crate::message::format_firehose_log_message;
-use crate::preamble::LogPreamble;
 use crate::timesync::TimesyncBoot;
 use crate::traits::FileProvider;
 use crate::unified_log::{EventType, LogData, LogType};
-use crate::util::{padding_size_8, u64_to_usize, unixepoch_to_datetime};
+use crate::util::{padding_size_8, unixepoch_to_datetime};
 use crate::{empty_rc_string, rc_string};
 
 // ── ResolveError ───────────────────────────────────────────────────────────
@@ -738,35 +739,17 @@ impl<'file, 'ts> NoAllocLogStream<'file, 'ts> {
             }
         };
 
-        while inner.inner_cursor + CHUNK_PREAMBLE_SIZE <= inner.inner_data_len {
-            let input = &decomp_data[inner.inner_cursor..inner.inner_data_len];
+        let inner_data = &decomp_data[..inner.inner_data_len];
 
-            let preamble = match LogPreamble::detect_preamble(input) {
-                Ok((_, p)) => p,
-                Err(_) => return None,
-            };
+        while let Some((chunk, next_pos)) = next_inner_chunk(inner_data, inner.inner_cursor) {
+            let chunk_data = &inner_data[chunk.start..chunk.end];
+            inner.inner_cursor = next_pos;
 
-            let chunk_size = u64_to_usize(preamble.chunk_data_size)?;
-
-            let total = chunk_size + CHUNK_PREAMBLE_SIZE;
-            if total > input.len() {
-                return None;
-            }
-
-            let chunk_data = &input[..total];
-            let chunk_abs_start = inner.inner_cursor;
-
-            // Advance past chunk
-            let remaining = &input[total..];
-            let trimmed = skip_zero_padding(remaining);
-            let consumed = total + (remaining.len() - trimmed.len());
-            inner.inner_cursor += consumed;
-
-            match preamble.chunk_tag {
+            match chunk.tag {
                 FIREHOSE_CHUNK => {
                     // Parse preamble header to set up PreambleIterState
                     if let Some(preamble_state) =
-                        self.parse_firehose_preamble_state(chunk_data, chunk_abs_start)
+                        self.parse_firehose_preamble_state(chunk_data, chunk.start)
                     {
                         inner.preamble = Some(preamble_state);
                         return Some(InnerChunkResult::PreambleReady);
@@ -974,47 +957,15 @@ impl<'file, 'ts> NoAllocLogStream<'file, 'ts> {
 
     /// Try to advance to the next top-level chunk. Returns false at EOF.
     fn try_advance_top_level_chunk(&mut self) -> bool {
-        while self.cursor + CHUNK_PREAMBLE_SIZE <= self.file_buf.len() {
-            // Parse preamble — borrow is dropped before any &mut self call
-            let preamble = {
-                let input = &self.file_buf[self.cursor..];
-                match LogPreamble::detect_preamble(input) {
-                    Ok((_, p)) => p,
-                    Err(err) => {
-                        error!("[noalloc_iterator] Failed to detect preamble: {err:?}");
-                        return false;
-                    }
-                }
-            };
+        while let Some((chunk, next_pos)) = next_top_level_chunk(&self.file_buf, self.cursor) {
+            self.cursor = next_pos;
 
-            let total_chunk_size = preamble.chunk_data_size as usize + CHUNK_PREAMBLE_SIZE;
-            if self.cursor + total_chunk_size > self.file_buf.len() {
-                warn!(
-                    "[noalloc_iterator] Chunk extends beyond file buffer ({} + {} > {})",
-                    self.cursor,
-                    total_chunk_size,
-                    self.file_buf.len()
-                );
-                return false;
-            }
-
-            // Record range, advance cursor, then process via range-based methods
-            let chunk_start = self.cursor;
-            let chunk_end = self.cursor + total_chunk_size;
-
-            self.cursor += total_chunk_size;
-            let padding = padding_size_8(preamble.chunk_data_size) as usize;
-            if self.cursor + padding <= self.file_buf.len() {
-                self.cursor += padding;
-            }
-
-            match preamble.chunk_tag {
+            match chunk.tag {
                 HEADER_CHUNK => {
-                    self.parse_header_range(chunk_start, chunk_end);
+                    self.parse_header_range(chunk.start, chunk.end);
                 }
                 CATALOG_CHUNK => {
-                    // CatalogChunk::parse_catalog doesn't need &mut self
-                    match CatalogChunk::parse_catalog(&self.file_buf[chunk_start..chunk_end]) {
+                    match CatalogChunk::parse_catalog(&self.file_buf[chunk.start..chunk.end]) {
                         Ok((_, catalog)) => {
                             self.current_catalog = Some(catalog);
                             self.catalog_index += 1;
@@ -1026,7 +977,7 @@ impl<'file, 'ts> NoAllocLogStream<'file, 'ts> {
                 }
                 CHUNKSET_CHUNK => {
                     if self.current_catalog.is_some()
-                        && self.process_chunkset_range(chunk_start, chunk_end)
+                        && self.process_chunkset_range(chunk.start, chunk.end)
                     {
                         return true; // inner_state is now set up
                     }

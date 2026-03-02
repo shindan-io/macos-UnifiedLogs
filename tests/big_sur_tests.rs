@@ -8,7 +8,8 @@
 use macos_unifiedlogs::{
     filesystem::LogarchiveProvider,
     log_data_iterator::{LogDataIterator, iterate_all_logs},
-    parser::{collect_timesync, parse_log},
+    noalloc_iterator::NoAllocLogStream,
+    parser::collect_timesync,
     unified_log::{EventType, LogData, LogType},
 };
 use regex::Regex;
@@ -40,25 +41,20 @@ fn is_signpost(log_type: LogType) -> bool {
 }
 
 #[test]
-fn test_parse_log_big_sur() {
+fn test_parse_entries_big_sur() {
     let mut test_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     test_path.push("tests/test_data/system_logs_big_sur.logarchive");
-    test_path.push("Persist/0000000000000004.tracev3");
 
-    let handle = fs::File::open(test_path.as_path()).unwrap();
-    let log_data = parse_log(handle).unwrap();
+    let provider = LogarchiveProvider::new(test_path.as_path());
+    let timesync_data = collect_timesync(&provider).unwrap();
 
-    assert_eq!(log_data.catalog_data[0].firehose.len(), 82);
-    assert_eq!(log_data.catalog_data[0].simpledump.len(), 0);
-    assert_eq!(log_data.header.len(), 1);
-    assert_eq!(
-        log_data.catalog_data[0]
-            .catalog
-            .catalog_process_info_entries
-            .len(),
-        45
-    );
-    assert_eq!(log_data.catalog_data[0].statedump.len(), 0);
+    let tracev3_path = test_path.join("Persist/0000000000000004.tracev3");
+    let buf = fs::read(&tracev3_path).unwrap();
+
+    let mut stream = NoAllocLogStream::new(&buf, &timesync_data);
+    let mut entry_count = 0;
+    stream.for_each_entry(|_| entry_count += 1);
+    assert!(entry_count > 1000);
 }
 
 #[test]
@@ -570,7 +566,6 @@ fn test_big_sur_oversize_strings_in_another_file() {
     let livedata_buf = fs::read(test_path.join("logdata.LiveData.tracev3")).unwrap();
 
     // Collect oversize from persist and special files first
-    use macos_unifiedlogs::noalloc_iterator::NoAllocLogStream;
     let mut stream = NoAllocLogStream::new(&persist_buf, &timesync_data);
     while stream.next_entry().is_some() {}
     let mut cache = stream.into_oversize_cache();

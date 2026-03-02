@@ -200,7 +200,6 @@ impl FirehoseActivity {
 mod tests {
     use super::*;
     use crate::filesystem::LogarchiveProvider;
-    use crate::parser::parse_log;
     use std::path::PathBuf;
     use uuid::Uuid;
 
@@ -239,42 +238,30 @@ mod tests {
         let mut test_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         test_path.push("tests/test_data/system_logs_big_sur.logarchive");
         let mut provider = LogarchiveProvider::new(test_path.as_path());
+        let timesync_data = crate::parser::collect_timesync(&provider).unwrap();
 
-        test_path.push("Persist/0000000000000004.tracev3");
-        let handle = std::fs::File::open(test_path).unwrap();
-        let log_data = parse_log(handle).unwrap();
-
-        for catalog_data in log_data.catalog_data {
-            for preamble in catalog_data.firehose {
-                for firehose in preamble.public_data {
-                    if firehose.unknown_log_activity_type == crate::constants::ACTIVITY_TYPE {
-                        let (_, message_data) = FirehoseActivity::get_firehose_activity_strings(
-                            &firehose.firehose_activity,
-                            &mut provider,
-                            u64::from(firehose.format_string_location),
-                            preamble.first_number_proc_id,
-                            preamble.second_number_proc_id,
-                            &catalog_data.catalog,
-                        )
-                        .unwrap();
-                        assert_eq!(
-                            message_data.format_string.as_str(),
-                            "Internal: Check the state of a node"
-                        );
-                        assert_eq!(message_data.library.as_str(), "/usr/libexec/opendirectoryd");
-                        assert_eq!(message_data.process.as_str(), "/usr/libexec/opendirectoryd");
-                        assert_eq!(
-                            message_data.process_uuid,
-                            Uuid::parse_str("B736DF1625F538248E9527A8CEC4991E").unwrap()
-                        );
-                        assert_eq!(
-                            message_data.library_uuid,
-                            Uuid::parse_str("B736DF1625F538248E9527A8CEC4991E").unwrap()
-                        );
-                        return;
-                    }
-                }
+        let buf = std::fs::read(test_path.join("Persist/0000000000000004.tracev3")).unwrap();
+        let mut stream = crate::noalloc_iterator::NoAllocLogStream::new(&buf, &timesync_data);
+        while let Some(entry) = stream.next_entry() {
+            if entry.log_activity_type == crate::constants::ACTIVITY_TYPE {
+                let log_data = stream.resolve(&entry, &mut provider).unwrap();
+                assert_eq!(
+                    log_data.raw_message.as_str(),
+                    "Internal: Check the state of a node"
+                );
+                assert_eq!(log_data.library.as_str(), "/usr/libexec/opendirectoryd");
+                assert_eq!(log_data.process.as_str(), "/usr/libexec/opendirectoryd");
+                assert_eq!(
+                    log_data.process_uuid,
+                    Uuid::parse_str("B736DF1625F538248E9527A8CEC4991E").unwrap()
+                );
+                assert_eq!(
+                    log_data.library_uuid,
+                    Uuid::parse_str("B736DF1625F538248E9527A8CEC4991E").unwrap()
+                );
+                return;
             }
         }
+        panic!("No ACTIVITY_TYPE entry found");
     }
 }

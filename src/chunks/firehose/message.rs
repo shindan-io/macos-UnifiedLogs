@@ -659,7 +659,9 @@ mod tests {
     use uuid::Uuid;
 
     use crate::{
-        chunks::firehose::message::MessageData, filesystem::LogarchiveProvider, parser::parse_log,
+        chunk::{parse_catalogs, parse_first_catalog},
+        chunks::firehose::message::MessageData,
+        filesystem::LogarchiveProvider,
         traits::FileProvider,
     };
     use std::path::PathBuf;
@@ -671,8 +673,8 @@ mod tests {
         let mut provider = LogarchiveProvider::new(test_path.as_path());
 
         test_path.push("Persist/0000000000000002.tracev3");
-        let handle = std::fs::File::open(test_path).unwrap();
-        let log_data = parse_log(handle).unwrap();
+        let buf = std::fs::read(&test_path).unwrap();
+        let catalog = parse_first_catalog(&buf).unwrap();
 
         let test_offset = 1331408102;
         let test_first_proc_id = 45;
@@ -683,7 +685,7 @@ mod tests {
             test_offset,
             test_first_proc_id,
             test_second_proc_id,
-            &log_data.catalog_data[0].catalog,
+            &catalog,
             0,
         )
         .unwrap();
@@ -715,8 +717,8 @@ mod tests {
         let mut provider = LogarchiveProvider::new(test_path.as_path());
 
         test_path.push("Persist/0000000000000002.tracev3");
-        let handle = std::fs::File::open(test_path).unwrap();
-        let log_data = parse_log(handle).unwrap();
+        let buf = std::fs::read(&test_path).unwrap();
+        let catalog = parse_first_catalog(&buf).unwrap();
 
         let bad_offset = 7;
         let test_first_proc_id = 45;
@@ -727,7 +729,7 @@ mod tests {
             bad_offset,
             test_first_proc_id,
             test_second_proc_id,
-            &log_data.catalog_data[0].catalog,
+            &catalog,
             0,
         )
         .unwrap();
@@ -761,8 +763,8 @@ mod tests {
         let mut provider = LogarchiveProvider::new(test_path.as_path());
 
         test_path.push("Persist/0000000000000002.tracev3");
-        let handle = std::fs::File::open(test_path).unwrap();
-        let log_data = parse_log(handle).unwrap();
+        let buf = std::fs::read(&test_path).unwrap();
+        let catalogs = parse_catalogs(&buf);
 
         let test_offset = 2420246585;
         let test_first_proc_id = 32;
@@ -772,7 +774,7 @@ mod tests {
             test_offset,
             test_first_proc_id,
             test_second_proc_id,
-            &log_data.catalog_data[2].catalog,
+            &catalogs[2],
             test_offset,
         )
         .unwrap();
@@ -805,8 +807,8 @@ mod tests {
         let mut provider = LogarchiveProvider::new(test_path.as_path());
 
         test_path.push("Persist/0000000000000002.tracev3");
-        let handle = std::fs::File::open(test_path).unwrap();
-        let log_data = parse_log(handle).unwrap();
+        let buf = std::fs::read(&test_path).unwrap();
+        let catalog = parse_first_catalog(&buf).unwrap();
 
         let test_offset = 14960;
         let test_first_proc_id = 45;
@@ -816,7 +818,7 @@ mod tests {
             test_offset,
             test_first_proc_id,
             test_second_proc_id,
-            &log_data.catalog_data[0].catalog,
+            &catalog,
             test_offset,
         )
         .unwrap();
@@ -849,8 +851,8 @@ mod tests {
 
         let mut provider = LogarchiveProvider::new(test_path.as_path());
         test_path.push("Persist/0000000000000002.tracev3");
-        let handle = std::fs::File::open(test_path).unwrap();
-        let log_data = parse_log(handle).unwrap();
+        let buf = std::fs::read(&test_path).unwrap();
+        let catalog = parse_first_catalog(&buf).unwrap();
 
         let bad_offset = 1;
         let test_first_proc_id = 45;
@@ -860,7 +862,7 @@ mod tests {
             bad_offset,
             test_first_proc_id,
             test_second_proc_id,
-            &log_data.catalog_data[0].catalog,
+            &catalog,
             0,
         )
         .unwrap();
@@ -883,8 +885,8 @@ mod tests {
         let mut provider = LogarchiveProvider::new(test_path.as_path());
 
         test_path.push("Persist/0000000000000002.tracev3");
-        let handle = std::fs::File::open(test_path).unwrap();
-        let log_data = parse_log(handle).unwrap();
+        let buf = std::fs::read(&test_path).unwrap();
+        let catalogs = parse_catalogs(&buf);
 
         let test_offset = 2147519968;
         let test_first_proc_id = 38;
@@ -894,7 +896,7 @@ mod tests {
             test_offset,
             test_first_proc_id,
             test_second_proc_id,
-            &log_data.catalog_data[4].catalog,
+            &catalogs[4],
             test_offset,
         )
         .unwrap();
@@ -928,8 +930,8 @@ mod tests {
         let mut provider = LogarchiveProvider::new(test_path.as_path());
 
         test_path.push("Persist/0000000000000002.tracev3");
-        let handle = std::fs::File::open(test_path).unwrap();
-        let log_data = parse_log(handle).unwrap();
+        let buf = std::fs::read(&test_path).unwrap();
+        let catalogs = parse_catalogs(&buf);
 
         let bad_offset = 55;
         let test_first_proc_id = 38;
@@ -939,7 +941,7 @@ mod tests {
             bad_offset,
             test_first_proc_id,
             test_second_proc_id,
-            &log_data.catalog_data[4].catalog,
+            &catalogs[4],
             bad_offset,
         )
         .unwrap();
@@ -962,9 +964,8 @@ mod tests {
         let mut provider = LogarchiveProvider::new(test_path.as_path());
 
         test_path.push("Persist/0000000000000002.tracev3");
-
-        let handle = std::fs::File::open(test_path).unwrap();
-        let log_data = parse_log(handle).unwrap();
+        let buf = std::fs::read(&test_path).unwrap();
+        let catalog = parse_first_catalog(&buf).unwrap();
 
         let test_offset = 396912;
         let test_absolute_offset = 280925241119206;
@@ -976,7 +977,7 @@ mod tests {
             test_offset,
             test_first_proc_id,
             test_second_proc_id,
-            &log_data.catalog_data[0].catalog,
+            &catalog,
             0,
         )
         .unwrap();
@@ -995,8 +996,8 @@ mod tests {
         let mut provider = LogarchiveProvider::new(test_path.as_path());
 
         test_path.push("Persist/0000000000000002.tracev3");
-        let handle = std::fs::File::open(test_path).unwrap();
-        let log_data = parse_log(handle).unwrap();
+        let buf = std::fs::read(&test_path).unwrap();
+        let catalog = parse_first_catalog(&buf).unwrap();
 
         let test_offset = 396912;
         let bad_offset = 12;
@@ -1008,7 +1009,7 @@ mod tests {
             test_offset,
             test_first_proc_id,
             test_second_proc_id,
-            &log_data.catalog_data[0].catalog,
+            &catalog,
             0,
         )
         .unwrap();
@@ -1027,12 +1028,12 @@ mod tests {
         let mut provider = LogarchiveProvider::new(test_path.as_path());
 
         test_path.push("Persist/0000000000000002.tracev3");
-        let handle = std::fs::File::open(test_path).unwrap();
-        let log_data = parse_log(handle).unwrap();
+        let buf = std::fs::read(&test_path).unwrap();
+        let catalogs = parse_catalogs(&buf);
 
         let test_offset = 102;
         let test_absolute_offset = 102;
-        assert_eq!(log_data.catalog_data.len(), 56);
+        assert_eq!(catalogs.len(), 56);
 
         let test_first_proc_id = 0;
         let test_second_proc_id = 0;
@@ -1042,7 +1043,7 @@ mod tests {
             test_offset,
             test_first_proc_id,
             test_second_proc_id,
-            &log_data.catalog_data[1].catalog,
+            &catalogs[1],
             test_offset,
         )
         .unwrap();
@@ -1062,12 +1063,12 @@ mod tests {
         let mut provider = LogarchiveProvider::new(test_path.as_path());
 
         test_path.push("Persist/0000000000000002.tracev3");
-        let handle = std::fs::File::open(test_path).unwrap();
-        let log_data = parse_log(handle).unwrap();
+        let buf = std::fs::read(&test_path).unwrap();
+        let catalogs = parse_catalogs(&buf);
 
         let bad_offset = 111;
         let test_absolute_offset = 102;
-        assert_eq!(log_data.catalog_data.len(), 56);
+        assert_eq!(catalogs.len(), 56);
 
         let test_first_proc_id = 0;
         let test_second_proc_id = 0;
@@ -1077,7 +1078,7 @@ mod tests {
             bad_offset,
             test_first_proc_id,
             test_second_proc_id,
-            &log_data.catalog_data[1].catalog,
+            &catalogs[1],
             bad_offset,
         )
         .unwrap();
@@ -1100,8 +1101,8 @@ mod tests {
         let mut provider = LogarchiveProvider::new(test_path.as_path());
 
         test_path.push("Persist/0000000000000005.tracev3");
-        let handle = std::fs::File::open(test_path).unwrap();
-        let log_data = parse_log(handle).unwrap();
+        let buf = std::fs::read(&test_path).unwrap();
+        let catalog = parse_first_catalog(&buf).unwrap();
 
         let first_proc_id = 105;
         let second_proc_id = 240;
@@ -1114,7 +1115,7 @@ mod tests {
             test_uuid,
             first_proc_id,
             second_proc_id,
-            &log_data.catalog_data[0].catalog,
+            &catalog,
             0,
         )
         .unwrap();
@@ -1140,16 +1141,13 @@ mod tests {
         test_path.push("tests/test_data/system_logs_big_sur.logarchive");
 
         test_path.push("Persist/0000000000000002.tracev3");
-        let handle = std::fs::File::open(test_path).unwrap();
-        let log_data = parse_log(handle).unwrap();
+        let buf = std::fs::read(&test_path).unwrap();
+        let catalog = parse_first_catalog(&buf).unwrap();
 
         let test_first_proc_id = 136;
         let test_second_proc_id = 342;
-        let (dsc_uuid, main_uuid) = MessageData::get_catalog_dsc(
-            &log_data.catalog_data[0].catalog,
-            test_first_proc_id,
-            test_second_proc_id,
-        );
+        let (dsc_uuid, main_uuid) =
+            MessageData::get_catalog_dsc(&catalog, test_first_proc_id, test_second_proc_id);
 
         assert_eq!(
             dsc_uuid,

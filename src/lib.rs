@@ -57,8 +57,8 @@
 
 /// Functions to parse catalog information from tracev3 files
 mod catalog;
-/// Chunk iterator for walking tracev3 top-level and chunkset entries
-pub mod chunk;
+/// Chunk helpers for walking tracev3 top-level and chunkset entries
+pub(crate) mod chunk;
 mod chunks;
 mod constants;
 /// Parsers to extract specific log objects
