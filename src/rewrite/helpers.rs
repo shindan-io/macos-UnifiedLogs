@@ -35,6 +35,7 @@ pub(crate) fn utf8_str(data: &[u8]) -> &str {
     .map(|s| s.trim_end_matches('\0'))
     .unwrap_or(INVALID_UTF8)
 }
+
 /// Extract an UTF8 string from a byte array, stops at `NULL_BYTE` or END OF STRING
 /// Consumes the end byte
 /// Fails if the string is empty
