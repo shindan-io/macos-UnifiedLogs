@@ -1,9 +1,9 @@
-use super::helpers::INVALID_UTF8;
+use crate::rewrite::helpers::utf8_str;
 use nom::{
   bytes::complete::take,
   number::complete::{be_u128, le_u32, le_u64},
 };
-use std::{mem::size_of, str::from_utf8};
+use std::mem::size_of;
 use uuid::Uuid;
 
 #[derive(Debug, Clone)]
@@ -54,18 +54,12 @@ impl<'a> RawHeaderChunk<'a> {
     let (input, unknown_2) = le_u32(input)?;
     let (input, unknown_3) = le_u32(input)?;
     let (input, build_version_string) = take(size_of::<u128>())(input)?;
-    let build_version_string = from_utf8(build_version_string)
-      .inspect_err(|err| log::warn!("[macos-unifiedlogs] Failed to get build version from header: {err:?}"))
-      .map(|s| s.trim_end_matches('\0'))
-      .unwrap_or(INVALID_UTF8);
+    let build_version_string = utf8_str(build_version_string);
 
     let hardware_model_size: u8 = 32;
     let (input, hardware_model_string) = take(hardware_model_size)(input)?;
 
-    let hardware_model_string = from_utf8(hardware_model_string)
-      .inspect_err(|err| log::warn!("[macos-unifiedlogs] Failed to get hardware info from header: {err:?}"))
-      .map(|s| s.trim_end_matches('\0'))
-      .unwrap_or(INVALID_UTF8);
+    let hardware_model_string = utf8_str(hardware_model_string);
 
     let (input, sub_chunk_tag_3) = le_u32(input)?;
     let (input, sub_chunk_tag_data_size_3) = le_u32(input)?;
@@ -78,10 +72,7 @@ impl<'a> RawHeaderChunk<'a> {
 
     let timezone_path_size: u8 = 48;
     let (input, timezone_path) = take(timezone_path_size)(input)?;
-    let timezone_path = from_utf8(timezone_path)
-      .inspect_err(|err| log::warn!("[macos-unifiedlogs] Failed to get timezone path from header: {err:?}"))
-      .map(|s| s.trim_end_matches('\0'))
-      .unwrap_or(INVALID_UTF8);
+    let timezone_path = utf8_str(timezone_path);
 
     let header_chunk = RawHeaderChunk {
       mach_time_numerator,
