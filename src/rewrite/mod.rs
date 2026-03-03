@@ -4,6 +4,7 @@ use nom::{IResult, Parser};
 pub mod catalog;
 pub mod chunks;
 pub mod chunks_reader;
+pub mod chunkset;
 pub mod error;
 pub mod header;
 pub mod helpers;
