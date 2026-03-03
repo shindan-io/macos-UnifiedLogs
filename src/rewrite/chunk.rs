@@ -212,4 +212,23 @@ mod tests {
 
     Ok(())
   }
+
+  #[test]
+  fn visit_firehose_entries() -> anyhow::Result<()> {
+    let data =
+      std::fs::read(test_data_path().join("Bad Data/TraceV3/Bad_header_0000000000000005.tracev3"))?;
+
+    let mut reader = ChunksReader::new(&data);
+    let mut total_entries = 0_usize;
+    reader.visit(|chunk| {
+      if let Chunk::Firehose(fh) = chunk {
+        total_entries += fh.entries().count();
+      }
+    })?;
+
+    // 4017 firehose chunks yield exactly 129617 individual log entries
+    assert_eq!(total_entries, 129_617);
+
+    Ok(())
+  }
 }

@@ -25,6 +25,11 @@ pub(crate) fn padding_size(data_size: u64, alignment: u64) -> u64 {
   (alignment - (data_size & (alignment - 1))) & (alignment - 1)
 }
 
+/// Calculate padding to align to 8 bytes
+pub(crate) fn padding_size_8(data_size: u64) -> u64 {
+  padding_size(data_size, 8)
+}
+
 pub(crate) fn u64_to_usize(n: u64) -> Option<usize> {
   usize::try_from(n).ok()
 }

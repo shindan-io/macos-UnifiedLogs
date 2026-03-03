@@ -1,7 +1,11 @@
+pub mod entry;
+
 use nom::{
   bytes::complete::take,
   number::complete::{le_u8, le_u16, le_u32, le_u64},
 };
+
+use entry::RawFirehoseEntryReader;
 
 /// Parsed firehose chunk header — the 32-byte header after the preamble.
 ///
@@ -64,6 +68,38 @@ impl<'a> RawFirehose<'a> {
       },
     ))
   }
+
+  /// Length of the public data region within `firehose_data`.
+  ///
+  /// `public_data_size` includes 16 bytes of the header itself
+  /// (from `public_data_size` through `base_continuous_time`),
+  /// so the actual public data length is `public_data_size - 16`.
+  pub fn public_data_len(&self) -> usize {
+    (self.public_data_size.saturating_sub(16) as usize).min(self.firehose_data.len())
+  }
+
+  /// Public data slice (contains the firehose entries).
+  pub fn public_data(&self) -> &'a [u8] {
+    &self.firehose_data[..self.public_data_len()]
+  }
+
+  /// Private data slice, or `None` if `private_data_virtual_offset == 0x1000`.
+  pub fn private_data(&self) -> Option<&'a [u8]> {
+    const NO_PRIVATE_DATA: u16 = 0x1000;
+    if self.private_data_virtual_offset == NO_PRIVATE_DATA {
+      return None;
+    }
+    let public_len = self.public_data_len();
+    if public_len >= self.firehose_data.len() {
+      return None;
+    }
+    Some(&self.firehose_data[public_len..])
+  }
+
+  /// Iterate over individual firehose entries in the public data region.
+  pub fn entries(&self) -> RawFirehoseEntryReader<'a> {
+    RawFirehoseEntryReader::new(self.public_data())
+  }
 }
 
 #[cfg(test)]
@@ -76,13 +112,11 @@ mod tests {
     // src/chunks/firehose/firehose_log.rs (test_parse_firehose_preamble, line ~2928).
     // First 16 bytes are the preamble (tag=0x6001, subtag=0, data_size=152).
     let test_data: &[u8] = &[
-      1, 96, 0, 0, 0, 0, 0, 0, 152, 0, 0, 0, 0, 0, 0, 0, 133, 16, 0, 0, 0, 0, 0, 0, 157, 38,
-      0, 0, 0, 0, 0, 0, 136, 0, 0, 16, 0, 0, 0, 2, 42, 188, 25, 14, 104, 4, 0, 0, 2, 1, 4, 0,
-      240, 243, 53, 0, 176, 232, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 16, 0, 12, 0, 176, 249, 0, 0,
-      0, 0, 0, 128, 163, 133, 51, 0, 0, 0, 0, 0, 2, 1, 4, 0, 32, 250, 53, 0, 177, 232, 0, 0,
-      0, 0, 0, 0, 209, 67, 85, 0, 16, 0, 12, 0, 177, 249, 0, 0, 0, 0, 0, 128, 237, 115, 51,
-      0, 0, 0, 0, 0, 2, 1, 4, 0, 48, 57, 126, 0, 179, 232, 0, 0, 0, 0, 0, 0, 40, 101, 197, 1,
-      16, 0, 12, 0, 178, 249, 0, 0, 0, 0, 0, 128, 105, 67, 61, 0, 0, 0, 0, 0,
+      1, 96, 0, 0, 0, 0, 0, 0, 152, 0, 0, 0, 0, 0, 0, 0, 133, 16, 0, 0, 0, 0, 0, 0, 157, 38, 0, 0, 0, 0, 0, 0, 136, 0, 0, 16, 0, 0, 0, 2,
+      42, 188, 25, 14, 104, 4, 0, 0, 2, 1, 4, 0, 240, 243, 53, 0, 176, 232, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 16, 0, 12, 0, 176, 249, 0, 0, 0,
+      0, 0, 128, 163, 133, 51, 0, 0, 0, 0, 0, 2, 1, 4, 0, 32, 250, 53, 0, 177, 232, 0, 0, 0, 0, 0, 0, 209, 67, 85, 0, 16, 0, 12, 0, 177,
+      249, 0, 0, 0, 0, 0, 128, 237, 115, 51, 0, 0, 0, 0, 0, 2, 1, 4, 0, 48, 57, 126, 0, 179, 232, 0, 0, 0, 0, 0, 0, 40, 101, 197, 1, 16, 0,
+      12, 0, 178, 249, 0, 0, 0, 0, 0, 128, 105, 67, 61, 0, 0, 0, 0, 0,
     ];
 
     // Skip the 16-byte preamble
