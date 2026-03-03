@@ -2,7 +2,7 @@ use super::{
   catalog::RawCatalogChunk,
   chunks::ChunkTag,
   chunks_reader::{RawChunk, RawChunksReader},
-  chunkset::{ChunksetPayload, simpledump::RawSimpleDump, statedump::RawStatedump},
+  chunkset::{ChunksetPayload, oversize::RawOversize, simpledump::RawSimpleDump, statedump::RawStatedump},
   error::{NomExt, ParseError},
   header::RawHeaderChunk,
 };
@@ -13,6 +13,7 @@ pub enum Chunk<'a> {
   Catalog(RawCatalogChunk<'a>),
   Simpledump(RawSimpleDump<'a>),
   Statedump(RawStatedump<'a>),
+  Oversize(RawOversize<'a>),
   Unknown(RawChunk<'a>),
 }
 
@@ -117,6 +118,10 @@ impl ChunksReader<'_> {
                 let (_, sd) = RawStatedump::parse(inner.data).map_err(|e| e.to_parse_error())?;
                 f(Chunk::Statedump(sd));
               }
+              ChunkTag::Oversize => {
+                let (_, ov) = RawOversize::parse(inner.data).map_err(|e| e.to_parse_error())?;
+                f(Chunk::Oversize(ov));
+              }
               _ => f(Chunk::Unknown(inner)),
             }
           }
@@ -179,6 +184,9 @@ mod tests {
         Chunk::Statedump(_) => {
           *count_by_type.entry(ChunkTag::Statedump).or_insert(0) += 1;
         }
+        Chunk::Oversize(_) => {
+          *count_by_type.entry(ChunkTag::Oversize).or_insert(0) += 1;
+        }
         Chunk::Unknown(_) => {
           *count_by_type.entry(ChunkTag::Unknown).or_insert(0) += 1;
         }
@@ -189,7 +197,8 @@ mod tests {
     assert_eq!(count_by_type.get(&ChunkTag::Catalog), Some(&36));
     assert_eq!(count_by_type.get(&ChunkTag::Simpledump), None);
     assert_eq!(count_by_type.get(&ChunkTag::Statedump), None);
-    assert_eq!(count_by_type.get(&ChunkTag::Unknown), Some(&4046));
+    assert_eq!(count_by_type.get(&ChunkTag::Oversize), Some(&28));
+    assert_eq!(count_by_type.get(&ChunkTag::Unknown), Some(&4018));
 
     Ok(())
   }
