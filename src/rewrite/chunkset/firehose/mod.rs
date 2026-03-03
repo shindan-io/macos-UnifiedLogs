@@ -1,3 +1,4 @@
+pub mod body;
 pub mod entry;
 
 use nom::{

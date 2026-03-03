@@ -1,5 +1,6 @@
 use nom::number::complete::{le_u8, le_u16, le_u32, le_u64};
 
+use super::body::RawFirehoseBody;
 use super::super::super::helpers::padding_size_8;
 
 const ENTRY_HEADER_SIZE: usize = 24;
@@ -63,6 +64,14 @@ pub struct RawFirehoseEntry<'a> {
 }
 
 impl<'a> RawFirehoseEntry<'a> {
+  /// Parse the type-specific body by dispatching on `log_activity_type`.
+  ///
+  /// Returns a `RawFirehoseBody` variant matching the entry type, with the
+  /// remaining unparsed bytes captured as `items_data` in each body struct.
+  pub fn parse_body(&self) -> Result<RawFirehoseBody<'a>, nom::Err<nom::error::Error<&'a [u8]>>> {
+    RawFirehoseBody::parse(self.entry_data, self.log_activity_type, self.flags, self.log_type)
+  }
+
   fn parse(input: &'a [u8]) -> nom::IResult<&'a [u8], Self> {
     let (input, log_activity_type_raw) = le_u8(input)?;
     let (input, log_type_raw) = le_u8(input)?;

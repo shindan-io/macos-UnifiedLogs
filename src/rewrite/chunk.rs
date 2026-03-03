@@ -231,4 +231,56 @@ mod tests {
 
     Ok(())
   }
+
+  #[test]
+  fn visit_firehose_entry_bodies() -> anyhow::Result<()> {
+    use super::super::chunkset::firehose::body::RawFirehoseBody;
+
+    let data =
+      std::fs::read(test_data_path().join("Bad Data/TraceV3/Bad_header_0000000000000005.tracev3"))?;
+
+    let mut reader = ChunksReader::new(&data);
+    let mut total = 0_usize;
+    let mut failures = 0_usize;
+    let mut counts: HashMap<&str, usize> = HashMap::new();
+
+    reader.visit(|chunk| {
+      if let Chunk::Firehose(fh) = chunk {
+        for entry in fh.entries() {
+          total += 1;
+          match entry.parse_body() {
+            Ok(body) => {
+              let label = match body {
+                RawFirehoseBody::Activity(_) => "Activity",
+                RawFirehoseBody::NonActivity(_) => "NonActivity",
+                RawFirehoseBody::Signpost(_) => "Signpost",
+                RawFirehoseBody::Trace(_) => "Trace",
+                RawFirehoseBody::Loss(_) => "Loss",
+                RawFirehoseBody::Unknown(_) => "Unknown",
+              };
+              *counts.entry(label).or_insert(0) += 1;
+            }
+            Err(_) => {
+              failures += 1;
+            }
+          }
+        }
+      }
+    })?;
+
+    assert_eq!(total, 129_617);
+    assert_eq!(failures, 0, "all entry bodies should parse successfully");
+    assert!(
+      counts.get("Activity").copied().unwrap_or(0) > 0,
+      "should have Activity entries"
+    );
+    assert!(
+      counts.get("NonActivity").copied().unwrap_or(0) > 0,
+      "should have NonActivity entries"
+    );
+
+    eprintln!("Body type distribution: {counts:?}");
+
+    Ok(())
+  }
 }
