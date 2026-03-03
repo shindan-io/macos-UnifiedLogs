@@ -23,7 +23,12 @@ pub enum ParseError {
     source: Utf8Error,
     context: Option<&'static str>,
   },
-
+  #[error("LZ4 decompression failed at offset {offset:#x}: {message}")]
+  DecompressError {
+    offset: Offset,
+    message: String,
+    context: Option<&'static str>,
+  },
   #[error("Nom error parsing {input:?}, code: {code:?}")]
   NomError { input: Vec<u8>, code: nom::error::ErrorKind },
 }
@@ -67,12 +72,18 @@ impl ParseError {
   pub fn invalid_utf8(offset: Offset, source: Utf8Error, context: Option<&'static str>) -> Self {
     Self::InvalidUtf8 { offset, source, context }
   }
+  pub fn decompress_error(offset: Offset, message: String, context: Option<&'static str>) -> Self {
+    Self::DecompressError { offset, message, context }
+  }
 }
 
 impl ParseError {
   pub fn offset(&self) -> Option<Offset> {
     match self {
-      Self::UnexpectedEof { offset, .. } | Self::UnknownChunkTag { offset, .. } | Self::InvalidUtf8 { offset, .. } => Some(*offset),
+      Self::UnexpectedEof { offset, .. }
+      | Self::UnknownChunkTag { offset, .. }
+      | Self::InvalidUtf8 { offset, .. }
+      | Self::DecompressError { offset, .. } => Some(*offset),
       Self::NomError { .. } => None,
     }
   }
