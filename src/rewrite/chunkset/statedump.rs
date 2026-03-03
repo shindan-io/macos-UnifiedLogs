@@ -59,7 +59,7 @@ impl<'a> RawStatedump<'a> {
     };
 
     let (input, title_data) = take(STRING_FIELD_SIZE)(input)?;
-    let title_name = utf8_fixed_str(title_data);
+    let (_, title_name) = utf8_str_from_cstring(title_data)?;
 
     let (input, statedump_data) = take(data_size)(input)?;
 
