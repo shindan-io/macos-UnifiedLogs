@@ -1,4 +1,4 @@
-use crate::rewrite::helpers::{utf8_fixed_str, utf8_str_from_cstring};
+use crate::rewrite::helpers::utf8_str_from_cstring;
 use nom::{
   bytes::complete::take,
   number::complete::{be_u128, le_u8, le_u32, le_u64},
