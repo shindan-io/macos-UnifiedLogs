@@ -5,14 +5,54 @@ use super::super::super::helpers::padding_size_8;
 const ENTRY_HEADER_SIZE: usize = 24;
 const REMNANT_DATA: u8 = 0x0;
 
+/// Firehose entry activity type — identifies the kind of log entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, num_enum::IntoPrimitive, num_enum::FromPrimitive)]
+#[repr(u8)]
+pub enum FirehoseActivityType {
+  Activity = 0x2,
+  Trace = 0x3,
+  NonActivity = 0x4,
+  Signpost = 0x6,
+  Loss = 0x7,
+  #[num_enum(default)]
+  Unknown,
+}
+
+/// Firehose entry log type — the raw wire value for severity/subtype.
+///
+/// Note: `Info` (0x01) is also used as `Create` for activity entries.
+/// The semantic interpretation depends on `FirehoseActivityType` and belongs
+/// in a higher-level layer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, num_enum::IntoPrimitive, num_enum::FromPrimitive)]
+#[repr(u8)]
+pub enum FirehoseLogType {
+  /// Info (0x01) — also "Create" for activity entries.
+  Info = 0x01,
+  Debug = 0x02,
+  Useraction = 0x03,
+  Error = 0x10,
+  Fault = 0x11,
+  ThreadSignpostEvent = 0x40,
+  ThreadSignpostStart = 0x41,
+  ThreadSignpostEnd = 0x42,
+  ProcessSignpostEvent = 0x80,
+  ProcessSignpostStart = 0x81,
+  ProcessSignpostEnd = 0x82,
+  SystemSignpostEvent = 0xc0,
+  SystemSignpostStart = 0xc1,
+  SystemSignpostEnd = 0xc2,
+  #[num_enum(default)]
+  Default,
+}
+
 /// A single firehose log entry header with its raw body (zero-copy).
 ///
 /// The 24-byte header is fully parsed; the type-specific body (`entry_data`)
 /// is kept as raw `&[u8]` for later dispatch (activity / nonactivity / signpost / trace / loss).
 #[derive(Debug, Clone, Copy)]
 pub struct RawFirehoseEntry<'a> {
-  pub log_activity_type: u8,
-  pub log_type: u8,
+  pub log_activity_type: FirehoseActivityType,
+  pub log_type: FirehoseLogType,
   pub flags: u16,
   pub format_string_location: u32,
   pub thread_id: u64,
@@ -24,8 +64,10 @@ pub struct RawFirehoseEntry<'a> {
 
 impl<'a> RawFirehoseEntry<'a> {
   fn parse(input: &'a [u8]) -> nom::IResult<&'a [u8], Self> {
-    let (input, log_activity_type) = le_u8(input)?;
-    let (input, log_type) = le_u8(input)?;
+    let (input, log_activity_type_raw) = le_u8(input)?;
+    let (input, log_type_raw) = le_u8(input)?;
+    let log_activity_type = FirehoseActivityType::from(log_activity_type_raw);
+    let log_type = FirehoseLogType::from(log_type_raw);
     let (input, flags) = le_u16(input)?;
     let (input, format_string_location) = le_u32(input)?;
     let (input, thread_id) = le_u64(input)?;
@@ -81,7 +123,7 @@ impl<'a> Iterator for RawFirehoseEntryReader<'a> {
       return None;
     }
 
-    // Peek at log_activity_type — 0x0 means end of entries
+    // Peek at raw log_activity_type byte — 0x0 means end of entries
     if self.data[0] == REMNANT_DATA {
       return None;
     }
@@ -107,6 +149,7 @@ impl<'a> Iterator for RawFirehoseEntryReader<'a> {
 #[cfg(test)]
 mod tests {
   use super::super::RawFirehose;
+  use super::*;
 
   /// Same test data as `test_parse_raw_firehose` in mod.rs.
   /// 16-byte preamble + 32-byte header + 120 bytes of entry data (3 entries).
@@ -127,8 +170,8 @@ mod tests {
     assert_eq!(entries.len(), 3);
 
     for entry in &entries {
-      assert_eq!(entry.log_activity_type, 0x02); // Activity
-      assert_eq!(entry.log_type, 0x01);
+      assert_eq!(entry.log_activity_type, FirehoseActivityType::Activity);
+      assert_eq!(entry.log_type, FirehoseLogType::Info);
       assert_eq!(entry.flags, 4);
       assert_eq!(entry.data_size, 12);
       assert_eq!(entry.entry_data.len(), 12);
