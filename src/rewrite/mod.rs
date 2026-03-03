@@ -2,6 +2,7 @@ pub use error::*;
 use nom::{IResult, Parser};
 
 pub mod catalog;
+pub mod chunk;
 pub mod chunks;
 pub mod chunks_reader;
 pub mod chunkset;

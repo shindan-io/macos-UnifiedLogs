@@ -10,7 +10,7 @@ pub struct RawChunk<'a> {
 
 #[derive(Debug)]
 pub struct RawChunksReader<'a> {
-  _data: &'a [u8],
+  data: &'a [u8],
   input: &'a [u8],
   padding: usize,
 }
@@ -20,13 +20,20 @@ impl<'a> RawChunksReader<'a> {
   pub fn new_top_level(input: &'a [u8]) -> Self {
     Self::new(input, 8)
   }
-  /// Create a reader over the entire contents of a tracev3 file.
-  pub fn new(input: &'a [u8], padding: usize) -> Self {
+  /// Create a reader over the entire contents of a tracev3 file, assuming no padding.
+  pub fn new_chunckset(input: &'a [u8]) -> Self {
+    Self::new(input, 8)
+  }
+  fn new(input: &'a [u8], padding: usize) -> Self {
+    assert!(padding != 0, "Padding must be non-zero");
     Self {
-      _data: input,
+      data: input,
       input,
       padding,
     }
+  }
+  pub fn current_offset(&self) -> usize {
+    self.data.len() - self.input.len()
   }
 }
 

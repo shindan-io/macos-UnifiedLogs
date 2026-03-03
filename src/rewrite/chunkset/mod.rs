@@ -1,5 +1,6 @@
 use super::{chunks_reader::*, *};
 use nom::number::complete::le_u32;
+use std::rc::Rc;
 
 mod firehose;
 mod oversize;
@@ -14,7 +15,16 @@ pub enum ChunksetPayload<'a> {
   /// `bv4-`: data is borrowed directly from the input buffer.
   Uncompressed(&'a [u8]),
   /// `bv41`: data was LZ4-decompressed into an owned buffer.
-  Decompressed(Vec<u8>),
+  Decompressed(Rc<Vec<u8>>),
+}
+
+impl std::fmt::Debug for ChunksetPayload<'_> {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Self::Uncompressed(data) => f.debug_tuple("Uncompressed").field(&data.len()).finish(),
+      Self::Decompressed(vec) => f.debug_tuple("Decompressed").field(&vec.len()).finish(),
+    }
+  }
 }
 
 impl<'a> ChunksetPayload<'a> {
@@ -22,13 +32,13 @@ impl<'a> ChunksetPayload<'a> {
   pub fn as_bytes(&self) -> &[u8] {
     match self {
       Self::Uncompressed(data) => data,
-      Self::Decompressed(vec) => vec.as_slice(),
+      Self::Decompressed(vec) => vec.as_ref(),
     }
   }
 
   /// Iterate over the inner chunks using `RawChunksReader` with 8-byte padding.
   pub fn inner_chunks(&self) -> RawChunksReader<'_> {
-    RawChunksReader::new(self.as_bytes(), 8)
+    RawChunksReader::new_chunckset(self.as_bytes())
   }
 }
 
@@ -65,7 +75,7 @@ impl<'a> ChunksetPayload<'a> {
         }
         let decompressed = lz4_flex::decompress(&input[..size], uncompressed_size as usize)
           .map_err(|e| ParseError::decompress_error(0, e.to_string(), Some("chunkset LZ4 decompress")))?;
-        Ok(ChunksetPayload::Decompressed(decompressed))
+        Ok(ChunksetPayload::Decompressed(Rc::new(decompressed)))
       }
       _ => Err(ParseError::unknown_chunk_tag(
         0,
@@ -88,7 +98,7 @@ mod tests {
 
     // This file is raw inner chunk data — test RawChunksReader on it directly
     // to confirm our inner_chunks() method would work the same way.
-    let reader = RawChunksReader::new(&data, 8);
+    let reader = RawChunksReader::new_top_level(&data);
     let chunks: Vec<_> = reader.collect::<Result<Vec<_>, _>>()?;
     assert_eq!(chunks.len(), 26);
 

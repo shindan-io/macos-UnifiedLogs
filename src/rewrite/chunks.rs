@@ -2,7 +2,7 @@ use super::*;
 use nom::number::complete::{le_u32, le_u64};
 
 /// Typed chunk tag — identifies the kind of chunk in a tracev3 file.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, num_enum::IntoPrimitive, num_enum::FromPrimitive)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, num_enum::IntoPrimitive, num_enum::FromPrimitive)]
 #[repr(u32)]
 pub enum ChunkTag {
   /// File header (0x1000) — appears once at the start of a tracev3 file.
