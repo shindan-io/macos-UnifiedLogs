@@ -2,10 +2,10 @@ use super::{chunks_reader::*, *};
 use nom::number::complete::le_u32;
 use std::rc::Rc;
 
-mod firehose;
-mod oversize;
-mod simpledump;
-mod statedump;
+pub mod firehose;
+pub mod oversize;
+pub mod simpledump;
+pub mod statedump;
 
 const BV41_COMPRESSED: u32 = 825_521_762; // "bv41"
 const BV41_UNCOMPRESSED: u32 = 758_412_898; // "bv4-"

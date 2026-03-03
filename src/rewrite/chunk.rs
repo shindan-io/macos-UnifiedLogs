@@ -2,7 +2,7 @@ use super::{
   catalog::RawCatalogChunk,
   chunks::ChunkTag,
   chunks_reader::{RawChunk, RawChunksReader},
-  chunkset::ChunksetPayload,
+  chunkset::{ChunksetPayload, simpledump::RawSimpleDump},
   error::{NomExt, ParseError},
   header::RawHeaderChunk,
 };
@@ -11,6 +11,7 @@ use super::{
 pub enum Chunk<'a> {
   Header(super::header::RawHeaderChunk<'a>),
   Catalog(RawCatalogChunk<'a>),
+  Simpledump(RawSimpleDump<'a>),
   Unknown(RawChunk<'a>),
 }
 
@@ -106,7 +107,13 @@ impl ChunksReader<'_> {
         TopChunk::Chunkset(mut reader) => {
           while let Some(inner) = reader.next() {
             let inner = inner?;
-            f(Chunk::Unknown(inner));
+            match inner.preamble.tag {
+              ChunkTag::Simpledump => {
+                let (_, sd) = RawSimpleDump::parse(inner.data).map_err(|e| e.to_parse_error())?;
+                f(Chunk::Simpledump(sd));
+              }
+              _ => f(Chunk::Unknown(inner)),
+            }
           }
         }
         TopChunk::Unknown(raw) => f(Chunk::Unknown(raw)),
@@ -161,6 +168,9 @@ mod tests {
         Chunk::Catalog(_) => {
           *count_by_type.entry(ChunkTag::Catalog).or_insert(0) += 1;
         }
+        Chunk::Simpledump(_) => {
+          *count_by_type.entry(ChunkTag::Simpledump).or_insert(0) += 1;
+        }
         Chunk::Unknown(_) => {
           *count_by_type.entry(ChunkTag::Unknown).or_insert(0) += 1;
         }
@@ -169,6 +179,7 @@ mod tests {
     assert_eq!(count, 4082);
     dbg!(&count_by_type);
     assert_eq!(count_by_type.get(&ChunkTag::Catalog), Some(&36));
+    assert_eq!(count_by_type.get(&ChunkTag::Simpledump), None);
     assert_eq!(count_by_type.get(&ChunkTag::Unknown), Some(&4046));
 
     Ok(())
