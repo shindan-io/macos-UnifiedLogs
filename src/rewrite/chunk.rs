@@ -2,7 +2,7 @@ use super::{
   catalog::RawCatalogChunk,
   chunks::ChunkTag,
   chunks_reader::{RawChunk, RawChunksReader},
-  chunkset::{ChunksetPayload, oversize::RawOversize, simpledump::RawSimpleDump, statedump::RawStatedump},
+  chunkset::{ChunksetPayload, firehose::RawFirehose, oversize::RawOversize, simpledump::RawSimpleDump, statedump::RawStatedump},
   error::{NomExt, ParseError},
   header::RawHeaderChunk,
 };
@@ -11,6 +11,7 @@ use super::{
 pub enum Chunk<'a> {
   Header(super::header::RawHeaderChunk<'a>),
   Catalog(RawCatalogChunk<'a>),
+  Firehose(RawFirehose<'a>),
   Simpledump(RawSimpleDump<'a>),
   Statedump(RawStatedump<'a>),
   Oversize(RawOversize<'a>),
@@ -110,6 +111,10 @@ impl ChunksReader<'_> {
           while let Some(inner) = reader.next() {
             let inner = inner?;
             match inner.preamble.tag {
+              ChunkTag::Firehose => {
+                let (_, fh) = RawFirehose::parse(inner.data).map_err(|e| e.to_parse_error())?;
+                f(Chunk::Firehose(fh));
+              }
               ChunkTag::Simpledump => {
                 let (_, sd) = RawSimpleDump::parse(inner.data).map_err(|e| e.to_parse_error())?;
                 f(Chunk::Simpledump(sd));
@@ -178,6 +183,9 @@ mod tests {
         Chunk::Catalog(_) => {
           *count_by_type.entry(ChunkTag::Catalog).or_insert(0) += 1;
         }
+        Chunk::Firehose(_) => {
+          *count_by_type.entry(ChunkTag::Firehose).or_insert(0) += 1;
+        }
         Chunk::Simpledump(_) => {
           *count_by_type.entry(ChunkTag::Simpledump).or_insert(0) += 1;
         }
@@ -195,10 +203,12 @@ mod tests {
     assert_eq!(count, 4082);
     dbg!(&count_by_type);
     assert_eq!(count_by_type.get(&ChunkTag::Catalog), Some(&36));
+    assert_eq!(count_by_type.get(&ChunkTag::Firehose), Some(&4017));
     assert_eq!(count_by_type.get(&ChunkTag::Simpledump), None);
     assert_eq!(count_by_type.get(&ChunkTag::Statedump), None);
     assert_eq!(count_by_type.get(&ChunkTag::Oversize), Some(&28));
-    assert_eq!(count_by_type.get(&ChunkTag::Unknown), Some(&4018));
+    // 1 truly unrecognized inner chunk remains
+    assert_eq!(count_by_type.get(&ChunkTag::Unknown), Some(&1));
 
     Ok(())
   }
