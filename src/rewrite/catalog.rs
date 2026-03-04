@@ -130,6 +130,13 @@ impl<'a> RawCatalogChunk<'a> {
       .map(|(subsystem, category)| SubsystemInfo { subsystem, category })
   }
 
+  /// Get the full process info entry for a log entry's proc IDs.
+  pub fn get_process_info(&self, first_proc_id: u64, second_proc_id: u32) -> Option<&ProcessInfoEntry> {
+    self
+      .catalog_process_info_entries
+      .get(&CatalogProcessInfoKey(first_proc_id, second_proc_id))
+  }
+
   /// Get the actual Process ID associated with log entry
   pub fn get_pid(&self, first_proc_id: u64, second_proc_id: u32) -> Option<u64> {
     self
@@ -578,6 +585,30 @@ mod tests {
     ];
 
     assert!(CatalogSubchunk::parse(test_bad_compression).is_err());
+    Ok(())
+  }
+
+  #[test]
+  fn test_get_process_info() -> anyhow::Result<()> {
+    let input = std::fs::read(test_data_path().join("Catalog Tests/big_sur_catalog.raw"))?;
+    let (input, _preamble) = ChunkPreamble::parse(&input).unwrap();
+    let (_, catalog) = RawCatalogChunk::parse(&input).unwrap();
+
+    let entry = catalog.get_process_info(165, 406).unwrap();
+    assert_eq!(entry.first_number_proc_id, 165);
+    assert_eq!(entry.second_number_proc_id, 406);
+    assert!(!entry.main_uuid.is_nil());
+    assert!(entry.dsc_uuid.is_some());
+    Ok(())
+  }
+
+  #[test]
+  fn test_get_process_info_missing() -> anyhow::Result<()> {
+    let input = std::fs::read(test_data_path().join("Catalog Tests/big_sur_catalog.raw"))?;
+    let (input, _preamble) = ChunkPreamble::parse(&input).unwrap();
+    let (_, catalog) = RawCatalogChunk::parse(&input).unwrap();
+
+    assert!(catalog.get_process_info(999, 999).is_none());
     Ok(())
   }
 

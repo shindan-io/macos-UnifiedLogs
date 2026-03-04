@@ -33,7 +33,51 @@ pub struct RawSharedCacheStrings<'a> {
   pub uuids: Vec<RawUuidDescriptor<'a>>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct DscStringResult<'a> {
+  pub format_string: &'a str,
+  pub library_path: &'a str,
+  pub library_uuid: Uuid,
+}
+
 impl<'a> RawSharedCacheStrings<'a> {
+  /// Find the range containing `string_offset`, extract the null-terminated
+  /// format string, and return it with the associated library path/UUID.
+  pub fn format_string(&self, string_offset: u64) -> Option<DscStringResult<'a>> {
+    for range in &self.ranges {
+      if string_offset >= range.range_offset
+        && string_offset < (range.range_offset + u64::from(range.range_size))
+      {
+        let local_offset = (string_offset - range.range_offset) as usize;
+
+        // Edge case: offset at exact boundary means the string is in the next range
+        if local_offset == range.strings.len() {
+          continue;
+        }
+
+        if local_offset > range.strings.len() {
+          continue;
+        }
+
+        let (_, s) = utf8_str_from_cstring(&range.strings[local_offset..]).ok()?;
+        let uuid_entry = self.uuids.get(range.uuid_index as usize)?;
+        return Some(DscStringResult {
+          format_string: s,
+          library_path: uuid_entry.path_string,
+          library_uuid: uuid_entry.uuid,
+        });
+      }
+    }
+    None
+  }
+
+  /// Fallback: library info from the first range (used when offset is invalid).
+  pub fn fallback_library_info(&self) -> Option<(&'a str, Uuid)> {
+    let range = self.ranges.first()?;
+    let uuid_entry = self.uuids.get(range.uuid_index as usize)?;
+    Some((uuid_entry.path_string, uuid_entry.uuid))
+  }
+
   pub fn parse(data: &'a [u8]) -> nom::IResult<&'a [u8], Self> {
     let (input, signature) = le_u32(data)?;
     if signature != DSC_SIGNATURE {
@@ -200,6 +244,79 @@ mod tests {
     assert_eq!(results.ranges[0].uuid_index, 0);
     assert_eq!(results.ranges[0].range_offset, 334248);
     assert_eq!(results.ranges[0].range_size, 1);
+    Ok(())
+  }
+
+  #[test]
+  fn test_dsc_format_string_v1() -> anyhow::Result<()> {
+    let path = test_data_path().join("DSC Tests/big_sur_version_1_522F6217CB113F8FB845C2A1B784C7C2");
+    let buffer = std::fs::read(path)?;
+    let (_, dsc) = RawSharedCacheStrings::parse(&buffer).unwrap();
+
+    // Use a known range's offset
+    let offset = dsc.ranges[1].range_offset;
+    let result = dsc.format_string(offset);
+    assert!(result.is_some(), "Expected format string at offset {offset}");
+    let result = result.unwrap();
+    assert!(!result.format_string.is_empty());
+    assert!(!result.library_path.is_empty());
+    assert!(!result.library_uuid.is_nil());
+    Ok(())
+  }
+
+  #[test]
+  fn test_dsc_format_string_v2() -> anyhow::Result<()> {
+    let path = test_data_path().join("DSC Tests/monterey_version_2_3D05845F3F65358F9EBF2236E772AC01");
+    let buffer = std::fs::read(path)?;
+    let (_, dsc) = RawSharedCacheStrings::parse(&buffer).unwrap();
+
+    let offset = dsc.ranges[1].range_offset;
+    let result = dsc.format_string(offset);
+    assert!(result.is_some(), "Expected format string at offset {offset}");
+    let result = result.unwrap();
+    assert!(!result.format_string.is_empty());
+    assert!(!result.library_path.is_empty());
+    assert!(!result.library_uuid.is_nil());
+    Ok(())
+  }
+
+  #[test]
+  fn test_dsc_format_string_not_found() -> anyhow::Result<()> {
+    let path = test_data_path().join("DSC Tests/big_sur_version_1_522F6217CB113F8FB845C2A1B784C7C2");
+    let buffer = std::fs::read(path)?;
+    let (_, dsc) = RawSharedCacheStrings::parse(&buffer).unwrap();
+
+    // Use an offset that's way out of range
+    let result = dsc.format_string(0xFFFF_FFFF_FFFF);
+    assert!(result.is_none());
+    Ok(())
+  }
+
+  #[test]
+  fn test_dsc_format_string_boundary() -> anyhow::Result<()> {
+    let path = test_data_path().join("DSC Tests/big_sur_version_1_522F6217CB113F8FB845C2A1B784C7C2");
+    let buffer = std::fs::read(path)?;
+    let (_, dsc) = RawSharedCacheStrings::parse(&buffer).unwrap();
+
+    // Offset at exact range boundary (range_offset + range_size) should skip to next range
+    let range = &dsc.ranges[0];
+    let boundary_offset = range.range_offset + u64::from(range.range_size);
+    // This should either find the next range or return None — not panic
+    let _ = dsc.format_string(boundary_offset);
+    Ok(())
+  }
+
+  #[test]
+  fn test_dsc_fallback_library_info() -> anyhow::Result<()> {
+    let path = test_data_path().join("DSC Tests/big_sur_version_1_522F6217CB113F8FB845C2A1B784C7C2");
+    let buffer = std::fs::read(path)?;
+    let (_, dsc) = RawSharedCacheStrings::parse(&buffer).unwrap();
+
+    let (lib_path, lib_uuid) = dsc.fallback_library_info().unwrap();
+    assert!(!lib_path.is_empty());
+    assert!(!lib_uuid.is_nil());
+    // Should match the first range's UUID entry
+    assert_eq!(lib_uuid, dsc.uuids[dsc.ranges[0].uuid_index as usize].uuid);
     Ok(())
   }
 
