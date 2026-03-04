@@ -25,7 +25,8 @@ walkdir = "2.5.0"
 sunlight = "0.1.4"
 strum = { version = "0.27.2", features = ["derive"] }
 thiserror = "2"
-num_enum = "=0.7.5"
+num_enum = "0.7"
+bitflags = "2.11"
 
 [dev-dependencies]
 chrono = "0.4.42"
