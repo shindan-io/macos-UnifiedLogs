@@ -1,19 +1,18 @@
 use nom::number::complete::{le_u32, le_u64};
 
 use super::entry::FirehoseLogType;
-use super::flags::{FLAG_HAS_CURRENT_AID, FLAG_HAS_SUBSYSTEM, FLAG_HAS_UNIQUE_PID, RawFormatterFlags};
-use super::item::{RawFirehoseItemData, parse_items_data};
+use super::flags::{FirehoseFlags, RawFormatterFlags};
 
 /// Parsed Activity entry body.
 #[derive(Debug, Clone, Copy)]
 pub struct RawActivityBody<'a> {
   /// Activity ID + sentinel (absent for `Useraction` `log_type`).
   pub activity_id: Option<(u32, u32)>,
-  /// Unique PID — present if `FLAG_HAS_UNIQUE_PID` (0x0010).
+  /// Unique PID — present if `HAS_UNIQUE_PID` (0x0010).
   pub pid: Option<u64>,
-  /// Current activity ID — present if `FLAG_HAS_CURRENT_AID` (0x0001).
+  /// Current activity ID — present if `HAS_CURRENT_AID` (0x0001).
   pub current_aid: Option<(u32, u32)>,
-  /// Other activity ID — present if `FLAG_HAS_SUBSYSTEM` (0x0200), reinterpreted for Activity.
+  /// Other activity ID — present if `HAS_SUBSYSTEM` (0x0200), reinterpreted for Activity.
   pub other_aid: Option<(u32, u32)>,
   pub pc_id: u32,
   pub formatter: RawFormatterFlags,
@@ -22,18 +21,7 @@ pub struct RawActivityBody<'a> {
 
 impl<'a> RawActivityBody<'a> {
   /// Parse an Activity entry body from raw entry data.
-  /// Parse items from this activity body's `items_data`.
-  pub fn parse_items(&self, flags: u16) -> RawFirehoseItemData<'a> {
-    parse_items_data(self.items_data, flags)
-      .map(|(_, data)| data)
-      .unwrap_or_else(|_| RawFirehoseItemData {
-        unknown_item: 0,
-        items: Vec::new(),
-        backtrace_data: None,
-      })
-  }
-
-  pub fn parse(data: &'a [u8], flags: u16, log_type: FirehoseLogType) -> nom::IResult<&'a [u8], Self> {
+  pub fn parse(data: &'a [u8], flags: FirehoseFlags, log_type: FirehoseLogType) -> nom::IResult<&'a [u8], Self> {
     let mut input = data;
 
     // Useraction activity type does not have the first Activity ID or sentinel
@@ -46,7 +34,7 @@ impl<'a> RawActivityBody<'a> {
       None
     };
 
-    let pid = if (flags & FLAG_HAS_UNIQUE_PID) != 0 {
+    let pid = if flags.contains(FirehoseFlags::HAS_UNIQUE_PID) {
       let (i, val) = le_u64(input)?;
       input = i;
       Some(val)
@@ -54,7 +42,7 @@ impl<'a> RawActivityBody<'a> {
       None
     };
 
-    let current_aid = if (flags & FLAG_HAS_CURRENT_AID) != 0 {
+    let current_aid = if flags.contains(FirehoseFlags::HAS_CURRENT_AID) {
       let (i, id) = le_u32(input)?;
       let (i, sentinel) = le_u32(i)?;
       input = i;
@@ -63,8 +51,8 @@ impl<'a> RawActivityBody<'a> {
       None
     };
 
-    // In Activity entries, FLAG_HAS_SUBSYSTEM means "has other activity ID"
-    let other_aid = if (flags & FLAG_HAS_SUBSYSTEM) != 0 {
+    // In Activity entries, HAS_SUBSYSTEM means "has other activity ID"
+    let other_aid = if flags.contains(FirehoseFlags::HAS_SUBSYSTEM) {
       let (i, id) = le_u32(input)?;
       let (i, sentinel) = le_u32(i)?;
       input = i;
@@ -104,7 +92,7 @@ mod tests {
       178, 251, 0, 0, 0, 0, 0, 128, 236, 0, 0, 0, 0, 0, 0, 0, 178, 251, 0, 0, 0, 0, 0, 128, 179, 251, 0, 0, 0, 0, 0, 128, 64, 63, 24, 18,
       1, 0, 2, 0,
     ];
-    let flags: u16 = 573;
+    let flags = FirehoseFlags::from_bits_retain(573);
     let log_type = FirehoseLogType::Info;
 
     let body = RawFirehoseBody::parse(test_data, FirehoseActivityType::Activity, flags, log_type).unwrap();
@@ -134,16 +122,11 @@ mod tests {
       178, 251, 0, 0, 0, 0, 0, 128, 236, 0, 0, 0, 0, 0, 0, 0, 178, 251, 0, 0, 0, 0, 0, 128, 179, 251, 0, 0, 0, 0, 0, 128, 64, 63, 24, 18,
       1, 0, 2, 0,
     ];
-    let flags: u16 = 573;
+    let flags = FirehoseFlags::from_bits_retain(573);
     let log_type = FirehoseLogType::Info;
 
     let body = RawFirehoseBody::parse(test_data, FirehoseActivityType::Activity, flags, log_type).unwrap();
-    let activity = match body {
-      RawFirehoseBody::Activity(a) => a,
-      other => panic!("expected Activity, got {other:?}"),
-    };
-
-    let result = activity.parse_items(flags);
+    let result = body.parse_items(flags).unwrap();
     assert_eq!(result.items.len(), 0);
   }
 }

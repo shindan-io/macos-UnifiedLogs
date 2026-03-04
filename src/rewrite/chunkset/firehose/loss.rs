@@ -29,13 +29,14 @@ impl RawLossBody {
 mod tests {
   use super::super::body::RawFirehoseBody;
   use super::super::entry::{FirehoseActivityType, FirehoseLogType};
+  use super::super::flags::FirehoseFlags;
 
   #[test]
   fn test_loss_body() {
     // From src/chunks/firehose/loss.rs test_parse_firehose_loss_monterey
     let test_data: &[u8] = &[72, 56, 43, 42, 0, 0, 0, 0, 231, 207, 114, 187, 0, 0, 0, 0, 63, 0, 0, 0, 0, 0, 0, 0];
 
-    let body = RawFirehoseBody::parse(test_data, FirehoseActivityType::Loss, 0, FirehoseLogType::Default).unwrap();
+    let body = RawFirehoseBody::parse(test_data, FirehoseActivityType::Loss, FirehoseFlags::empty(), FirehoseLogType::Default).unwrap();
     let loss = match body {
       RawFirehoseBody::Loss(l) => l,
       other => panic!("expected Loss, got {other:?}"),

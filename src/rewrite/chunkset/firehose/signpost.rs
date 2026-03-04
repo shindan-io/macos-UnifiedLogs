@@ -1,50 +1,36 @@
 use nom::bytes::complete::take;
 use nom::number::complete::{le_u8, le_u16, le_u32, le_u64};
 
-use super::flags::{
-  FLAG_HAS_CURRENT_AID, FLAG_HAS_NAME, FLAG_HAS_OVERSIZE, FLAG_HAS_PRIVATE_DATA, FLAG_HAS_RULES, FLAG_HAS_SUBSYSTEM, RawFormatterFlags,
-};
-use super::item::{RawFirehoseItemData, parse_items_data};
+use super::flags::{FirehoseFlags, RawFormatterFlags};
 
 /// Parsed Signpost entry body.
 #[derive(Debug, Clone, Copy)]
 pub struct RawSignpostBody<'a> {
-  /// Activity ID — present if `FLAG_HAS_CURRENT_AID` (0x0001).
+  /// Activity ID — present if `HAS_CURRENT_AID` (0x0001).
   pub activity_id: Option<(u32, u32)>,
-  /// Private string (offset, size) — present if `FLAG_HAS_PRIVATE_DATA` (0x0100).
+  /// Private string (offset, size) — present if `HAS_PRIVATE_DATA` (0x0100).
   pub private_strings: Option<(u16, u16)>,
   pub pc_id: u32,
   pub formatter: RawFormatterFlags,
-  /// Subsystem — present if `FLAG_HAS_SUBSYSTEM` (0x0200).
+  /// Subsystem — present if `HAS_SUBSYSTEM` (0x0200).
   pub subsystem: Option<u16>,
   /// Always present in signpost entries.
   pub signpost_id: u64,
-  /// TTL — present if `FLAG_HAS_RULES` (0x0400).
+  /// TTL — present if `HAS_RULES` (0x0400).
   pub ttl: Option<u8>,
-  /// Oversize data reference — present if `FLAG_HAS_OVERSIZE` (0x0800).
+  /// Oversize data reference — present if `HAS_OVERSIZE` (0x0800).
   pub data_ref: Option<u32>,
-  /// Signpost name — present if `FLAG_HAS_NAME` (0x8000).
+  /// Signpost name — present if `HAS_NAME` (0x8000).
   pub signpost_name: Option<u32>,
   pub items_data: &'a [u8],
 }
 
 impl<'a> RawSignpostBody<'a> {
-  /// Parse items from this signpost body's `items_data`.
-  pub fn parse_items(&self, flags: u16) -> RawFirehoseItemData<'a> {
-    parse_items_data(self.items_data, flags)
-      .map(|(_, data)| data)
-      .unwrap_or_else(|_| RawFirehoseItemData {
-        unknown_item: 0,
-        items: Vec::new(),
-        backtrace_data: None,
-      })
-  }
-
   /// Parse a Signpost entry body from raw entry data.
-  pub fn parse(data: &'a [u8], flags: u16) -> nom::IResult<&'a [u8], Self> {
+  pub fn parse(data: &'a [u8], flags: FirehoseFlags) -> nom::IResult<&'a [u8], Self> {
     let mut input = data;
 
-    let activity_id = if (flags & FLAG_HAS_CURRENT_AID) != 0 {
+    let activity_id = if flags.contains(FirehoseFlags::HAS_CURRENT_AID) {
       let (i, id) = le_u32(input)?;
       let (i, sentinel) = le_u32(i)?;
       input = i;
@@ -53,7 +39,7 @@ impl<'a> RawSignpostBody<'a> {
       None
     };
 
-    let private_strings = if (flags & FLAG_HAS_PRIVATE_DATA) != 0 {
+    let private_strings = if flags.contains(FirehoseFlags::HAS_PRIVATE_DATA) {
       let (i, offset) = le_u16(input)?;
       let (i, size) = le_u16(i)?;
       input = i;
@@ -65,7 +51,7 @@ impl<'a> RawSignpostBody<'a> {
     let (input, pc_id) = le_u32(input)?;
     let (mut input, formatter) = RawFormatterFlags::parse(input, flags)?;
 
-    let subsystem = if (flags & FLAG_HAS_SUBSYSTEM) != 0 {
+    let subsystem = if flags.contains(FirehoseFlags::HAS_SUBSYSTEM) {
       let (i, val) = le_u16(input)?;
       input = i;
       Some(val)
@@ -75,7 +61,7 @@ impl<'a> RawSignpostBody<'a> {
 
     let (mut input, signpost_id) = le_u64(input)?;
 
-    let ttl = if (flags & FLAG_HAS_RULES) != 0 {
+    let ttl = if flags.contains(FirehoseFlags::HAS_RULES) {
       let (i, val) = le_u8(input)?;
       input = i;
       Some(val)
@@ -83,7 +69,7 @@ impl<'a> RawSignpostBody<'a> {
       None
     };
 
-    let data_ref = if (flags & FLAG_HAS_OVERSIZE) != 0 {
+    let data_ref = if flags.contains(FirehoseFlags::HAS_OVERSIZE) {
       let (i, val) = le_u32(input)?;
       input = i;
       Some(val)
@@ -91,7 +77,7 @@ impl<'a> RawSignpostBody<'a> {
       None
     };
 
-    let signpost_name = if (flags & FLAG_HAS_NAME) != 0 {
+    let signpost_name = if flags.contains(FirehoseFlags::HAS_NAME) {
       let (i, val) = le_u32(input)?;
       input = i;
       // If the signpost has large_shared_cache flag, skip 2 extra bytes
@@ -126,12 +112,13 @@ impl<'a> RawSignpostBody<'a> {
 mod tests {
   use super::super::body::RawFirehoseBody;
   use super::super::entry::{FirehoseActivityType, FirehoseLogType};
+  use super::*;
 
   #[test]
   fn test_signpost_body() {
     // From src/chunks/firehose/signpost.rs test_parse_signpost
     let test_data: &[u8] = &[225, 244, 2, 0, 1, 0, 238, 238, 178, 178, 181, 176, 238, 238, 176, 63, 27, 0, 0, 0];
-    let flags: u16 = 33282;
+    let flags = FirehoseFlags::from_bits_retain(33282);
 
     let body = RawFirehoseBody::parse(test_data, FirehoseActivityType::Signpost, flags, FirehoseLogType::Default).unwrap();
     let sp = match body {

@@ -2,7 +2,8 @@ use nom::number::complete::{le_u8, le_u16, le_u32, le_u64};
 
 use super::super::super::helpers::padding_size_8;
 use super::body::RawFirehoseBody;
-use super::item::{RawFirehoseItem, RawFirehoseItemData, parse_trace_items};
+use super::flags::FirehoseFlags;
+use super::item::RawFirehoseItemData;
 
 const ENTRY_HEADER_SIZE: usize = 24;
 const REMNANT_DATA: u8 = 0x0;
@@ -55,7 +56,7 @@ pub enum FirehoseLogType {
 pub struct RawFirehoseEntry<'a> {
   pub log_activity_type: FirehoseActivityType,
   pub log_type: FirehoseLogType,
-  pub flags: u16,
+  pub flags: FirehoseFlags,
   pub format_string_location: u32,
   pub thread_id: u64,
   pub continuous_time_delta: u32,
@@ -73,26 +74,9 @@ impl<'a> RawFirehoseEntry<'a> {
     RawFirehoseBody::parse(self.entry_data, self.log_activity_type, self.flags, self.log_type)
   }
 
-  /// Parse items from this entry — dispatches to the right parser based on activity type.
-  ///
-  /// For Trace entries, returns an owned `Vec` wrapped in a `RawFirehoseItemData`.
-  /// For other entry types, borrows strings from the underlying buffer.
+  /// Parse items from this entry — dispatches to the right parser based on body type.
   pub fn parse_items(&self) -> Option<RawFirehoseItemData<'a>> {
-    let body = self.parse_body().ok()?;
-    match body {
-      RawFirehoseBody::Activity(b) => Some(b.parse_items(self.flags)),
-      RawFirehoseBody::NonActivity(b) => Some(b.parse_items(self.flags)),
-      RawFirehoseBody::Signpost(b) => Some(b.parse_items(self.flags)),
-      RawFirehoseBody::Trace(b) => {
-        let items: Vec<RawFirehoseItem<'_>> = parse_trace_items(b.items_data);
-        Some(RawFirehoseItemData {
-          unknown_item: 0,
-          items,
-          backtrace_data: None,
-        })
-      }
-      RawFirehoseBody::Loss(_) | RawFirehoseBody::Unknown(_) => None,
-    }
+    self.parse_body().ok()?.parse_items(self.flags)
   }
 
   fn parse(input: &'a [u8]) -> nom::IResult<&'a [u8], Self> {
@@ -100,7 +84,8 @@ impl<'a> RawFirehoseEntry<'a> {
     let (input, log_type_raw) = le_u8(input)?;
     let log_activity_type = FirehoseActivityType::from(log_activity_type_raw);
     let log_type = FirehoseLogType::from(log_type_raw);
-    let (input, flags) = le_u16(input)?;
+    let (input, flags_raw) = le_u16(input)?;
+    let flags = FirehoseFlags::from_bits_retain(flags_raw);
     let (input, format_string_location) = le_u32(input)?;
     let (input, thread_id) = le_u64(input)?;
     let (input, continuous_time_delta) = le_u32(input)?;
@@ -204,7 +189,7 @@ mod tests {
     for entry in &entries {
       assert_eq!(entry.log_activity_type, FirehoseActivityType::Activity);
       assert_eq!(entry.log_type, FirehoseLogType::Info);
-      assert_eq!(entry.flags, 4);
+      assert_eq!(entry.flags.bits(), 4);
       assert_eq!(entry.data_size, 12);
       assert_eq!(entry.entry_data.len(), 12);
     }

@@ -1,15 +1,27 @@
 use nom::number::complete::{be_u128, le_u16};
 
-// --- Flag constants ---
+// --- Entry-level flags (independent bits) ---
 
-pub(super) const FLAG_HAS_CURRENT_AID: u16 = 0x0001;
-pub(super) const FLAG_HAS_UNIQUE_PID: u16 = 0x0010;
-pub(super) const FLAG_HAS_PRIVATE_DATA: u16 = 0x0100;
-pub(super) const FLAG_HAS_SUBSYSTEM: u16 = 0x0200;
-pub(super) const FLAG_HAS_RULES: u16 = 0x0400;
-pub(super) const FLAG_HAS_OVERSIZE: u16 = 0x0800;
-pub(super) const FLAG_HAS_CONTEXT_DATA: u16 = 0x1000;
-pub(super) const FLAG_HAS_NAME: u16 = 0x8000;
+bitflags::bitflags! {
+  /// Firehose entry flags — independent bit flags parsed from the entry header.
+  ///
+  /// Controls which optional fields are present in the entry body.
+  /// Bits 1–3 (mask 0x000E) and bit 5 (0x0020) are formatter flags,
+  /// handled separately in [`RawFormatterFlags::parse()`] via `bits()`.
+  #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+  pub struct FirehoseFlags: u16 {
+    const HAS_CURRENT_AID   = 0x0001;
+    const HAS_UNIQUE_PID    = 0x0010;
+    const HAS_PRIVATE_DATA  = 0x0100;
+    const HAS_SUBSYSTEM     = 0x0200;
+    const HAS_RULES         = 0x0400;
+    const HAS_OVERSIZE      = 0x0800;
+    const HAS_CONTEXT_DATA  = 0x1000;
+    const HAS_NAME          = 0x8000;
+  }
+}
+
+// --- Formatter constants (multi-bit enum pattern, private) ---
 
 const FORMATTER_FLAG_MASK: u16 = 0x000e;
 const FORMATTER_MAIN_EXE: u16 = 0x2;
@@ -40,13 +52,14 @@ impl RawFormatterFlags {
   ///
   /// Direct translation of `FirehoseFormatters::firehose_formatter_flags`
   /// from `src/chunks/firehose/flags.rs`.
-  pub(super) fn parse(input: &[u8], flags: u16) -> nom::IResult<&[u8], Self> {
+  pub(super) fn parse(input: &[u8], flags: FirehoseFlags) -> nom::IResult<&[u8], Self> {
     let mut result = Self::default();
+    let raw = flags.bits();
 
-    match flags & FORMATTER_FLAG_MASK {
+    match raw & FORMATTER_FLAG_MASK {
       FORMATTER_LARGE_SHARED_CACHE => {
         let mut input = input;
-        if (flags & FORMATTER_LARGE_OFFSET) != 0 {
+        if (raw & FORMATTER_LARGE_OFFSET) != 0 {
           let (i, val) = le_u16(input)?;
           result.has_large_offset = val;
           input = i;
@@ -57,7 +70,7 @@ impl RawFormatterFlags {
       }
       FORMATTER_ABSOLUTE => {
         result.absolute = true;
-        if (flags & FORMATTER_MAIN_EXE) == 0 {
+        if (raw & FORMATTER_MAIN_EXE) == 0 {
           let (input, val) = le_u16(input)?;
           result.alt_index = val;
           Ok((input, result))
@@ -71,7 +84,7 @@ impl RawFormatterFlags {
       }
       FORMATTER_SHARED_CACHE => {
         result.shared_cache = true;
-        if (flags & FORMATTER_LARGE_OFFSET) != 0 {
+        if (raw & FORMATTER_LARGE_OFFSET) != 0 {
           let (input, val) = le_u16(input)?;
           result.has_large_offset = val;
           Ok((input, result))

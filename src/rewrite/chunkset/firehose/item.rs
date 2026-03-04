@@ -4,7 +4,7 @@ use nom::{
 };
 
 use super::super::super::helpers::{padding_size, utf8_str};
-use super::flags::FLAG_HAS_CONTEXT_DATA;
+use super::flags::FirehoseFlags;
 
 /// Classification of the `item_type` byte into parsing categories.
 ///
@@ -80,7 +80,7 @@ pub struct RawFirehoseItemData<'a> {
 /// Two-pass algorithm:
 /// 1. Parse item headers — numbers are resolved inline, string metadata is deferred.
 /// 2. After optional backtrace skip, read string data sequentially.
-pub fn parse_items_data<'a>(data: &'a [u8], flags: u16) -> nom::IResult<&'a [u8], RawFirehoseItemData<'a>> {
+pub fn parse_items_data<'a>(data: &'a [u8], flags: FirehoseFlags) -> nom::IResult<&'a [u8], RawFirehoseItemData<'a>> {
     if data.len() < 2 {
         return Ok((
             data,
@@ -206,7 +206,7 @@ pub fn parse_items_data<'a>(data: &'a [u8], flags: u16) -> nom::IResult<&'a [u8]
     }
 
     // --- Backtrace skip ---
-    let has_backtrace = (flags & FLAG_HAS_CONTEXT_DATA) != 0
+    let has_backtrace = flags.contains(FirehoseFlags::HAS_CONTEXT_DATA)
         || (input.len() > 3 && input[..3] == [1, 0, 18]);
     let backtrace_data = if has_backtrace {
         let (rest, bt) = skip_backtrace(input)?;
@@ -459,7 +459,7 @@ mod tests {
             0, 0, 100, 105, 115, 112, 97, 116, 99, 104, 69, 118, 101, 110, 116, 0,
         ];
 
-        let (remaining, result) = parse_items_data(items_data, 0).unwrap();
+        let (remaining, result) = parse_items_data(items_data, FirehoseFlags::empty()).unwrap();
         assert_eq!(result.unknown_item, 34);
         assert_eq!(result.items.len(), 9);
         assert_eq!(result.backtrace_data, None);
@@ -486,7 +486,7 @@ mod tests {
     fn test_parse_activity_items_empty() {
         // Activity entries from the test data have empty items_data.
         let items_data: &[u8] = &[];
-        let (_, result) = parse_items_data(items_data, 4).unwrap();
+        let (_, result) = parse_items_data(items_data, FirehoseFlags::from_bits_retain(4)).unwrap();
         assert_eq!(result.items.len(), 0);
     }
 
@@ -536,7 +536,7 @@ mod tests {
     fn test_parse_items_data_minimal() {
         // Just unknown_item + number_items=0
         let data: &[u8] = &[0, 0];
-        let (remaining, result) = parse_items_data(data, 0).unwrap();
+        let (remaining, result) = parse_items_data(data, FirehoseFlags::empty()).unwrap();
         assert_eq!(result.unknown_item, 0);
         assert_eq!(result.items.len(), 0);
         assert_eq!(result.backtrace_data, None);
@@ -548,7 +548,7 @@ mod tests {
         // Signpost test data has 2 bytes of items_data: [0, 0]
         // unknown_item=0, number_items=0
         let data: &[u8] = &[0, 0];
-        let (_, result) = parse_items_data(data, 0).unwrap();
+        let (_, result) = parse_items_data(data, FirehoseFlags::empty()).unwrap();
         assert_eq!(result.items.len(), 0);
     }
 }

@@ -1,4 +1,6 @@
 use super::entry::{FirehoseActivityType, FirehoseLogType};
+use super::flags::FirehoseFlags;
+use super::item::{RawFirehoseItemData, parse_items_data, parse_trace_items};
 
 // Re-export body types for convenience.
 pub use super::activity::RawActivityBody;
@@ -24,7 +26,7 @@ impl<'a> RawFirehoseBody<'a> {
   pub fn parse(
     data: &'a [u8],
     log_activity_type: FirehoseActivityType,
-    flags: u16,
+    flags: FirehoseFlags,
     log_type: FirehoseLogType,
   ) -> Result<Self, nom::Err<nom::error::Error<&'a [u8]>>> {
     match log_activity_type {
@@ -49,6 +51,43 @@ impl<'a> RawFirehoseBody<'a> {
         Ok(Self::Loss(body))
       }
       FirehoseActivityType::Unknown => Ok(Self::Unknown(data)),
+    }
+  }
+
+  /// Get `items_data` from standard (non-trace) body types.
+  fn standard_items_data(&self) -> Option<&'a [u8]> {
+    match self {
+      Self::Activity(b) => Some(b.items_data),
+      Self::NonActivity(b) => Some(b.items_data),
+      Self::Signpost(b) => Some(b.items_data),
+      _ => None,
+    }
+  }
+
+  /// Parse items from this body, dispatching to the appropriate parser.
+  ///
+  /// - Activity / `NonActivity` / Signpost → standard item parsing
+  /// - Trace → reversed big-endian numeric parsing
+  /// - Loss / Unknown → `None`
+  pub fn parse_items(&self, flags: FirehoseFlags) -> Option<RawFirehoseItemData<'a>> {
+    if let Some(items_data) = self.standard_items_data() {
+      return Some(
+        parse_items_data(items_data, flags)
+          .map(|(_, data)| data)
+          .unwrap_or_else(|_| RawFirehoseItemData {
+            unknown_item: 0,
+            items: Vec::new(),
+            backtrace_data: None,
+          }),
+      );
+    }
+    match self {
+      Self::Trace(b) => Some(RawFirehoseItemData {
+        unknown_item: 0,
+        items: parse_trace_items(b.items_data),
+        backtrace_data: None,
+      }),
+      _ => None,
     }
   }
 }

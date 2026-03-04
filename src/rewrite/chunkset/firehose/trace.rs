@@ -27,13 +27,14 @@ impl<'a> RawTraceBody<'a> {
 mod tests {
   use super::super::body::RawFirehoseBody;
   use super::super::entry::{FirehoseActivityType, FirehoseLogType};
+  use super::super::flags::FirehoseFlags;
 
   #[test]
   fn test_trace_body() {
     // From src/chunks/firehose/trace.rs test_parse_firehose_trace
     let test_data: &[u8] = &[106, 139, 3, 0, 0];
 
-    let body = RawFirehoseBody::parse(test_data, FirehoseActivityType::Trace, 0, FirehoseLogType::Default).unwrap();
+    let body = RawFirehoseBody::parse(test_data, FirehoseActivityType::Trace, FirehoseFlags::empty(), FirehoseLogType::Default).unwrap();
     let trace = match body {
       RawFirehoseBody::Trace(t) => t,
       other => panic!("expected Trace, got {other:?}"),
