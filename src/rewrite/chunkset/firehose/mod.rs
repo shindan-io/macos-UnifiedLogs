@@ -1,5 +1,11 @@
+pub mod activity;
 pub mod body;
 pub mod entry;
+pub mod flags;
+pub mod loss;
+pub mod nonactivity;
+pub mod signpost;
+pub mod trace;
 
 use nom::{
   bytes::complete::take,

@@ -1,7 +1,7 @@
 use nom::number::complete::{le_u8, le_u16, le_u32, le_u64};
 
-use super::body::RawFirehoseBody;
 use super::super::super::helpers::padding_size_8;
+use super::body::RawFirehoseBody;
 
 const ENTRY_HEADER_SIZE: usize = 24;
 const REMNANT_DATA: u8 = 0x0;
