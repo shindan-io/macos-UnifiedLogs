@@ -66,6 +66,16 @@ pub struct RawFirehoseEntry<'a> {
 }
 
 impl<'a> RawFirehoseEntry<'a> {
+  /// Reconstruct the 48-bit continuous time delta from its split fields.
+  pub fn continuous_time_delta_combined(&self) -> u64 {
+    u64::from(self.continuous_time_delta) | (u64::from(self.continuous_time_delta_upper) << 32)
+  }
+
+  /// Compute the absolute continuous time given the firehose chunk's base time.
+  pub fn absolute_continuous_time(&self, base_continuous_time: u64) -> u64 {
+    base_continuous_time + self.continuous_time_delta_combined()
+  }
+
   /// Parse the type-specific body by dispatching on `log_activity_type`.
   ///
   /// Returns a `RawFirehoseBody` variant matching the entry type, with the
@@ -200,5 +210,29 @@ mod tests {
 
     // continuous_time_delta should differ
     assert_ne!(entries[0].continuous_time_delta, entries[1].continuous_time_delta);
+  }
+
+  #[test]
+  fn test_continuous_time_methods() {
+    let data = &TEST_DATA[16..]; // skip preamble
+    let (_, fh) = RawFirehose::parse(data).unwrap();
+    let entries: Vec<_> = fh.entries().collect();
+
+    let entry = &entries[0];
+
+    // combined delta must equal lower | (upper << 32)
+    let expected_combined =
+      u64::from(entry.continuous_time_delta) | (u64::from(entry.continuous_time_delta_upper) << 32);
+    assert_eq!(entry.continuous_time_delta_combined(), expected_combined);
+
+    // absolute = base + combined
+    let base = fh.base_continuous_time;
+    assert_eq!(
+      entry.absolute_continuous_time(base),
+      base + expected_combined
+    );
+
+    // zero base should return just the combined delta
+    assert_eq!(entry.absolute_continuous_time(0), expected_combined);
   }
 }

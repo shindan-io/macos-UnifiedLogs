@@ -201,7 +201,7 @@ mod tests {
       }
     })?;
     assert_eq!(count, 4082);
-    dbg!(&count_by_type);
+    // dbg!(&count_by_type);
     assert_eq!(count_by_type.get(&ChunkTag::Catalog), Some(&36));
     assert_eq!(count_by_type.get(&ChunkTag::Firehose), Some(&4017));
     assert_eq!(count_by_type.get(&ChunkTag::Simpledump), None);

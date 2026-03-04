@@ -9,6 +9,7 @@ pub mod chunkset;
 pub mod error;
 pub mod header;
 pub mod helpers;
+pub mod timesync;
 
 /// Byte offset within the data being parsed.
 pub type Offset = usize;
