@@ -2,6 +2,7 @@ pub mod activity;
 pub mod body;
 pub mod entry;
 pub mod flags;
+pub mod item;
 pub mod loss;
 pub mod nonactivity;
 pub mod signpost;

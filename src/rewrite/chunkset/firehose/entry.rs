@@ -2,6 +2,7 @@ use nom::number::complete::{le_u8, le_u16, le_u32, le_u64};
 
 use super::super::super::helpers::padding_size_8;
 use super::body::RawFirehoseBody;
+use super::item::{RawFirehoseItem, RawFirehoseItemData, parse_trace_items};
 
 const ENTRY_HEADER_SIZE: usize = 24;
 const REMNANT_DATA: u8 = 0x0;
@@ -70,6 +71,28 @@ impl<'a> RawFirehoseEntry<'a> {
   /// remaining unparsed bytes captured as `items_data` in each body struct.
   pub fn parse_body(&self) -> Result<RawFirehoseBody<'a>, nom::Err<nom::error::Error<&'a [u8]>>> {
     RawFirehoseBody::parse(self.entry_data, self.log_activity_type, self.flags, self.log_type)
+  }
+
+  /// Parse items from this entry — dispatches to the right parser based on activity type.
+  ///
+  /// For Trace entries, returns an owned `Vec` wrapped in a `RawFirehoseItemData`.
+  /// For other entry types, borrows strings from the underlying buffer.
+  pub fn parse_items(&self) -> Option<RawFirehoseItemData<'a>> {
+    let body = self.parse_body().ok()?;
+    match body {
+      RawFirehoseBody::Activity(b) => Some(b.parse_items(self.flags)),
+      RawFirehoseBody::NonActivity(b) => Some(b.parse_items(self.flags)),
+      RawFirehoseBody::Signpost(b) => Some(b.parse_items(self.flags)),
+      RawFirehoseBody::Trace(b) => {
+        let items: Vec<RawFirehoseItem<'_>> = parse_trace_items(b.items_data);
+        Some(RawFirehoseItemData {
+          unknown_item: 0,
+          items,
+          backtrace_data: None,
+        })
+      }
+      RawFirehoseBody::Loss(_) | RawFirehoseBody::Unknown(_) => None,
+    }
   }
 
   fn parse(input: &'a [u8]) -> nom::IResult<&'a [u8], Self> {

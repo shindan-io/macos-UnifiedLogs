@@ -8,6 +8,7 @@ pub(super) const FLAG_HAS_PRIVATE_DATA: u16 = 0x0100;
 pub(super) const FLAG_HAS_SUBSYSTEM: u16 = 0x0200;
 pub(super) const FLAG_HAS_RULES: u16 = 0x0400;
 pub(super) const FLAG_HAS_OVERSIZE: u16 = 0x0800;
+pub(super) const FLAG_HAS_CONTEXT_DATA: u16 = 0x1000;
 pub(super) const FLAG_HAS_NAME: u16 = 0x8000;
 
 const FORMATTER_FLAG_MASK: u16 = 0x000e;

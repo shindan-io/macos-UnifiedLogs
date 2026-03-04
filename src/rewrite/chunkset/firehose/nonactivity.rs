@@ -1,6 +1,7 @@
 use nom::number::complete::{le_u8, le_u16, le_u32};
 
 use super::flags::{FLAG_HAS_CURRENT_AID, FLAG_HAS_OVERSIZE, FLAG_HAS_PRIVATE_DATA, FLAG_HAS_RULES, FLAG_HAS_SUBSYSTEM, RawFormatterFlags};
+use super::item::{RawFirehoseItemData, parse_items_data};
 
 /// Parsed Non-Activity entry body.
 #[derive(Debug, Clone, Copy)]
@@ -21,6 +22,17 @@ pub struct RawNonActivityBody<'a> {
 }
 
 impl<'a> RawNonActivityBody<'a> {
+  /// Parse items from this non-activity body's `items_data`.
+  pub fn parse_items(&self, flags: u16) -> RawFirehoseItemData<'a> {
+    parse_items_data(self.items_data, flags)
+      .map(|(_, data)| data)
+      .unwrap_or_else(|_| RawFirehoseItemData {
+        unknown_item: 0,
+        items: Vec::new(),
+        backtrace_data: None,
+      })
+  }
+
   /// Parse a Non-Activity entry body from raw entry data.
   pub fn parse(data: &'a [u8], flags: u16) -> nom::IResult<&'a [u8], Self> {
     let mut input = data;

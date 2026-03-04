@@ -2,6 +2,7 @@ use nom::number::complete::{le_u32, le_u64};
 
 use super::entry::FirehoseLogType;
 use super::flags::{FLAG_HAS_CURRENT_AID, FLAG_HAS_SUBSYSTEM, FLAG_HAS_UNIQUE_PID, RawFormatterFlags};
+use super::item::{RawFirehoseItemData, parse_items_data};
 
 /// Parsed Activity entry body.
 #[derive(Debug, Clone, Copy)]
@@ -21,6 +22,17 @@ pub struct RawActivityBody<'a> {
 
 impl<'a> RawActivityBody<'a> {
   /// Parse an Activity entry body from raw entry data.
+  /// Parse items from this activity body's `items_data`.
+  pub fn parse_items(&self, flags: u16) -> RawFirehoseItemData<'a> {
+    parse_items_data(self.items_data, flags)
+      .map(|(_, data)| data)
+      .unwrap_or_else(|_| RawFirehoseItemData {
+        unknown_item: 0,
+        items: Vec::new(),
+        backtrace_data: None,
+      })
+  }
+
   pub fn parse(data: &'a [u8], flags: u16, log_type: FirehoseLogType) -> nom::IResult<&'a [u8], Self> {
     let mut input = data;
 
@@ -114,5 +126,24 @@ mod tests {
     assert_eq!(activity.formatter.alt_index, 0);
     assert_eq!(activity.formatter.uuid_relative, [0; 16]);
     assert!(activity.items_data.is_empty());
+  }
+
+  #[test]
+  fn test_activity_parse_items() {
+    let test_data: &[u8] = &[
+      178, 251, 0, 0, 0, 0, 0, 128, 236, 0, 0, 0, 0, 0, 0, 0, 178, 251, 0, 0, 0, 0, 0, 128, 179, 251, 0, 0, 0, 0, 0, 128, 64, 63, 24, 18,
+      1, 0, 2, 0,
+    ];
+    let flags: u16 = 573;
+    let log_type = FirehoseLogType::Info;
+
+    let body = RawFirehoseBody::parse(test_data, FirehoseActivityType::Activity, flags, log_type).unwrap();
+    let activity = match body {
+      RawFirehoseBody::Activity(a) => a,
+      other => panic!("expected Activity, got {other:?}"),
+    };
+
+    let result = activity.parse_items(flags);
+    assert_eq!(result.items.len(), 0);
   }
 }

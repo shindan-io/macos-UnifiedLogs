@@ -1,5 +1,7 @@
 use nom::number::complete::le_u32;
 
+use super::item::{RawFirehoseItem, parse_trace_items};
+
 /// Parsed Trace entry body.
 #[derive(Debug, Clone, Copy)]
 pub struct RawTraceBody<'a> {
@@ -9,6 +11,11 @@ pub struct RawTraceBody<'a> {
 }
 
 impl<'a> RawTraceBody<'a> {
+  /// Parse items from this trace body's `items_data`.
+  pub fn parse_items(&self) -> Vec<RawFirehoseItem<'static>> {
+    parse_trace_items(self.items_data)
+  }
+
   /// Parse a Trace entry body from raw entry data.
   pub fn parse(data: &'a [u8]) -> nom::IResult<&'a [u8], Self> {
     let (items_data, pc_id) = le_u32(data)?;
