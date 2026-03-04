@@ -79,7 +79,7 @@ mod tests {
   use super::*;
 
   #[test]
-  fn test_parse_simpledump() {
+  fn test_parse_simpledump() -> anyhow::Result<()> {
     // Full test vector from original src/chunks/simpledump.rs.
     let full_data = [
       4, 96, 0, 0, 0, 0, 0, 0, 219, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 45, 182, 196, 71, 133, 4, 0, 0, 3,
@@ -103,8 +103,8 @@ mod tests {
     assert_eq!(result.unknown_offset, 95862);
     assert_eq!(result.unknown_ttl, 0);
     assert_eq!(result.unknown_type, 0);
-    assert_eq!(result.sender_uuid, Uuid::parse_str("0DCF3E8B4923323EB3E5547307CF0EAC").unwrap());
-    assert_eq!(result.dsc_uuid, Uuid::parse_str("3D05845F3F65358F9EBF2236E772AC01").unwrap());
+    assert_eq!(result.sender_uuid, Uuid::parse_str("0DCF3E8B4923323EB3E5547307CF0EAC")?);
+    assert_eq!(result.dsc_uuid, Uuid::parse_str("3D05845F3F65358F9EBF2236E772AC01")?);
     assert_eq!(result.unknown_number_message_strings, 1);
     assert_eq!(
       result.subsystem,
@@ -113,5 +113,6 @@ mod tests {
     assert_eq!(result.message_string, "service exited: dirty = 0, supported pressured-exit = 1");
     // Trailing padding bytes remain
     assert!(remaining.iter().all(|&b| b == 0));
+    Ok(())
   }
 }

@@ -58,7 +58,7 @@ mod tests {
   use super::*;
 
   #[test]
-  fn test_activity_body() {
+  fn test_activity_body() -> anyhow::Result<()> {
     // From src/chunks/firehose/activity.rs test_parse_activity
     let test_data: &[u8] = &[
       178, 251, 0, 0, 0, 0, 0, 128, 236, 0, 0, 0, 0, 0, 0, 0, 178, 251, 0, 0, 0, 0, 0, 128, 179, 251, 0, 0, 0, 0, 0, 128, 64, 63, 24, 18,
@@ -86,10 +86,11 @@ mod tests {
     assert_eq!(activity.formatter.alt_index, 0);
     assert_eq!(activity.formatter.uuid_relative, [0; 16]);
     assert!(activity.items_data.is_empty());
+    Ok(())
   }
 
   #[test]
-  fn test_activity_parse_items() {
+  fn test_activity_parse_items() -> anyhow::Result<()> {
     let test_data: &[u8] = &[
       178, 251, 0, 0, 0, 0, 0, 128, 236, 0, 0, 0, 0, 0, 0, 0, 178, 251, 0, 0, 0, 0, 0, 128, 179, 251, 0, 0, 0, 0, 0, 128, 64, 63, 24, 18,
       1, 0, 2, 0,
@@ -100,5 +101,6 @@ mod tests {
     let body = RawFirehoseBody::parse(test_data, FirehoseActivityType::Activity, flags, log_type).unwrap();
     let result = body.parse_items(flags).unwrap();
     assert_eq!(result.items.len(), 0);
+    Ok(())
   }
 }

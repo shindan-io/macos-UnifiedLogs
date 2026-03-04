@@ -189,7 +189,7 @@ mod tests {
   ];
 
   #[test]
-  fn test_iterate_entries() {
+  fn test_iterate_entries() -> anyhow::Result<()> {
     let data = &TEST_DATA[16..]; // skip preamble
     let (_, fh) = RawFirehose::parse(data).unwrap();
     let entries: Vec<_> = fh.entries().collect();
@@ -210,10 +210,11 @@ mod tests {
 
     // continuous_time_delta should differ
     assert_ne!(entries[0].continuous_time_delta, entries[1].continuous_time_delta);
+    Ok(())
   }
 
   #[test]
-  fn test_continuous_time_methods() {
+  fn test_continuous_time_methods() -> anyhow::Result<()> {
     let data = &TEST_DATA[16..]; // skip preamble
     let (_, fh) = RawFirehose::parse(data).unwrap();
     let entries: Vec<_> = fh.entries().collect();
@@ -234,5 +235,6 @@ mod tests {
 
     // zero base should return just the combined delta
     assert_eq!(entry.absolute_continuous_time(0), expected_combined);
+    Ok(())
   }
 }

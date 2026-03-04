@@ -441,7 +441,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_nonactivity_items() {
+    fn test_parse_nonactivity_items() -> anyhow::Result<()> {
         // Exact items_data from the NonActivity test (test_data[10..], 84 bytes).
         // 3 string items + 6 number items, then 16 bytes of string data.
         let items_data: &[u8] = &[
@@ -480,14 +480,16 @@ mod tests {
         assert_eq!(result.items[8].value, RawItemValue::I64(1));
 
         assert!(remaining.is_empty());
+        Ok(())
     }
 
     #[test]
-    fn test_parse_activity_items_empty() {
+    fn test_parse_activity_items_empty() -> anyhow::Result<()> {
         // Activity entries from the test data have empty items_data.
         let items_data: &[u8] = &[];
         let (_, result) = parse_items_data(items_data, FirehoseFlags::from_bits_retain(4)).unwrap();
         assert_eq!(result.items.len(), 0);
+        Ok(())
     }
 
     #[test]
@@ -533,7 +535,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_items_data_minimal() {
+    fn test_parse_items_data_minimal() -> anyhow::Result<()> {
         // Just unknown_item + number_items=0
         let data: &[u8] = &[0, 0];
         let (remaining, result) = parse_items_data(data, FirehoseFlags::empty()).unwrap();
@@ -541,14 +543,16 @@ mod tests {
         assert_eq!(result.items.len(), 0);
         assert_eq!(result.backtrace_data, None);
         assert!(remaining.is_empty());
+        Ok(())
     }
 
     #[test]
-    fn test_signpost_items_small() {
+    fn test_signpost_items_small() -> anyhow::Result<()> {
         // Signpost test data has 2 bytes of items_data: [0, 0]
         // unknown_item=0, number_items=0
         let data: &[u8] = &[0, 0];
         let (_, result) = parse_items_data(data, FirehoseFlags::empty()).unwrap();
         assert_eq!(result.items.len(), 0);
+        Ok(())
     }
 }

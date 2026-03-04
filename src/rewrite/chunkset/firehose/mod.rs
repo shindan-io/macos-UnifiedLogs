@@ -115,7 +115,7 @@ mod tests {
   use super::*;
 
   #[test]
-  fn test_parse_raw_firehose() {
+  fn test_parse_raw_firehose() -> anyhow::Result<()> {
     // Second (smaller) firehose chunk from original test at
     // src/chunks/firehose/firehose_log.rs (test_parse_firehose_preamble, line ~2928).
     // First 16 bytes are the preamble (tag=0x6001, subtag=0, data_size=152).
@@ -144,5 +144,6 @@ mod tests {
     // firehose_data = data_size(152) - header(32) = 120 bytes
     assert_eq!(result.firehose_data.len(), 152 - 32);
     assert!(remaining.is_empty());
+    Ok(())
   }
 }

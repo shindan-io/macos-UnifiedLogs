@@ -71,7 +71,7 @@ mod tests {
   use super::*;
 
   #[test]
-  fn test_parse_oversize() {
+  fn test_parse_oversize() -> anyhow::Result<()> {
     // Test vector from original src/chunks/oversize.rs (test_parse_oversize, line 127).
     // First 16 bytes are the preamble (tag=0x6002, subtag=0, data_size=3354).
     let test_data = [
@@ -211,5 +211,6 @@ mod tests {
     // Trailing NUL from the original test
     assert_eq!(*result.oversize_data.last().unwrap(), 0x00);
     assert!(remaining.is_empty());
+    Ok(())
   }
 }

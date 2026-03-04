@@ -60,7 +60,7 @@ mod tests {
   use super::*;
 
   #[test]
-  fn test_non_activity_body() {
+  fn test_non_activity_body() -> anyhow::Result<()> {
     // From src/chunks/firehose/nonactivity.rs test_parse_non_activity
     let test_data: &[u8] = &[
       122, 179, 12, 13, 2, 0, 4, 0, 41, 0, 34, 9, 32, 4, 0, 0, 1, 0, 32, 4, 1, 0, 1, 0, 32, 4, 2, 0, 14, 0, 0, 8, 2, 0, 0, 0, 0, 0, 0, 0,
@@ -90,5 +90,6 @@ mod tests {
     assert_eq!(na.data_ref, None);
     // 94 total bytes - 4 (pc_id) - 4 (formatter) - 2 (subsystem) = 84 items bytes
     assert_eq!(na.items_data.len(), 84);
+    Ok(())
   }
 }

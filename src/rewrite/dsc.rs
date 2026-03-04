@@ -150,9 +150,9 @@ mod tests {
   use crate::rewrite::helpers::tests::test_data_path;
 
   #[test]
-  fn test_parse_dsc_v1() {
+  fn test_parse_dsc_v1() -> anyhow::Result<()> {
     let path = test_data_path().join("DSC Tests/big_sur_version_1_522F6217CB113F8FB845C2A1B784C7C2");
-    let buffer = std::fs::read(path).unwrap();
+    let buffer = std::fs::read(path)?;
 
     let (_, results) = RawSharedCacheStrings::parse(&buffer).unwrap();
 
@@ -162,7 +162,7 @@ mod tests {
     assert_eq!(results.uuids.len(), 532);
 
     assert_eq!(results.uuids.len(), 532);
-    assert_eq!(results.uuids[0].uuid, Uuid::parse_str("4DF6D8F5D9C23A968DE45E99D6B73DC8").unwrap());
+    assert_eq!(results.uuids[0].uuid, Uuid::parse_str("4DF6D8F5D9C23A968DE45E99D6B73DC8")?);
     assert_eq!(results.uuids[0].path_string, "/usr/lib/system/libsystem_blocks.dylib");
     assert_eq!(results.uuids[0].text_offset, 73728);
     assert_eq!(results.uuids[0].text_size, 8192);
@@ -173,12 +173,13 @@ mod tests {
     assert_eq!(results.ranges[0].uuid_index, 0);
     assert_eq!(results.ranges[0].range_offset, 80296);
     assert_eq!(results.ranges[0].range_size, 1);
+    Ok(())
   }
 
   #[test]
-  fn test_parse_dsc_v2() {
+  fn test_parse_dsc_v2() -> anyhow::Result<()> {
     let path = test_data_path().join("DSC Tests/monterey_version_2_3D05845F3F65358F9EBF2236E772AC01");
-    let buffer = std::fs::read(path).unwrap();
+    let buffer = std::fs::read(path)?;
 
     let (_, results) = RawSharedCacheStrings::parse(&buffer).unwrap();
 
@@ -188,7 +189,7 @@ mod tests {
     assert_eq!(results.uuids.len(), 2250);
 
     assert_eq!(results.uuids.len(), 2250);
-    assert_eq!(results.uuids[0].uuid, Uuid::parse_str("326DD91B4EF83D80B90BF50EB7D7FDB8").unwrap());
+    assert_eq!(results.uuids[0].uuid, Uuid::parse_str("326DD91B4EF83D80B90BF50EB7D7FDB8")?);
     assert_eq!(results.uuids[0].path_string, "/usr/lib/system/libsystem_blocks.dylib");
     assert_eq!(results.uuids[0].text_offset, 327680);
     assert_eq!(results.uuids[0].text_size, 8192);
@@ -199,10 +200,11 @@ mod tests {
     assert_eq!(results.ranges[0].uuid_index, 0);
     assert_eq!(results.ranges[0].range_offset, 334248);
     assert_eq!(results.ranges[0].range_size, 1);
+    Ok(())
   }
 
   #[test]
-  fn test_bad_signature() {
+  fn test_bad_signature() -> anyhow::Result<()> {
     let data = [0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00];
     let result = RawSharedCacheStrings::parse(&data);
     assert!(result.is_err());
@@ -210,5 +212,6 @@ mod tests {
       nom::Err::Error(e) => assert_eq!(e.code, nom::error::ErrorKind::Tag),
       other => panic!("Expected Error(Tag), got: {other:?}"),
     }
+    Ok(())
   }
 }

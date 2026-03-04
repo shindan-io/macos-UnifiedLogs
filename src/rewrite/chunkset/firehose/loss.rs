@@ -32,7 +32,7 @@ mod tests {
   use super::super::flags::FirehoseFlags;
 
   #[test]
-  fn test_loss_body() {
+  fn test_loss_body() -> anyhow::Result<()> {
     // From src/chunks/firehose/loss.rs test_parse_firehose_loss_monterey
     let test_data: &[u8] = &[72, 56, 43, 42, 0, 0, 0, 0, 231, 207, 114, 187, 0, 0, 0, 0, 63, 0, 0, 0, 0, 0, 0, 0];
 
@@ -45,5 +45,6 @@ mod tests {
     assert_eq!(loss.start_time, 707475528);
     assert_eq!(loss.end_time, 3144863719);
     assert_eq!(loss.count, 63);
+    Ok(())
   }
 }

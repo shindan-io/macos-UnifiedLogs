@@ -74,7 +74,7 @@ mod tests {
   use super::*;
 
   #[test]
-  fn test_signpost_body() {
+  fn test_signpost_body() -> anyhow::Result<()> {
     // From src/chunks/firehose/signpost.rs test_parse_signpost
     let test_data: &[u8] = &[225, 244, 2, 0, 1, 0, 238, 238, 178, 178, 181, 176, 238, 238, 176, 63, 27, 0, 0, 0];
     let flags = FirehoseFlags::from_bits_retain(33282);
@@ -100,5 +100,6 @@ mod tests {
     assert_eq!(sp.data_ref, None);
     // 20 bytes - 4 (pc_id) - 0 (main_exe) - 2 (subsystem) - 8 (signpost_id) - 4 (name) = 2
     assert_eq!(sp.items_data.len(), 2);
+    Ok(())
   }
 }

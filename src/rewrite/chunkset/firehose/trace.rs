@@ -30,7 +30,7 @@ mod tests {
   use super::super::flags::FirehoseFlags;
 
   #[test]
-  fn test_trace_body() {
+  fn test_trace_body() -> anyhow::Result<()> {
     // From src/chunks/firehose/trace.rs test_parse_firehose_trace
     let test_data: &[u8] = &[106, 139, 3, 0, 0];
 
@@ -42,5 +42,6 @@ mod tests {
 
     assert_eq!(trace.pc_id, 232298);
     assert_eq!(trace.items_data, &[0]);
+    Ok(())
   }
 }

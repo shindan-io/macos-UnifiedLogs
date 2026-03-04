@@ -217,7 +217,7 @@ mod tests {
     use crate::rewrite::helpers::tests::test_data_path;
 
     #[test]
-    fn test_parse_timesync_record() {
+    fn test_parse_timesync_record() -> anyhow::Result<()> {
         let test_data: [u8; 32] = [
             84, 115, 32, 0, 0, 0, 0, 0, 165, 196, 104, 252, 1, 0, 0, 0, 216, 189, 100, 108, 116,
             158, 131, 22, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -228,10 +228,11 @@ mod tests {
         assert_eq!(record.walltime, 1622314513655447000);
         assert_eq!(record.timezone, 0);
         assert_eq!(record.daylight_savings, 0);
+        Ok(())
     }
 
     #[test]
-    fn test_parse_timesync_boot() {
+    fn test_parse_timesync_boot() -> anyhow::Result<()> {
         let test_data: [u8; 48] = [
             176, 187, 48, 0, 0, 0, 0, 0, 132, 91, 13, 213, 1, 96, 69, 62, 172, 224, 56, 118, 12,
             123, 92, 29, 1, 0, 0, 0, 1, 0, 0, 0, 168, 167, 19, 176, 114, 158, 131, 22, 0, 0, 0,
@@ -241,7 +242,7 @@ mod tests {
         assert!(remaining.is_empty());
         assert_eq!(
             boot.boot_uuid,
-            Uuid::parse_str("845B0DD50160453EACE038760C7B5C1D").unwrap()
+            Uuid::parse_str("845B0DD50160453EACE038760C7B5C1D")?
         );
         assert_eq!(boot.timebase_numerator, 1);
         assert_eq!(boot.timebase_denominator, 1);
@@ -249,24 +250,26 @@ mod tests {
         assert_eq!(boot.timezone_offset_mins, 0);
         assert_eq!(boot.daylight_savings, 0);
         assert!(boot.records.is_empty());
+        Ok(())
     }
 
     #[test]
-    fn test_parse_timesync_file() {
+    fn test_parse_timesync_file() -> anyhow::Result<()> {
         let test_path = test_data_path()
             .join("system_logs_big_sur.logarchive/timesync/0000000000000002.timesync");
-        let buffer = std::fs::read(test_path).unwrap();
+        let buffer = std::fs::read(test_path)?;
 
         let (_, timesync_data) = parse_timesync_file(&buffer).unwrap();
         assert_eq!(timesync_data.len(), 5);
         assert_eq!(
             timesync_data
-                .get(&Uuid::parse_str("9A6A3124274A44B29ABF2BC9E4599B3B").unwrap())
+                .get(&Uuid::parse_str("9A6A3124274A44B29ABF2BC9E4599B3B")?)
                 .unwrap()
                 .records
                 .len(),
             5
         );
+        Ok(())
     }
 
     /// Helper: collect timesync data from all .timesync files in a logarchive directory.
@@ -293,35 +296,38 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_timestamp() {
+    fn test_resolve_timestamp() -> anyhow::Result<()> {
         let test_path = test_data_path().join("system_logs_big_sur.logarchive");
         let timesync_data = collect_timesync_data(&test_path);
         let resolver = TimestampResolver::new(timesync_data);
 
-        let boot_uuid = Uuid::parse_str("A2A9017676CF421C84DC9BBD6263FEE7").unwrap();
+        let boot_uuid = Uuid::parse_str("A2A9017676CF421C84DC9BBD6263FEE7")?;
         let result = resolver.resolve(&boot_uuid, 2818326118, 1);
         assert_eq!(result, 1_642_304_803_060_379_000.0);
+        Ok(())
     }
 
     #[test]
-    fn test_resolve_arm_timestamp() {
+    fn test_resolve_arm_timestamp() -> anyhow::Result<()> {
         let test_path = test_data_path().join("system_logs_monterey.logarchive");
         let timesync_data = collect_timesync_data(&test_path);
         let resolver = TimestampResolver::new(timesync_data);
 
-        let boot_uuid = Uuid::parse_str("3E12B435814B4C62918CEBC0826F06B8").unwrap();
+        let boot_uuid = Uuid::parse_str("3E12B435814B4C62918CEBC0826F06B8")?;
         let result = resolver.resolve(&boot_uuid, 2818326118, 1);
         assert_eq!(result, 1650767519086487000.0);
+        Ok(())
     }
 
     #[test]
-    fn test_resolve_arm_boot_time() {
+    fn test_resolve_arm_boot_time() -> anyhow::Result<()> {
         let test_path = test_data_path().join("system_logs_monterey.logarchive");
         let timesync_data = collect_timesync_data(&test_path);
         let resolver = TimestampResolver::new(timesync_data);
 
-        let boot_uuid = Uuid::parse_str("3E12B435814B4C62918CEBC0826F06B8").unwrap();
+        let boot_uuid = Uuid::parse_str("3E12B435814B4C62918CEBC0826F06B8")?;
         let result = resolver.resolve(&boot_uuid, 9898326118, 0);
         assert_eq!(result, 1_650_767_813_342_574_600.0);
+        Ok(())
     }
 }

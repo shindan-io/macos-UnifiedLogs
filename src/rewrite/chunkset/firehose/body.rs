@@ -98,7 +98,7 @@ mod tests {
   use super::*;
 
   #[test]
-  fn test_activity_body_from_entry_test_data() {
+  fn test_activity_body_from_entry_test_data() -> anyhow::Result<()> {
     // Same test data as entry.rs test_iterate_entries: 3 Activity entries with flags=4.
     let test_data: &[u8] = &[
       1, 96, 0, 0, 0, 0, 0, 0, 152, 0, 0, 0, 0, 0, 0, 0, 133, 16, 0, 0, 0, 0, 0, 0, 157, 38, 0, 0, 0, 0, 0, 0, 136, 0, 0, 16, 0, 0, 0, 2,
@@ -142,5 +142,6 @@ mod tests {
     };
     assert_eq!(first.activity_id, Some((63920, 0x80000000)));
     assert_eq!(first.pc_id, 0x003385A3);
+    Ok(())
   }
 }
