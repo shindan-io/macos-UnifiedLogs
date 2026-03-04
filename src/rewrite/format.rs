@@ -683,8 +683,7 @@ fn parse_apple_annotation(bytes: &[u8], start: usize) -> (usize, String) {
 
 fn skip_precision_items(items: &[RawFirehoseItem<'_>], item_index: &mut usize) {
   while *item_index < items.len() {
-    let kind = RawItemKind::from(items[*item_index].item_type);
-    if kind == RawItemKind::Precision {
+    if items[*item_index].item_type == RawItemKind::Precision {
       *item_index += 1;
     } else {
       break;
@@ -695,8 +694,7 @@ fn skip_precision_items(items: &[RawFirehoseItem<'_>], item_index: &mut usize) {
 fn handle_dynamic_width(items: &[RawFirehoseItem<'_>], item_index: &mut usize, spec: &mut FormatSpec) {
   if *item_index < items.len() {
     let item = &items[*item_index];
-    let kind = RawItemKind::from(item.item_type);
-    if kind == RawItemKind::Number && item.item_size == 0 {
+    if item.item_type == RawItemKind::Number && item.item_size == 0 {
       spec.width = item.item_size as usize;
       spec.has_width = true;
       *item_index += 1;
@@ -790,10 +788,11 @@ fn item_to_string(item: &RawFirehoseItem<'_>) -> String {
 mod tests {
   use super::*;
   use crate::rewrite::chunkset::firehose::item::{RawFirehoseItem, RawItemValue};
+  use test_case::test_case;
 
   fn str_item(s: &str) -> RawFirehoseItem<'_> {
     RawFirehoseItem {
-      item_type: 0x20, // String
+      item_type: RawItemKind::String,
       item_size: s.len() as u16,
       value: RawItemValue::Str(s),
     }
@@ -801,7 +800,7 @@ mod tests {
 
   fn i64_item(n: i64) -> RawFirehoseItem<'static> {
     RawFirehoseItem {
-      item_type: 0x00, // Number
+      item_type: RawItemKind::Number,
       item_size: 8,
       value: RawItemValue::I64(n),
     }
@@ -809,7 +808,7 @@ mod tests {
 
   fn u64_item(n: u64) -> RawFirehoseItem<'static> {
     RawFirehoseItem {
-      item_type: 0x00,
+      item_type: RawItemKind::Number,
       item_size: 8,
       value: RawItemValue::U64(n),
     }
@@ -817,7 +816,7 @@ mod tests {
 
   fn private_item() -> RawFirehoseItem<'static> {
     RawFirehoseItem {
-      item_type: 0x01, // PrivateNumber
+      item_type: RawItemKind::PrivateNumber,
       item_size: 0,
       value: RawItemValue::Private,
     }
@@ -825,351 +824,132 @@ mod tests {
 
   fn precision_item() -> RawFirehoseItem<'static> {
     RawFirehoseItem {
-      item_type: 0x10, // Precision
+      item_type: RawItemKind::Precision,
       item_size: 4,
       value: RawItemValue::Empty,
     }
   }
 
-  fn decoder() -> NoDecoder {
-    NoDecoder
+  // --- Integer/hex/octal/char/error: single i64 item ---
+
+  #[test_case("count: %d", 42  => "count: 42" ; "integer")]
+  #[test_case("%x", 255        => "FF" ; "hex uppercase")]
+  #[test_case("%#x", 255       => "0xFF" ; "hex alternate")]
+  #[test_case("%o", 493        => "755" ; "octal")]
+  #[test_case("%04d", 2        => "0002" ; "zero pad width")]
+  #[test_case("%+d", 42        => "+42" ; "plus sign")]
+  #[test_case("%c", 65         => "A" ; "char")]
+  #[test_case("err: %m", 2     => "err: Error code: 2" ; "error code")]
+  #[test_case("%+04d", 2       => "+002" ; "plus zero pad width")]
+  #[test_case("%d", -248       => "-248" ; "negative int")]
+  #[test_case("%x", 10         => "A" ; "hex lowercase spec uppercase output")]
+  #[test_case("%#4x", 2        => " 0x2" ; "hex hashtag width")]
+  #[test_case("%#04o", 100     => "0o144" ; "octal hashtag zero pad")]
+  #[test_case("%07o", 100      => "0000144" ; "octal zero pad")]
+  #[test_case("%lld", 42       => "42" ; "length modifier ignored")]
+  fn test_format_int(fmt: &str, n: i64) -> String {
+    format_message(Some(fmt), &[i64_item(n)], &NoDecoder)
   }
 
-  // --- Test 1: Basic string ---
-  #[test]
-  fn test_basic_string() {
-    let items = [str_item("hello")];
-    let result = format_message(Some("%s start"), &items, &decoder());
-    assert_eq!(result, "hello start");
+  // --- Float: single i64 item (bits), literal expected ---
+
+  #[test_case("%f", 4_614_253_070_214_989_087      => "3.14" ; "basic float")]
+  #[test_case("%.2f", 4_614_253_070_214_989_087    => "3.14" ; "float precision")]
+  #[test_case("%f", -4_611_686_018_427_387_904     => "-2" ; "negative float")]
+  #[test_case("%+09.4f", 4_570_111_009_880_014_848 => "+000.0035" ; "plus zero pad")]
+  #[test_case("%9.4f", 4_570_111_009_880_014_848   => "   0.0035" ; "space pad")]
+  #[test_case("%-8.4f", 4_570_111_009_880_014_848  => "0.0035  " ; "left justify")]
+  fn test_format_float(fmt: &str, bits: i64) -> String {
+    format_message(Some(fmt), &[i64_item(bits)], &NoDecoder)
   }
 
-  // --- Test 2: Integer ---
-  #[test]
-  fn test_integer() {
-    let items = [i64_item(42)];
-    let result = format_message(Some("count: %d"), &items, &decoder());
-    assert_eq!(result, "count: 42");
+  // --- Float: expected computed from bits (Rust default display) ---
+
+  #[test_case("%f", 4_614_286_721_111_404_799  ; "no precision natural")]
+  #[test_case("%f", -4_484_628_366_119_329_180 ; "negative float natural")]
+  fn test_format_float_natural(fmt: &str, bits: i64) {
+    let expected = format!("{}", f64::from_bits(bits as u64));
+    let result = format_message(Some(fmt), &[i64_item(bits)], &NoDecoder);
+    assert_eq!(result, expected);
   }
 
-  // --- Test 3: Float ---
-  #[test]
-  fn test_float() {
-    let bits = 3.14_f64.to_bits() as i64;
-    let items = [i64_item(bits)];
-    let result = format_message(Some("%f"), &items, &decoder());
-    // Rust default float display for 3.14 → "3.14"
-    assert_eq!(result, "3.14");
+  // --- String: single str item ---
+
+  #[test_case("%s start", "hello" => "hello start" ; "basic string")]
+  #[test_case("%-10s|", "hi"     => "hi        |" ; "left justify")]
+  #[test_case("%.3s", "hello"    => "hel" ; "string precision")]
+  #[test_case("%{public}s", "hi" => "hi" ; "apple public")]
+  #[test_case("value: %@", "objc_value" => "value: objc_value" ; "at sign")]
+  #[test_case(
+    "opendirectoryd (build %{public}s) launched...", "796.100"
+    => "opendirectoryd (build 796.100) launched..." ; "legacy public substitution"
+  )]
+  fn test_format_str(fmt: &str, s: &str) -> String {
+    format_message(Some(fmt), &[str_item(s)], &NoDecoder)
   }
 
-  // --- Test 4: Hex (uppercase, legacy compat) ---
-  #[test]
-  fn test_hex_uppercase() {
-    let items = [i64_item(255)];
-    let result = format_message(Some("%x"), &items, &decoder());
-    assert_eq!(result, "FF");
+  // --- No-items tests ---
+
+  #[test_case(Some("100%% done")  => "100% done" ; "literal percent")]
+  #[test_case(Some("")            => "" ; "empty both")]
+  #[test_case(None                => "<missing format string>" ; "none format")]
+  #[test_case(Some("hello world") => "hello world" ; "no specifiers")]
+  #[test_case(Some("end%")        => "end%" ; "percent at end")]
+  #[test_case(Some("%{public}")   => "%{public}" ; "typeless annotation")]
+  fn test_format_no_items(fmt: Option<&str>) -> String {
+    format_message(fmt, &[], &NoDecoder)
   }
 
-  // --- Test 5: Hex with # ---
-  #[test]
-  fn test_hex_alternate() {
-    let items = [i64_item(255)];
-    let result = format_message(Some("%#x"), &items, &decoder());
-    assert_eq!(result, "0xFF");
-  }
+  // --- Edge cases (multi-item, special item types) ---
 
-  // --- Test 6: Octal ---
-  #[test]
-  fn test_octal() {
-    let items = [i64_item(0o755)];
-    let result = format_message(Some("%o"), &items, &decoder());
-    assert_eq!(result, "755");
-  }
-
-  // --- Test 7: Literal %% ---
-  #[test]
-  fn test_literal_percent() {
-    let items: [RawFirehoseItem<'_>; 0] = [];
-    let result = format_message(Some("100%% done"), &items, &decoder());
-    assert_eq!(result, "100% done");
-  }
-
-  // --- Test 8: Zero-pad + width ---
-  #[test]
-  fn test_zero_pad_width() {
-    let items = [i64_item(2)];
-    let result = format_message(Some("%04d"), &items, &decoder());
-    assert_eq!(result, "0002");
-  }
-
-  // --- Test 9: Left-justify ---
-  #[test]
-  fn test_left_justify() {
-    let items = [str_item("hi")];
-    let result = format_message(Some("%-10s|"), &items, &decoder());
-    assert_eq!(result, "hi        |");
-  }
-
-  // --- Test 10: Float precision ---
-  #[test]
-  fn test_float_precision() {
-    let bits = 3.14_f64.to_bits() as i64;
-    let items = [i64_item(bits)];
-    let result = format_message(Some("%.2f"), &items, &decoder());
-    assert_eq!(result, "3.14");
-  }
-
-  // --- Test 11: String precision ---
-  #[test]
-  fn test_string_precision() {
-    let items = [str_item("hello")];
-    let result = format_message(Some("%.3s"), &items, &decoder());
-    assert_eq!(result, "hel");
-  }
-
-  // --- Test 12: Plus sign ---
-  #[test]
-  fn test_plus_sign() {
-    let items = [i64_item(42)];
-    let result = format_message(Some("%+d"), &items, &decoder());
-    assert_eq!(result, "+42");
-  }
-
-  // --- Test 13: Apple {public} annotation ---
-  #[test]
-  fn test_apple_public() {
-    let items = [str_item("hi")];
-    let result = format_message(Some("%{public}s"), &items, &decoder());
-    assert_eq!(result, "hi");
-  }
-
-  // --- Test 14: Private item ---
   #[test]
   fn test_private_item() {
-    let items = [private_item()];
-    let result = format_message(Some("%{public}s"), &items, &decoder());
+    let result = format_message(Some("%{public}s"), &[private_item()], &NoDecoder);
     assert_eq!(result, "<private>");
   }
 
-  // --- Test 15: Missing items ---
   #[test]
   fn test_missing_items() {
-    let items = [str_item("hello")];
-    let result = format_message(Some("%s %s"), &items, &decoder());
+    let result = format_message(Some("%s %s"), &[str_item("hello")], &NoDecoder);
     assert_eq!(result, "hello <decode: missing data>");
   }
 
-  // --- Test 16: Empty both ---
-  #[test]
-  fn test_empty_both() {
-    let items: [RawFirehoseItem<'_>; 0] = [];
-    let result = format_message(Some(""), &items, &decoder());
-    assert_eq!(result, "");
-  }
-
-  // --- Test 17: None format ---
-  #[test]
-  fn test_none_format() {
-    let items: [RawFirehoseItem<'_>; 0] = [];
-    let result = format_message(None, &items, &decoder());
-    assert_eq!(result, "<missing format string>");
-  }
-
-  // --- Test 18: Char %c ---
-  #[test]
-  fn test_char() {
-    let items = [i64_item(65)];
-    let result = format_message(Some("%c"), &items, &decoder());
-    assert_eq!(result, "A");
-  }
-
-  // --- Test 19: Error %m ---
-  #[test]
-  fn test_error_code() {
-    let items = [i64_item(2)];
-    let result = format_message(Some("err: %m"), &items, &decoder());
-    assert_eq!(result, "err: Error code: 2");
-  }
-
-  // --- Test 20: Multiple specs ---
   #[test]
   fn test_multiple_specs() {
     let items = [str_item("x"), i64_item(5)];
-    let result = format_message(Some("%s=%d"), &items, &decoder());
+    let result = format_message(Some("%s=%d"), &items, &NoDecoder);
     assert_eq!(result, "x=5");
   }
 
-  // --- Test 21: Signpost annotation ---
   #[test]
   fn test_signpost_annotation() {
-    let items = [i64_item(42)];
-    let result = format_message(Some("%{public,signpost.description:attr}d"), &items, &decoder());
+    let result = format_message(Some("%{public,signpost.description:attr}d"), &[i64_item(42)], &NoDecoder);
     assert_eq!(result, "42 (signpost.description:attr)");
   }
 
-  // --- Test 22: Typeless annotation ---
-  #[test]
-  fn test_typeless_annotation() {
-    let items: [RawFirehoseItem<'_>; 0] = [];
-    let result = format_message(Some("%{public}"), &items, &decoder());
-    assert_eq!(result, "%{public}");
-  }
-
-  // --- Test 23: Plus zero-pad width ---
-  #[test]
-  fn test_plus_zero_pad_width() {
-    let items = [i64_item(2)];
-    let result = format_message(Some("%+04d"), &items, &decoder());
-    assert_eq!(result, "+002");
-  }
-
-  // --- Test 24: Negative float bits ---
-  #[test]
-  fn test_negative_float() {
-    let items = [i64_item(-4611686018427387904)];
-    let result = format_message(Some("%f"), &items, &decoder());
-    assert_eq!(result, "-2");
-  }
-
-  // --- Test 25: Empty format + items ---
   #[test]
   fn test_empty_format_with_items() {
-    let items = [str_item("val")];
-    let result = format_message(Some(""), &items, &decoder());
+    let result = format_message(Some(""), &[str_item("val")], &NoDecoder);
     assert_eq!(result, "val");
-  }
-
-  // --- Legacy parity tests ---
-
-  #[test]
-  fn test_legacy_public_string_substitution() {
-    let items = [str_item("796.100")];
-    let result = format_message(Some("opendirectoryd (build %{public}s) launched..."), &items, &decoder());
-    assert_eq!(result, "opendirectoryd (build 796.100) launched...");
-  }
-
-  #[test]
-  fn test_legacy_hex_lowercase_spec_uppercase_output() {
-    // Legacy: %x of 10 → "A" (uppercase)
-    let items = [i64_item(10)];
-    let result = format_message(Some("%x"), &items, &decoder());
-    assert_eq!(result, "A");
-  }
-
-  #[test]
-  fn test_legacy_hex_with_hashtag_width() {
-    let items = [i64_item(2)];
-    let result = format_message(Some("%#4x"), &items, &decoder());
-    assert_eq!(result, " 0x2");
-  }
-
-  #[test]
-  fn test_legacy_octal_hashtag_zero_pad() {
-    let items = [i64_item(100)];
-    let result = format_message(Some("%#04o"), &items, &decoder());
-    assert_eq!(result, "0o144");
-  }
-
-  #[test]
-  fn test_legacy_octal_zero_pad() {
-    let items = [i64_item(100)];
-    let result = format_message(Some("%07o"), &items, &decoder());
-    assert_eq!(result, "0000144");
-  }
-
-  #[test]
-  fn test_legacy_float_plus_zero_pad() {
-    let items = [i64_item(4_570_111_009_880_014_848)];
-    let result = format_message(Some("%+09.4f"), &items, &decoder());
-    assert_eq!(result, "+000.0035");
-  }
-
-  #[test]
-  fn test_legacy_float_space_pad() {
-    let items = [i64_item(4_570_111_009_880_014_848)];
-    let result = format_message(Some("%9.4f"), &items, &decoder());
-    assert_eq!(result, "   0.0035");
-  }
-
-  #[test]
-  fn test_legacy_float_left_justify() {
-    let items = [i64_item(4_570_111_009_880_014_848)];
-    let result = format_message(Some("%-8.4f"), &items, &decoder());
-    assert_eq!(result, "0.0035  ");
-  }
-
-  #[test]
-  fn test_legacy_float_no_precision() {
-    let items = [i64_item(4_614_286_721_111_404_799)];
-    let result = format_message(Some("%f"), &items, &decoder());
-    // f64::from_bits(4614286721111404799) ≈ 3.154944...
-    // Rust default display → "3.154944..."
-    // Legacy says "3.154944"
-    let f = f64::from_bits(4_614_286_721_111_404_799_u64);
-    assert_eq!(result, format!("{f}"));
-  }
-
-  #[test]
-  fn test_legacy_negative_int() {
-    let items = [i64_item(-248)];
-    let result = format_message(Some("%d"), &items, &decoder());
-    assert_eq!(result, "-248");
-  }
-
-  #[test]
-  fn test_legacy_negative_float_2() {
-    let items = [i64_item(-4_484_628_366_119_329_180)];
-    let result = format_message(Some("%f"), &items, &decoder());
-    let f = f64::from_bits(-4_484_628_366_119_329_180_i64 as u64);
-    assert_eq!(result, format!("{f}"));
-  }
-
-  #[test]
-  fn test_no_format_specifiers() {
-    let items: [RawFirehoseItem<'_>; 0] = [];
-    let result = format_message(Some("hello world"), &items, &decoder());
-    assert_eq!(result, "hello world");
   }
 
   #[test]
   fn test_precision_item_skip() {
-    // Precision item should be skipped, next item used
     let items = [precision_item(), i64_item(42)];
-    let result = format_message(Some("%d"), &items, &decoder());
+    let result = format_message(Some("%d"), &items, &NoDecoder);
     assert_eq!(result, "42");
   }
 
   #[test]
   fn test_u64_as_int() {
-    let items = [u64_item(200)];
-    let result = format_message(Some("%d"), &items, &decoder());
+    let result = format_message(Some("%d"), &[u64_item(200)], &NoDecoder);
     assert_eq!(result, "200");
-  }
-
-  #[test]
-  fn test_length_modifier_ignored() {
-    let items = [i64_item(42)];
-    let result = format_message(Some("%lld"), &items, &decoder());
-    assert_eq!(result, "42");
   }
 
   #[test]
   fn test_multiple_mixed() {
     let items = [str_item("DCPAVSimpleVideoInterface"), str_item("setColorElement"), i64_item(89)];
-    let result = format_message(Some("%s::%s width = %u"), &items, &decoder());
+    let result = format_message(Some("%s::%s width = %u"), &items, &NoDecoder);
     assert_eq!(result, "DCPAVSimpleVideoInterface::setColorElement width = 89");
-  }
-
-  #[test]
-  fn test_percent_at_end() {
-    let items: [RawFirehoseItem<'_>; 0] = [];
-    let result = format_message(Some("end%"), &items, &decoder());
-    assert_eq!(result, "end%");
-  }
-
-  #[test]
-  fn test_at_sign_conversion() {
-    let items = [str_item("objc_value")];
-    let result = format_message(Some("value: %@"), &items, &decoder());
-    assert_eq!(result, "value: objc_value");
   }
 }

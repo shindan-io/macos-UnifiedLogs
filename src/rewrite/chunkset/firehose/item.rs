@@ -57,7 +57,7 @@ pub enum RawItemValue<'a> {
 /// A single parsed firehose item.
 #[derive(Debug, Clone, Copy)]
 pub struct RawFirehoseItem<'a> {
-    pub item_type: u8,
+    pub item_type: RawItemKind,
     /// For string-like items: the `string_size` from the header.
     /// For number items: the raw `item_size` (1/2/4/8).
     pub item_size: u16,
@@ -110,7 +110,7 @@ pub fn parse_items_data<'a>(data: &'a [u8], flags: FirehoseFlags) -> nom::IResul
             RawItemKind::Number => {
                 let (rest, value) = parse_item_number(rest, u16::from(item_size))?;
                 items.push(RawFirehoseItem {
-                    item_type,
+                    item_type: kind,
                     item_size: u16::from(item_size),
                     value,
                 });
@@ -121,7 +121,7 @@ pub fn parse_items_data<'a>(data: &'a [u8], flags: FirehoseFlags) -> nom::IResul
                 let (rest, _offset) = le_u16(rest)?;
                 let (rest, str_size) = le_u16(rest)?;
                 items.push(RawFirehoseItem {
-                    item_type,
+                    item_type: kind,
                     item_size: str_size,
                     value: RawItemValue::Private,
                 });
@@ -131,7 +131,7 @@ pub fn parse_items_data<'a>(data: &'a [u8], flags: FirehoseFlags) -> nom::IResul
                 // Skip item_size bytes (precision data for the next item, e.g. %*s).
                 let (rest, _) = take(item_size as usize)(rest)?;
                 items.push(RawFirehoseItem {
-                    item_type,
+                    item_type: kind,
                     item_size: u16::from(item_size),
                     value: RawItemValue::Empty,
                 });
@@ -142,7 +142,7 @@ pub fn parse_items_data<'a>(data: &'a [u8], flags: FirehoseFlags) -> nom::IResul
                 let (rest, _offset) = le_u16(rest)?;
                 let (rest, str_size) = le_u16(rest)?;
                 items.push(RawFirehoseItem {
-                    item_type,
+                    item_type: kind,
                     item_size: str_size,
                     value: RawItemValue::Private,
                 });
@@ -154,14 +154,14 @@ pub fn parse_items_data<'a>(data: &'a [u8], flags: FirehoseFlags) -> nom::IResul
                 let (rest, str_size) = le_u16(rest)?;
                 if str_size == 0 && kind == RawItemKind::Object {
                     items.push(RawFirehoseItem {
-                        item_type,
+                        item_type: kind,
                         item_size: str_size,
                         value: RawItemValue::Null,
                     });
                 } else {
                     let idx = items.len();
                     items.push(RawFirehoseItem {
-                        item_type,
+                        item_type: kind,
                         item_size: str_size,
                         value: RawItemValue::Empty, // placeholder
                     });
@@ -175,7 +175,7 @@ pub fn parse_items_data<'a>(data: &'a [u8], flags: FirehoseFlags) -> nom::IResul
                 let (rest, str_size) = le_u16(rest)?;
                 let idx = items.len();
                 items.push(RawFirehoseItem {
-                    item_type,
+                    item_type: kind,
                     item_size: str_size,
                     value: RawItemValue::Empty, // placeholder
                 });
@@ -188,14 +188,14 @@ pub fn parse_items_data<'a>(data: &'a [u8], flags: FirehoseFlags) -> nom::IResul
                     let take_size = (item_size as usize).min(rest.len());
                     let (rest, _) = take(take_size)(rest)?;
                     items.push(RawFirehoseItem {
-                        item_type,
+                        item_type: kind,
                         item_size: u16::from(item_size),
                         value: RawItemValue::Empty,
                     });
                     input = rest;
                 } else {
                     items.push(RawFirehoseItem {
-                        item_type,
+                        item_type: kind,
                         item_size: 0,
                         value: RawItemValue::Empty,
                     });
@@ -220,7 +220,7 @@ pub fn parse_items_data<'a>(data: &'a [u8], flags: FirehoseFlags) -> nom::IResul
     for &idx in &deferred {
         let item = &items[idx];
         let str_size = item.item_size as usize;
-        let kind = RawItemKind::from(item.item_type);
+        let kind = item.item_type;
 
         if input.is_empty() {
             break;
@@ -315,7 +315,7 @@ fn parse_trace_items_inner(data: &[u8]) -> nom::IResult<&[u8], Vec<RawFirehoseIt
             }
         };
         items.push(RawFirehoseItem {
-            item_type: 0,
+            item_type: RawItemKind::Number,
             item_size: 0,
             value,
         });
