@@ -142,7 +142,7 @@ impl<'a> RawCatalogChunk<'a> {
     self
       .catalog_process_info_entries
       .get(&CatalogProcessInfoKey(first_proc_id, second_proc_id))
-      .map(|entry| entry.pid as u64)
+      .map(|entry| u64::from(entry.pid))
   }
 
   /// Get the effictive user id associated with log entry. Can be mapped to an account name

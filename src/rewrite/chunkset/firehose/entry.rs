@@ -222,16 +222,12 @@ mod tests {
     let entry = &entries[0];
 
     // combined delta must equal lower | (upper << 32)
-    let expected_combined =
-      u64::from(entry.continuous_time_delta) | (u64::from(entry.continuous_time_delta_upper) << 32);
+    let expected_combined = u64::from(entry.continuous_time_delta) | (u64::from(entry.continuous_time_delta_upper) << 32);
     assert_eq!(entry.continuous_time_delta_combined(), expected_combined);
 
     // absolute = base + combined
     let base = fh.base_continuous_time;
-    assert_eq!(
-      entry.absolute_continuous_time(base),
-      base + expected_combined
-    );
+    assert_eq!(entry.absolute_continuous_time(base), base + expected_combined);
 
     // zero base should return just the combined delta
     assert_eq!(entry.absolute_continuous_time(0), expected_combined);

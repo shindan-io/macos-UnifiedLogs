@@ -1,6 +1,6 @@
+use nom::Parser;
 use nom::combinator::cond;
 use nom::number::complete::{be_u128, le_u16};
-use nom::Parser;
 
 // --- Entry-level flags (independent bits) ---
 
@@ -35,13 +35,13 @@ const FORMATTER_TYPE_MASK: u16 = 0x000E;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, num_enum::IntoPrimitive, num_enum::FromPrimitive)]
 #[repr(u8)]
 pub enum FormatterType {
-    MainExe = 0x2,
-    SharedCache = 0x4,
-    Absolute = 0x8,
-    UuidRelative = 0xa,
-    LargeSharedCache = 0xc,
-    #[num_enum(default)]
-    Unknown,
+  MainExe = 0x2,
+  SharedCache = 0x4,
+  Absolute = 0x8,
+  UuidRelative = 0xa,
+  LargeSharedCache = 0xc,
+  #[num_enum(default)]
+  Unknown,
 }
 
 // --- Formatter flags ---
@@ -98,9 +98,7 @@ impl RawFormatterFlags {
         result.uuid_relative = val.to_be_bytes();
         Ok((input, result))
       }
-      FormatterType::Unknown => {
-        Err(nom::Err::Failure(nom::error::Error::new(input, nom::error::ErrorKind::Switch)))
-      }
+      FormatterType::Unknown => Err(nom::Err::Failure(nom::error::Error::new(input, nom::error::ErrorKind::Switch))),
     }
   }
 }

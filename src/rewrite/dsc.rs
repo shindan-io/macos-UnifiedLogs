@@ -45,9 +45,7 @@ impl<'a> RawSharedCacheStrings<'a> {
   /// format string, and return it with the associated library path/UUID.
   pub fn format_string(&self, string_offset: u64) -> Option<DscStringResult<'a>> {
     for range in &self.ranges {
-      if string_offset >= range.range_offset
-        && string_offset < (range.range_offset + u64::from(range.range_size))
-      {
+      if string_offset >= range.range_offset && string_offset < (range.range_offset + u64::from(range.range_size)) {
         let local_offset = (string_offset - range.range_offset) as usize;
 
         // Edge case: offset at exact boundary means the string is in the next range

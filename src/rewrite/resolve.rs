@@ -36,7 +36,7 @@ pub fn resolve_strings<'a>(
   formatter: &RawFormatterFlags,
   first_proc_id: u64,
   second_proc_id: u32,
-  catalog: &'a RawCatalogChunk<'a>,
+  catalog: &RawCatalogChunk<'a>,
   dsc_files: &'a HashMap<Uuid, RawSharedCacheStrings<'a>>,
   uuidtext_files: &'a HashMap<Uuid, RawUUIDText<'a>>,
 ) -> ResolvedStrings<'a> {
@@ -76,7 +76,14 @@ pub fn resolve_strings<'a>(
       uuidtext_files,
     )
   } else {
-    resolve_main_exe(string_offset, original_offset, first_proc_id, second_proc_id, catalog, uuidtext_files)
+    resolve_main_exe(
+      string_offset,
+      original_offset,
+      first_proc_id,
+      second_proc_id,
+      catalog,
+      uuidtext_files,
+    )
   }
 }
 
@@ -88,7 +95,7 @@ fn resolve_shared_cache<'a>(
   formatter: &RawFormatterFlags,
   first_proc_id: u64,
   second_proc_id: u32,
-  catalog: &'a RawCatalogChunk<'a>,
+  catalog: &RawCatalogChunk<'a>,
   dsc_files: &'a HashMap<Uuid, RawSharedCacheStrings<'a>>,
   uuidtext_files: &'a HashMap<Uuid, RawUUIDText<'a>>,
 ) -> ResolvedStrings<'a> {
@@ -103,9 +110,7 @@ fn resolve_shared_cache<'a>(
   let process = uuidtext_files.get(&main_uuid).map(|u| u.image_path());
 
   if is_dynamic {
-    let (library, library_uuid) = dsc
-      .and_then(|d| d.fallback_library_info())
-      .unwrap_or(("", Uuid::nil()));
+    let (library, library_uuid) = dsc.and_then(|d| d.fallback_library_info()).unwrap_or(("", Uuid::nil()));
     return ResolvedStrings {
       format_string: Some(PERCENT_S),
       library: Some(library),
@@ -129,9 +134,7 @@ fn resolve_shared_cache<'a>(
   }
 
   // Fallback: invalid offset — still provide library info if possible
-  let (library, library_uuid) = dsc
-    .and_then(|d| d.fallback_library_info())
-    .unwrap_or(("", Uuid::nil()));
+  let (library, library_uuid) = dsc.and_then(|d| d.fallback_library_info()).unwrap_or(("", Uuid::nil()));
   ResolvedStrings {
     format_string: None,
     library: Some(library),
@@ -147,7 +150,7 @@ fn resolve_main_exe<'a>(
   original_offset: u64,
   first_proc_id: u64,
   second_proc_id: u32,
-  catalog: &'a RawCatalogChunk<'a>,
+  catalog: &RawCatalogChunk<'a>,
   uuidtext_files: &'a HashMap<Uuid, RawUUIDText<'a>>,
 ) -> ResolvedStrings<'a> {
   let entry = catalog.get_process_info(first_proc_id, second_proc_id);
@@ -181,7 +184,7 @@ fn resolve_absolute<'a>(
   formatter: &RawFormatterFlags,
   first_proc_id: u64,
   second_proc_id: u32,
-  catalog: &'a RawCatalogChunk<'a>,
+  catalog: &RawCatalogChunk<'a>,
   uuidtext_files: &'a HashMap<Uuid, RawUUIDText<'a>>,
 ) -> ResolvedStrings<'a> {
   let absolute_offset = (u64::from(formatter.alt_index) << 32) | u64::from(pc_id);
@@ -227,7 +230,7 @@ fn resolve_uuid_relative<'a>(
   formatter: &RawFormatterFlags,
   first_proc_id: u64,
   second_proc_id: u32,
-  catalog: &'a RawCatalogChunk<'a>,
+  catalog: &RawCatalogChunk<'a>,
   uuidtext_files: &'a HashMap<Uuid, RawUUIDText<'a>>,
 ) -> ResolvedStrings<'a> {
   let uuid = Uuid::from_bytes(formatter.uuid_relative);
@@ -305,10 +308,7 @@ mod tests {
       ..Default::default()
     };
     // Normal path: (has_large_offset << 32) | string_offset
-    assert_eq!(
-      compute_shared_cache_offset(0x1000, &formatter),
-      (2u64 << 32) | 0x1000
-    );
+    assert_eq!(compute_shared_cache_offset(0x1000, &formatter), (2u64 << 32) | 0x1000);
   }
 
   #[test]
@@ -321,10 +321,7 @@ mod tests {
       ..Default::default()
     };
     // Recovery: large_offset = large_shared_cache / 2 = 2
-    assert_eq!(
-      compute_shared_cache_offset(0x1000, &formatter),
-      (2u64 << 32) | 0x1000
-    );
+    assert_eq!(compute_shared_cache_offset(0x1000, &formatter), (2u64 << 32) | 0x1000);
   }
 
   #[test]
@@ -336,10 +333,7 @@ mod tests {
       ..Default::default()
     };
     // shared_cache flag: LARGE_OFFSET_BASE * 8 + string_offset
-    assert_eq!(
-      compute_shared_cache_offset(0x1000, &formatter),
-      LARGE_OFFSET_BASE * 8 + 0x1000
-    );
+    assert_eq!(compute_shared_cache_offset(0x1000, &formatter), LARGE_OFFSET_BASE * 8 + 0x1000);
   }
 
   // --- resolve_strings tests ---
