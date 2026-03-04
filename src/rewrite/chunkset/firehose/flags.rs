@@ -6,11 +6,12 @@ bitflags::bitflags! {
   /// Firehose entry flags — independent bit flags parsed from the entry header.
   ///
   /// Controls which optional fields are present in the entry body.
-  /// Bits 1–3 (mask 0x000E) and bit 5 (0x0020) are formatter flags,
-  /// handled separately in [`RawFormatterFlags::parse()`] via `bits()`.
+  /// Bits 1–3 (mask 0x000E) are extracted as [`FormatterType`].
+  /// Bit 5 (0x0020) is `HAS_LARGE_OFFSET`, an independent modifier for formatter parsing.
   #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
   pub struct FirehoseFlags: u16 {
     const HAS_CURRENT_AID   = 0x0001;
+    const HAS_LARGE_OFFSET  = 0x0020;
     const HAS_UNIQUE_PID    = 0x0010;
     const HAS_PRIVATE_DATA  = 0x0100;
     const HAS_SUBSYSTEM     = 0x0200;
@@ -21,15 +22,25 @@ bitflags::bitflags! {
   }
 }
 
-// --- Formatter constants (multi-bit enum pattern, private) ---
+// --- Formatter type enum (bits 1–3 of entry flags) ---
 
-const FORMATTER_FLAG_MASK: u16 = 0x000e;
-const FORMATTER_MAIN_EXE: u16 = 0x2;
-const FORMATTER_SHARED_CACHE: u16 = 0x4;
-const FORMATTER_ABSOLUTE: u16 = 0x8;
-const FORMATTER_UUID_RELATIVE: u16 = 0xa;
-const FORMATTER_LARGE_SHARED_CACHE: u16 = 0xc;
-const FORMATTER_LARGE_OFFSET: u16 = 0x20;
+/// Mask for extracting [`FormatterType`] from entry flags (bits 1–3).
+const FORMATTER_TYPE_MASK: u16 = 0x000E;
+
+/// Formatter type — identifies where the format string is located.
+///
+/// Extracted from bits 1–3 of the entry flags (mask `0x000E`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, num_enum::IntoPrimitive, num_enum::FromPrimitive)]
+#[repr(u8)]
+pub enum FormatterType {
+    MainExe = 0x2,
+    SharedCache = 0x4,
+    Absolute = 0x8,
+    UuidRelative = 0xa,
+    LargeSharedCache = 0xc,
+    #[num_enum(default)]
+    Unknown,
+}
 
 // --- Formatter flags ---
 
@@ -54,12 +65,12 @@ impl RawFormatterFlags {
   /// from `src/chunks/firehose/flags.rs`.
   pub(super) fn parse(input: &[u8], flags: FirehoseFlags) -> nom::IResult<&[u8], Self> {
     let mut result = Self::default();
-    let raw = flags.bits();
+    let has_large_offset = flags.contains(FirehoseFlags::HAS_LARGE_OFFSET);
 
-    match raw & FORMATTER_FLAG_MASK {
-      FORMATTER_LARGE_SHARED_CACHE => {
+    match FormatterType::from((flags.bits() & FORMATTER_TYPE_MASK) as u8) {
+      FormatterType::LargeSharedCache => {
         let mut input = input;
-        if (raw & FORMATTER_LARGE_OFFSET) != 0 {
+        if has_large_offset {
           let (i, val) = le_u16(input)?;
           result.has_large_offset = val;
           input = i;
@@ -68,23 +79,19 @@ impl RawFormatterFlags {
         result.large_shared_cache = val;
         Ok((input, result))
       }
-      FORMATTER_ABSOLUTE => {
+      FormatterType::Absolute => {
         result.absolute = true;
-        if (raw & FORMATTER_MAIN_EXE) == 0 {
-          let (input, val) = le_u16(input)?;
-          result.alt_index = val;
-          Ok((input, result))
-        } else {
-          Ok((input, result))
-        }
+        let (input, val) = le_u16(input)?;
+        result.alt_index = val;
+        Ok((input, result))
       }
-      FORMATTER_MAIN_EXE => {
+      FormatterType::MainExe => {
         result.main_exe = true;
         Ok((input, result))
       }
-      FORMATTER_SHARED_CACHE => {
+      FormatterType::SharedCache => {
         result.shared_cache = true;
-        if (raw & FORMATTER_LARGE_OFFSET) != 0 {
+        if has_large_offset {
           let (input, val) = le_u16(input)?;
           result.has_large_offset = val;
           Ok((input, result))
@@ -92,12 +99,14 @@ impl RawFormatterFlags {
           Ok((input, result))
         }
       }
-      FORMATTER_UUID_RELATIVE => {
+      FormatterType::UuidRelative => {
         let (input, val) = be_u128(input)?;
         result.uuid_relative = val.to_be_bytes();
         Ok((input, result))
       }
-      _ => Err(nom::Err::Failure(nom::error::Error::new(input, nom::error::ErrorKind::Switch))),
+      FormatterType::Unknown => {
+        Err(nom::Err::Failure(nom::error::Error::new(input, nom::error::ErrorKind::Switch)))
+      }
     }
   }
 }
