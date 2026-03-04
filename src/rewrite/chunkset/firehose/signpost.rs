@@ -1,4 +1,6 @@
+use nom::Parser;
 use nom::bytes::complete::take;
+use nom::combinator::cond;
 use nom::number::complete::{le_u8, le_u16, le_u32, le_u64};
 
 use super::flags::{FirehoseFlags, RawFormatterFlags};
@@ -28,67 +30,24 @@ pub struct RawSignpostBody<'a> {
 impl<'a> RawSignpostBody<'a> {
   /// Parse a Signpost entry body from raw entry data.
   pub fn parse(data: &'a [u8], flags: FirehoseFlags) -> nom::IResult<&'a [u8], Self> {
-    let mut input = data;
+    let input = data;
 
-    let activity_id = if flags.contains(FirehoseFlags::HAS_CURRENT_AID) {
-      let (i, id) = le_u32(input)?;
-      let (i, sentinel) = le_u32(i)?;
-      input = i;
-      Some((id, sentinel))
-    } else {
-      None
-    };
-
-    let private_strings = if flags.contains(FirehoseFlags::HAS_PRIVATE_DATA) {
-      let (i, offset) = le_u16(input)?;
-      let (i, size) = le_u16(i)?;
-      input = i;
-      Some((offset, size))
-    } else {
-      None
-    };
+    let (input, activity_id) = cond(flags.contains(FirehoseFlags::HAS_CURRENT_AID), (le_u32, le_u32)).parse(input)?;
+    let (input, private_strings) = cond(flags.contains(FirehoseFlags::HAS_PRIVATE_DATA), (le_u16, le_u16)).parse(input)?;
 
     let (input, pc_id) = le_u32(input)?;
-    let (mut input, formatter) = RawFormatterFlags::parse(input, flags)?;
+    let (input, formatter) = RawFormatterFlags::parse(input, flags)?;
 
-    let subsystem = if flags.contains(FirehoseFlags::HAS_SUBSYSTEM) {
-      let (i, val) = le_u16(input)?;
-      input = i;
-      Some(val)
-    } else {
-      None
-    };
+    let (input, subsystem) = cond(flags.contains(FirehoseFlags::HAS_SUBSYSTEM), le_u16).parse(input)?;
 
-    let (mut input, signpost_id) = le_u64(input)?;
+    let (input, signpost_id) = le_u64(input)?;
 
-    let ttl = if flags.contains(FirehoseFlags::HAS_RULES) {
-      let (i, val) = le_u8(input)?;
-      input = i;
-      Some(val)
-    } else {
-      None
-    };
+    let (input, ttl) = cond(flags.contains(FirehoseFlags::HAS_RULES), le_u8).parse(input)?;
+    let (input, data_ref) = cond(flags.contains(FirehoseFlags::HAS_OVERSIZE), le_u32).parse(input)?;
 
-    let data_ref = if flags.contains(FirehoseFlags::HAS_OVERSIZE) {
-      let (i, val) = le_u32(input)?;
-      input = i;
-      Some(val)
-    } else {
-      None
-    };
-
-    let signpost_name = if flags.contains(FirehoseFlags::HAS_NAME) {
-      let (i, val) = le_u32(input)?;
-      input = i;
-      // If the signpost has large_shared_cache flag, skip 2 extra bytes
-      if formatter.large_shared_cache != 0 {
-        let (i, _) = take(2_usize)(input)?;
-        input = i;
-      }
-      Some(val)
-    } else {
-      None
-    };
+    let (input, signpost_name) = cond(flags.contains(FirehoseFlags::HAS_NAME), le_u32).parse(input)?;
+    // If the signpost has large_shared_cache flag, skip 2 extra bytes after name
+    let (input, _) = cond(signpost_name.is_some() && formatter.large_shared_cache != 0, take(2_usize)).parse(input)?;
 
     Ok((
       &[],

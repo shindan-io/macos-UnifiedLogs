@@ -1,3 +1,5 @@
+use nom::Parser;
+use nom::combinator::cond;
 use nom::number::complete::{le_u32, le_u64};
 
 use super::entry::FirehoseLogType;
@@ -22,44 +24,14 @@ pub struct RawActivityBody<'a> {
 impl<'a> RawActivityBody<'a> {
   /// Parse an Activity entry body from raw entry data.
   pub fn parse(data: &'a [u8], flags: FirehoseFlags, log_type: FirehoseLogType) -> nom::IResult<&'a [u8], Self> {
-    let mut input = data;
+    let input = data;
 
     // Useraction activity type does not have the first Activity ID or sentinel
-    let activity_id = if log_type != FirehoseLogType::Useraction {
-      let (i, id) = le_u32(input)?;
-      let (i, sentinel) = le_u32(i)?;
-      input = i;
-      Some((id, sentinel))
-    } else {
-      None
-    };
-
-    let pid = if flags.contains(FirehoseFlags::HAS_UNIQUE_PID) {
-      let (i, val) = le_u64(input)?;
-      input = i;
-      Some(val)
-    } else {
-      None
-    };
-
-    let current_aid = if flags.contains(FirehoseFlags::HAS_CURRENT_AID) {
-      let (i, id) = le_u32(input)?;
-      let (i, sentinel) = le_u32(i)?;
-      input = i;
-      Some((id, sentinel))
-    } else {
-      None
-    };
-
+    let (input, activity_id) = cond(log_type != FirehoseLogType::Useraction, (le_u32, le_u32)).parse(input)?;
+    let (input, pid) = cond(flags.contains(FirehoseFlags::HAS_UNIQUE_PID), le_u64).parse(input)?;
+    let (input, current_aid) = cond(flags.contains(FirehoseFlags::HAS_CURRENT_AID), (le_u32, le_u32)).parse(input)?;
     // In Activity entries, HAS_SUBSYSTEM means "has other activity ID"
-    let other_aid = if flags.contains(FirehoseFlags::HAS_SUBSYSTEM) {
-      let (i, id) = le_u32(input)?;
-      let (i, sentinel) = le_u32(i)?;
-      input = i;
-      Some((id, sentinel))
-    } else {
-      None
-    };
+    let (input, other_aid) = cond(flags.contains(FirehoseFlags::HAS_SUBSYSTEM), (le_u32, le_u32)).parse(input)?;
 
     let (input, pc_id) = le_u32(input)?;
     let (items_data, formatter) = RawFormatterFlags::parse(input, flags)?;

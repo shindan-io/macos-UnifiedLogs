@@ -1,4 +1,6 @@
+use nom::combinator::cond;
 use nom::number::complete::{be_u128, le_u16};
+use nom::Parser;
 
 // --- Entry-level flags (independent bits) ---
 
@@ -69,12 +71,8 @@ impl RawFormatterFlags {
 
     match FormatterType::from((flags.bits() & FORMATTER_TYPE_MASK) as u8) {
       FormatterType::LargeSharedCache => {
-        let mut input = input;
-        if has_large_offset {
-          let (i, val) = le_u16(input)?;
-          result.has_large_offset = val;
-          input = i;
-        }
+        let (input, large_offset) = cond(has_large_offset, le_u16).parse(input)?;
+        result.has_large_offset = large_offset.unwrap_or(0);
         let (input, val) = le_u16(input)?;
         result.large_shared_cache = val;
         Ok((input, result))
@@ -91,13 +89,9 @@ impl RawFormatterFlags {
       }
       FormatterType::SharedCache => {
         result.shared_cache = true;
-        if has_large_offset {
-          let (input, val) = le_u16(input)?;
-          result.has_large_offset = val;
-          Ok((input, result))
-        } else {
-          Ok((input, result))
-        }
+        let (input, large_offset) = cond(has_large_offset, le_u16).parse(input)?;
+        result.has_large_offset = large_offset.unwrap_or(0);
+        Ok((input, result))
       }
       FormatterType::UuidRelative => {
         let (input, val) = be_u128(input)?;
