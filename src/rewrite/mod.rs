@@ -10,6 +10,7 @@ pub mod error;
 pub mod header;
 pub mod helpers;
 pub mod dsc;
+pub mod format;
 pub mod resolve;
 pub mod timesync;
 pub mod uuidtext;
