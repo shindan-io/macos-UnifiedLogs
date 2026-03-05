@@ -17,7 +17,7 @@ use super::chunkset::statedump::RawStatedump;
 use super::dsc::RawSharedCacheStrings;
 use super::error::{NomExt, ParseError};
 use super::header::RawHeaderChunk;
-use super::log_entry::{EventType, ItemsData, LogEntry, LogType};
+use super::log_entry::{EventType, ItemsData, LogEntry, LogType, PrivateDataContext};
 use super::resolve::resolve_strings;
 use super::timesync::TimestampResolver;
 use super::uuidtext::RawUUIDText;
@@ -148,6 +148,8 @@ pub fn visit_tracev3<'a>(
                   },
                   signpost_id: 0,
                   signpost_name: 0,
+                  #[cfg(feature = "rewrite_behave_previous")]
+                  format_string_error: None,
                 });
               }
               Err(e) => warn!("Failed to parse simpledump chunk: {}", e.to_parse_error()),
@@ -186,6 +188,8 @@ pub fn visit_tracev3<'a>(
                   },
                   signpost_id: 0,
                   signpost_name: 0,
+                  #[cfg(feature = "rewrite_behave_previous")]
+                  format_string_error: None,
                 });
               }
               Err(e) => warn!("Failed to parse statedump chunk: {}", e.to_parse_error()),
@@ -293,6 +297,8 @@ fn visit_firehose_entries<'a, 'b>(
           },
           signpost_id: 0,
           signpost_name: 0,
+          #[cfg(feature = "rewrite_behave_previous")]
+          format_string_error: None,
         });
         continue;
       }
@@ -321,14 +327,40 @@ fn visit_firehose_entries<'a, 'b>(
       uuidtext_files,
     );
 
+    // Generate error string for invalid format string offsets (old pipeline parity)
+    #[cfg(feature = "rewrite_behave_previous")]
+    let format_string_error = if resolved.format_string.is_none() {
+      let string_offset = u64::from(entry.format_string_location);
+      Some(format_string_error_message(string_offset, &formatter, resolved.library_uuid))
+    } else {
+      None
+    };
+
     // Build deferred items data — message formatted on demand via LogEntry::message()
     // All variants borrow raw bytes zero-copy from the chunk data or oversize cache.
     // Lifetime 'b is scoped to the current chunkset iteration, which outlives the callback.
+    let private_data_context = {
+      let private_strings = match &body {
+        RawFirehoseBody::NonActivity(b) => b.private_strings,
+        RawFirehoseBody::Signpost(b) => b.private_strings,
+        _ => None,
+      };
+      match (fh.private_data(), private_strings) {
+        (Some(pd), Some((offset, size))) if size > 0 => Some(PrivateDataContext {
+          private_data: pd,
+          private_strings_offset: offset,
+          private_data_virtual_offset: fh.private_data_virtual_offset,
+          collapsed: fh.collapsed,
+        }),
+        _ => None,
+      }
+    };
     let items = if let Some(data_ref) = data_ref {
       match oversize_cache.get(data_ref, fh.first_proc_id, fh.second_proc_id) {
         Some(d) => ItemsData::Regular {
           data: d,
           flags: entry.flags,
+          private_data_context,
         },
         None => {
           warn!(
@@ -346,6 +378,7 @@ fn visit_firehose_entries<'a, 'b>(
           Some(d) => ItemsData::Regular {
             data: d,
             flags: entry.flags,
+            private_data_context,
           },
           None => ItemsData::None,
         },
@@ -379,6 +412,8 @@ fn visit_firehose_entries<'a, 'b>(
       items,
       signpost_id,
       signpost_name,
+      #[cfg(feature = "rewrite_behave_previous")]
+      format_string_error,
     });
   }
 }
@@ -441,6 +476,43 @@ fn combine_activity_id(ids: Option<(u32, u32)>) -> u64 {
 
 fn extract_timezone_name(timezone_path: &str) -> &str {
   timezone_path.rsplit('/').next().unwrap_or(timezone_path)
+}
+
+/// Generate error message matching the old pipeline's format when format string lookup fails.
+///
+/// Dispatches based on formatter flags to produce the right error variant:
+/// - Shared cache → `"Error: Invalid shared string offset"`
+/// - Main exe → `"Error: Invalid offset {offset} for UUID {hex}"`
+/// - Absolute → `"Error: Invalid offset {offset} for absolute UUID {hex}"`
+/// - UUID-relative → `"Error: Invalid offset {offset} for alternative UUID {hex}"`
+#[cfg(feature = "rewrite_behave_previous")]
+fn format_string_error_message(
+  string_offset: u64,
+  formatter: &RawFormatterFlags,
+  library_uuid: Uuid,
+) -> String {
+  if formatter.shared_cache || formatter.large_shared_cache != 0 {
+    "Error: Invalid shared string offset".to_string()
+  } else if formatter.absolute {
+    format!(
+      "Error: Invalid offset {} for absolute UUID {:X}",
+      string_offset,
+      library_uuid.simple()
+    )
+  } else if formatter.uuid_relative != [0u8; 16] {
+    let uuid = Uuid::from_bytes(formatter.uuid_relative);
+    format!(
+      "Error: Invalid offset {} for alternative UUID {:X}",
+      string_offset,
+      uuid.simple()
+    )
+  } else {
+    format!(
+      "Error: Invalid offset {} for UUID {:X}",
+      string_offset,
+      library_uuid.simple()
+    )
+  }
 }
 
 // ---------------------------------------------------------------------------

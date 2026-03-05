@@ -43,7 +43,7 @@ impl AppleDecoder for OldAppleDecoder {
       RawItemValue::U64(n) => n.to_string(),
       RawItemValue::Str(s) => s.to_string(),
       RawItemValue::Bytes(b) => base64::engine::general_purpose::STANDARD.encode(b),
-      RawItemValue::Private | RawItemValue::Empty | RawItemValue::Null => return None,
+      RawItemValue::Private { .. } | RawItemValue::Empty | RawItemValue::Null => return None,
     };
 
     // Replicate check_objects: mask.hash + BaseRaw (0xf2) → return base64 as-is,
@@ -458,9 +458,18 @@ fn apply_float_format(output: &mut String, f: f64, spec: &FormatSpec) {
   let formatted = if spec.has_precision {
     format!("{f:.prec$}", prec = spec.precision)
   } else {
-    // Default: Rust's default float precision (matches legacy behavior for %f with no precision)
-    // Legacy uses the natural precision of the float
-    format!("{f}")
+    // Old pipeline double-converts: format to string, count decimal digits, reformat with that
+    // precision. This can round differently than direct formatting.
+    #[cfg(feature = "rewrite_behave_previous")]
+    {
+      let initial = format!("{f}");
+      let decimal_digits = initial.find('.').map(|pos| initial.len() - pos - 1).unwrap_or(0);
+      format!("{f:.prec$}", prec = decimal_digits)
+    }
+    #[cfg(not(feature = "rewrite_behave_previous"))]
+    {
+      format!("{f}")
+    }
   };
 
   let core = format!("{plus}{formatted}");
@@ -725,7 +734,7 @@ pub fn format_message(format_string: Option<&str>, items: &[RawFirehoseItem<'_>]
     let item = &items[item_index];
 
     // Check for private
-    if matches!(item.value, RawItemValue::Private) {
+    if matches!(item.value, RawItemValue::Private { .. }) {
       result.push_str("<private>");
       item_index += 1;
       continue;
@@ -796,7 +805,7 @@ fn format_annotated_item(
   let item = &items[*item_index];
 
   // Check for private
-  if matches!(item.value, RawItemValue::Private) {
+  if matches!(item.value, RawItemValue::Private { .. }) {
     result.push_str("<private>");
     *item_index += 1;
     return;
@@ -849,7 +858,7 @@ fn item_to_string(item: &RawFirehoseItem<'_>) -> String {
     RawItemValue::I64(n) => n.to_string(),
     RawItemValue::U64(n) => n.to_string(),
     RawItemValue::Bytes(b) => String::from_utf8_lossy(b).into_owned(),
-    RawItemValue::Private => "<private>".to_string(),
+    RawItemValue::Private { .. } => "<private>".to_string(),
     RawItemValue::Empty => String::new(),
     RawItemValue::Null => {
       #[cfg(feature = "rewrite_behave_previous")]
@@ -902,7 +911,7 @@ mod tests {
     RawFirehoseItem {
       item_type: RawItemKind::PrivateNumber,
       item_size: 0,
-      value: RawItemValue::Private,
+      value: RawItemValue::Private { raw_item_type: 0x01 },
     }
   }
 

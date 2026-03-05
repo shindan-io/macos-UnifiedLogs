@@ -13,7 +13,7 @@ use uuid::Uuid;
 use crate::decoders::{config, location};
 
 use super::chunkset::firehose::flags::FirehoseFlags;
-use super::chunkset::firehose::item::{parse_items_data, parse_trace_items};
+use super::chunkset::firehose::item::{fill_private_data, parse_items_data, parse_trace_items};
 #[cfg(not(feature = "rewrite_behave_previous"))]
 use super::format::NoDecoder;
 #[cfg(feature = "rewrite_behave_previous")]
@@ -57,6 +57,15 @@ pub enum LogType {
   Loss,
 }
 
+/// Context for filling private item values from the firehose private data section.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct PrivateDataContext<'b> {
+  pub private_data: &'b [u8],
+  pub private_strings_offset: u16,
+  pub private_data_virtual_offset: u16,
+  pub collapsed: u8,
+}
+
 /// Raw data needed to format a message on demand.
 /// Not public — callers use `LogEntry::message()`.
 ///
@@ -66,7 +75,11 @@ pub enum LogType {
 #[derive(Debug)]
 pub(crate) enum ItemsData<'b> {
   /// Activity/NonActivity/Signpost: raw item bytes.
-  Regular { data: &'b [u8], flags: FirehoseFlags },
+  Regular {
+    data: &'b [u8],
+    flags: FirehoseFlags,
+    private_data_context: Option<PrivateDataContext<'b>>,
+  },
   /// Trace: raw item bytes (parsed differently — reversed big-endian).
   Trace { data: &'b [u8] },
   /// Loss entry: formatted lazily from count + time range.
@@ -117,6 +130,10 @@ pub struct LogEntry<'a, 'b> {
   // Signpost fields — populated only for Signpost entries, 0 otherwise.
   pub(crate) signpost_id: u64,
   pub(crate) signpost_name: u32,
+  /// Error message for invalid format string offsets (old pipeline parity).
+  /// When `format_string` is None, this replaces `<missing format string>`.
+  #[cfg(feature = "rewrite_behave_previous")]
+  pub(crate) format_string_error: Option<String>,
 }
 
 impl<'a, 'b> LogEntry<'a, 'b> {
@@ -140,20 +157,49 @@ impl<'a, 'b> LogEntry<'a, 'b> {
     }
   }
 
+  /// Effective format string — falls back to error string for parity with old pipeline.
+  fn effective_format_string(&self) -> Option<&str> {
+    if self.format_string.is_some() {
+      return self.format_string;
+    }
+    #[cfg(feature = "rewrite_behave_previous")]
+    {
+      self.format_string_error.as_deref()
+    }
+    #[cfg(not(feature = "rewrite_behave_previous"))]
+    {
+      None
+    }
+  }
+
   /// Format with a custom Apple decoder.
   pub fn message_with_decoder(&self, decoder: &dyn AppleDecoder) -> String {
+    let fmt_str = self.effective_format_string();
     match &self.items {
-      ItemsData::Regular { data, flags } => {
-        let (items, backtrace) = match parse_items_data(data, *flags) {
+      ItemsData::Regular { data, flags, .. } => {
+        let (mut items, backtrace) = match parse_items_data(data, *flags) {
           Ok((_, d)) => (d.items, d.backtrace_data),
           Err(_) => (Vec::new(), None),
         };
-        let msg = format_message(self.format_string, &items, decoder);
+        if let ItemsData::Regular {
+          private_data_context: Some(ctx),
+          ..
+        } = &self.items
+        {
+          fill_private_data(
+            &mut items,
+            ctx.private_data,
+            ctx.private_strings_offset,
+            ctx.private_data_virtual_offset,
+            ctx.collapsed,
+          );
+        }
+        let msg = format_message(fmt_str, &items, decoder);
         self.apply_parity_prefix(msg, backtrace)
       }
       ItemsData::Trace { data } => {
         let items = parse_trace_items(data);
-        format_message(self.format_string, &items, decoder)
+        format_message(fmt_str, &items, decoder)
       }
       ItemsData::Loss {
         count,
@@ -183,7 +229,7 @@ impl<'a, 'b> LogEntry<'a, 'b> {
           "title: {title_name}\nObject Type: {decoder_library}\nObject Type: {decoder_type}\n{data_string}"
         )
       }
-      ItemsData::None => format_message(self.format_string, &[], decoder),
+      ItemsData::None => format_message(fmt_str, &[], decoder),
     }
   }
 
@@ -355,7 +401,7 @@ impl Serialize for LogEntry<'_, '_> {
     state.serialize_field("process_uuid", &self.process_uuid)?;
     let message = self.message();
     state.serialize_field("message", &message)?;
-    state.serialize_field("format_string", &self.format_string)?;
+    state.serialize_field("format_string", &self.effective_format_string())?;
     state.serialize_field("boot_uuid", &self.boot_uuid)?;
     state.serialize_field("timezone_name", self.timezone_name)?;
     state.end()

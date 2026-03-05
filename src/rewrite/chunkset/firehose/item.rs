@@ -49,7 +49,9 @@ pub enum RawItemValue<'a> {
   /// Arbitrary/base64 data, raw bytes (not yet encoded).
   Bytes(&'a [u8]),
   /// Private/sensitive marker — value is redacted.
-  Private,
+  /// Stores the raw `item_type` byte for `fill_private_data()` to distinguish
+  /// base64 types (0x35, 0x31) from string types.
+  Private { raw_item_type: u8 },
   /// Object with `string_size == 0`.
   Null,
 }
@@ -123,7 +125,7 @@ pub fn parse_items_data<'a>(data: &'a [u8], flags: FirehoseFlags) -> nom::IResul
         items.push(RawFirehoseItem {
           item_type: kind,
           item_size: str_size,
-          value: RawItemValue::Private,
+          value: RawItemValue::Private { raw_item_type: item_type },
         });
         input = rest;
       }
@@ -144,7 +146,7 @@ pub fn parse_items_data<'a>(data: &'a [u8], flags: FirehoseFlags) -> nom::IResul
         items.push(RawFirehoseItem {
           item_type: kind,
           item_size: str_size,
-          value: RawItemValue::Private,
+          value: RawItemValue::Private { raw_item_type: item_type },
         });
         input = rest;
       }
@@ -381,6 +383,101 @@ fn skip_backtrace(data: &[u8]) -> nom::IResult<&[u8], &[u8]> {
   let backtrace_slice = &start[..consumed];
 
   Ok((input, backtrace_slice))
+}
+
+// ---------------------------------------------------------------------------
+// Private data fill
+// ---------------------------------------------------------------------------
+
+/// Fill private item values from the firehose private data section.
+///
+/// Items marked `Private` are placeholders — the actual values live in a
+/// separate private data region within the firehose chunk. This function
+/// reads those values sequentially (matching the old pipeline's
+/// `FirehosePreamble::parse_private_data()` logic):
+///
+/// - 0x35, 0x31 → raw bytes (base64-encoded during formatting)
+/// - 0x01 with size == 0x8000 → stays `<private>`
+/// - 0x01 otherwise → parse LE number from private data
+/// - Other private types with size == 0 → stays `<private>`
+/// - Other private types with size > 0 → UTF-8 string
+pub fn fill_private_data<'a>(
+  items: &mut [RawFirehoseItem<'a>],
+  private_data: &'a [u8],
+  private_strings_offset: u16,
+  private_data_virtual_offset: u16,
+  collapsed: u8,
+) {
+  // Strip leading zero padding (matching old pipeline firehose_log.rs:299-309)
+  let stripped = if collapsed != 1 {
+    let zeros = private_data.iter().take_while(|&&b| b == 0).count();
+    if zeros > 0 && zeros < private_data.len() {
+      &private_data[zeros..]
+    } else {
+      private_data
+    }
+  } else {
+    private_data
+  };
+
+  // Seek to this entry's private string region
+  let string_offset = private_strings_offset.saturating_sub(private_data_virtual_offset) as usize;
+  if string_offset > stripped.len() {
+    return;
+  }
+  let mut cursor = &stripped[string_offset..];
+
+  // Private string type bytes (from old pipeline constants)
+  const PRIVATE_STRING_TYPES: [u8; 7] = [0x21, 0x25, 0x41, 0x35, 0x31, 0x81, 0xf1];
+  const BASE64_TYPES: [u8; 2] = [0x35, 0x31];
+  const PRIVATE_NUMBER_TYPE: u8 = 0x01;
+  const PRIVATE_NUMBER_SIZE: u16 = 0x8000;
+
+  for item in items.iter_mut() {
+    let raw_type = match item.value {
+      RawItemValue::Private { raw_item_type } => raw_item_type,
+      _ => continue,
+    };
+
+    if PRIVATE_STRING_TYPES.contains(&raw_type) {
+      if BASE64_TYPES.contains(&raw_type) {
+        // Base64: take item_size bytes (clamp to available)
+        let size = item.item_size as usize;
+        let actual_size = size.min(cursor.len());
+        if actual_size == 0 {
+          continue;
+        }
+        let (bytes, rest) = cursor.split_at(actual_size);
+        cursor = rest;
+        item.value = RawItemValue::Bytes(bytes);
+      } else {
+        // Regular private string
+        let size = item.item_size as usize;
+        if size == 0 {
+          // Keep as <private>
+          continue;
+        }
+        let actual_size = size.min(cursor.len());
+        if actual_size == 0 {
+          continue;
+        }
+        let (bytes, rest) = cursor.split_at(actual_size);
+        cursor = rest;
+        item.value = RawItemValue::Str(utf8_str(bytes));
+      }
+    } else if raw_type == PRIVATE_NUMBER_TYPE {
+      if item.item_size == PRIVATE_NUMBER_SIZE {
+        // Keep as <private>
+        continue;
+      }
+      let size = item.item_size;
+      if let Ok((rest, value)) = parse_item_number(cursor, size) {
+        cursor = rest;
+        item.value = value;
+      }
+    }
+    // Sensitive (0x05, 0x45, 0x85) and others: skip, keep as Private
+  }
 }
 
 #[cfg(test)]
