@@ -355,113 +355,59 @@ fn extract_timezone_name(timezone_path: &str) -> &str {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use test_case::test_case;
 
   // --- map_log_type tests ---
 
-  #[test]
-  fn test_map_activity_log_type_info_is_create() {
-    assert_eq!(map_activity_log_type(FirehoseLogType::Info), LogType::Create);
+  #[test_case(FirehoseLogType::Info        => LogType::Create    ; "info is create")]
+  #[test_case(FirehoseLogType::Useraction  => LogType::Useraction; "useraction")]
+  #[test_case(FirehoseLogType::Debug       => LogType::Default   ; "debug fallback")]
+  #[test_case(FirehoseLogType::Error       => LogType::Default   ; "error fallback")]
+  #[test_case(FirehoseLogType::Default     => LogType::Default   ; "default fallback")]
+  fn test_map_activity_log_type(input: FirehoseLogType) -> LogType {
+    map_activity_log_type(input)
   }
 
-  #[test]
-  fn test_map_activity_log_type_useraction() {
-    assert_eq!(map_activity_log_type(FirehoseLogType::Useraction), LogType::Useraction);
+  #[test_case(FirehoseLogType::Debug   => LogType::Debug  ; "debug")]
+  #[test_case(FirehoseLogType::Info    => LogType::Info   ; "info")]
+  #[test_case(FirehoseLogType::Error   => LogType::Error  ; "error")]
+  #[test_case(FirehoseLogType::Fault   => LogType::Fault  ; "fault")]
+  #[test_case(FirehoseLogType::Default => LogType::Default; "default")]
+  fn test_map_default_log_type(input: FirehoseLogType) -> LogType {
+    map_default_log_type(input)
   }
 
-  #[test]
-  fn test_map_activity_log_type_default_fallback() {
-    assert_eq!(map_activity_log_type(FirehoseLogType::Debug), LogType::Default);
-    assert_eq!(map_activity_log_type(FirehoseLogType::Error), LogType::Default);
-    assert_eq!(map_activity_log_type(FirehoseLogType::Default), LogType::Default);
-  }
-
-  #[test]
-  fn test_map_default_log_type_all() {
-    assert_eq!(map_default_log_type(FirehoseLogType::Debug), LogType::Debug);
-    assert_eq!(map_default_log_type(FirehoseLogType::Info), LogType::Info);
-    assert_eq!(map_default_log_type(FirehoseLogType::Error), LogType::Error);
-    assert_eq!(map_default_log_type(FirehoseLogType::Fault), LogType::Fault);
-    assert_eq!(map_default_log_type(FirehoseLogType::Default), LogType::Default);
-  }
-
-  #[test]
-  fn test_map_signpost_log_type_all_variants() {
-    assert_eq!(
-      map_signpost_log_type(FirehoseLogType::ProcessSignpostEvent),
-      LogType::ProcessSignpostEvent
-    );
-    assert_eq!(
-      map_signpost_log_type(FirehoseLogType::ProcessSignpostStart),
-      LogType::ProcessSignpostStart
-    );
-    assert_eq!(
-      map_signpost_log_type(FirehoseLogType::ProcessSignpostEnd),
-      LogType::ProcessSignpostEnd
-    );
-    assert_eq!(
-      map_signpost_log_type(FirehoseLogType::SystemSignpostEvent),
-      LogType::SystemSignpostEvent
-    );
-    assert_eq!(
-      map_signpost_log_type(FirehoseLogType::SystemSignpostStart),
-      LogType::SystemSignpostStart
-    );
-    assert_eq!(
-      map_signpost_log_type(FirehoseLogType::SystemSignpostEnd),
-      LogType::SystemSignpostEnd
-    );
-    assert_eq!(
-      map_signpost_log_type(FirehoseLogType::ThreadSignpostEvent),
-      LogType::ThreadSignpostEvent
-    );
-    assert_eq!(
-      map_signpost_log_type(FirehoseLogType::ThreadSignpostStart),
-      LogType::ThreadSignpostStart
-    );
-    assert_eq!(
-      map_signpost_log_type(FirehoseLogType::ThreadSignpostEnd),
-      LogType::ThreadSignpostEnd
-    );
-    assert_eq!(map_signpost_log_type(FirehoseLogType::Default), LogType::Default);
+  #[test_case(FirehoseLogType::ProcessSignpostEvent => LogType::ProcessSignpostEvent; "process event")]
+  #[test_case(FirehoseLogType::ProcessSignpostStart => LogType::ProcessSignpostStart; "process start")]
+  #[test_case(FirehoseLogType::ProcessSignpostEnd   => LogType::ProcessSignpostEnd  ; "process end")]
+  #[test_case(FirehoseLogType::SystemSignpostEvent  => LogType::SystemSignpostEvent ; "system event")]
+  #[test_case(FirehoseLogType::SystemSignpostStart  => LogType::SystemSignpostStart ; "system start")]
+  #[test_case(FirehoseLogType::SystemSignpostEnd    => LogType::SystemSignpostEnd   ; "system end")]
+  #[test_case(FirehoseLogType::ThreadSignpostEvent  => LogType::ThreadSignpostEvent ; "thread event")]
+  #[test_case(FirehoseLogType::ThreadSignpostStart  => LogType::ThreadSignpostStart ; "thread start")]
+  #[test_case(FirehoseLogType::ThreadSignpostEnd    => LogType::ThreadSignpostEnd   ; "thread end")]
+  #[test_case(FirehoseLogType::Default              => LogType::Default             ; "default")]
+  fn test_map_signpost_log_type(input: FirehoseLogType) -> LogType {
+    map_signpost_log_type(input)
   }
 
   // --- combine_activity_id tests ---
 
-  #[test]
-  fn test_combine_activity_id_none() {
-    assert_eq!(combine_activity_id(None), 0);
-  }
-
-  #[test]
-  fn test_combine_activity_id_some() {
-    assert_eq!(combine_activity_id(Some((0xDEAD, 0xBEEF))), 0xBEEF_0000_DEAD);
-  }
-
-  #[test]
-  fn test_combine_activity_id_zero() {
-    assert_eq!(combine_activity_id(Some((0, 0))), 0);
+  #[test_case(None                    => 0                ; "none")]
+  #[test_case(Some((0xDEAD, 0xBEEF)) => 0xBEEF_0000_DEAD; "some")]
+  #[test_case(Some((0, 0))           => 0                ; "zero")]
+  fn test_combine_activity_id(input: Option<(u32, u32)>) -> u64 {
+    combine_activity_id(input)
   }
 
   // --- extract_timezone_name tests ---
 
-  #[test]
-  fn test_extract_timezone_name_full_path() {
-    assert_eq!(extract_timezone_name("/var/db/timezone/zoneinfo/America/New_York"), "New_York");
-  }
-
-  #[test]
-  fn test_extract_timezone_name_short_path() {
-    assert_eq!(extract_timezone_name("/usr/share/zoneinfo/Pacific"), "Pacific");
-  }
-
-  #[test]
-  fn test_extract_timezone_name_no_slash() {
-    assert_eq!(extract_timezone_name("UTC"), "UTC");
-  }
-
-  #[test]
-  fn test_extract_timezone_name_empty() {
-    assert_eq!(extract_timezone_name(""), "");
+  #[test_case("/var/db/timezone/zoneinfo/America/New_York" => "New_York" ; "full path")]
+  #[test_case("/usr/share/zoneinfo/Pacific"                => "Pacific"  ; "short path")]
+  #[test_case("UTC"                                        => "UTC"      ; "no slash")]
+  #[test_case(""                                           => ""         ; "empty")]
+  fn test_extract_timezone_name(input: &str) -> &str {
+    extract_timezone_name(input)
   }
 
   // --- OversizeCache tests ---

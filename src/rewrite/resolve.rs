@@ -290,54 +290,28 @@ fn compute_shared_cache_offset(string_offset: u64, formatter: &RawFormatterFlags
 mod tests {
   use super::*;
   use crate::rewrite::chunkset::firehose::flags::RawFormatterFlags;
+  use test_case::test_case;
 
   // --- compute_shared_cache_offset tests ---
 
-  #[test]
-  fn test_compute_shared_cache_offset_no_large() {
+  #[test_case(0, 0, false, 12345,  12345                          ; "no large offset")]
+  #[test_case(2, 4, false, 0x1000, (2u64 << 32) | 0x1000         ; "matching")]
+  #[test_case(3, 4, false, 0x1000, (2u64 << 32) | 0x1000         ; "mismatched recovery")]
+  #[test_case(2, 4, true,  0x1000, LARGE_OFFSET_BASE * 8 + 0x1000; "shared cache flag")]
+  fn test_compute_shared_cache_offset(
+    has_large_offset: u16,
+    large_shared_cache: u16,
+    shared_cache: bool,
+    input: u64,
+    expected: u64,
+  ) {
     let formatter = RawFormatterFlags {
-      has_large_offset: 0,
+      has_large_offset,
+      large_shared_cache,
+      shared_cache,
       ..Default::default()
     };
-    assert_eq!(compute_shared_cache_offset(12345, &formatter), 12345);
-  }
-
-  #[test]
-  fn test_compute_shared_cache_offset_matching() {
-    // has_large_offset == large_shared_cache / 2, not shared_cache
-    let formatter = RawFormatterFlags {
-      has_large_offset: 2,
-      large_shared_cache: 4,
-      shared_cache: false,
-      ..Default::default()
-    };
-    // Normal path: (has_large_offset << 32) | string_offset
-    assert_eq!(compute_shared_cache_offset(0x1000, &formatter), (2u64 << 32) | 0x1000);
-  }
-
-  #[test]
-  fn test_compute_shared_cache_offset_mismatched() {
-    // has_large_offset != large_shared_cache / 2, not shared_cache → recovery
-    let formatter = RawFormatterFlags {
-      has_large_offset: 3,
-      large_shared_cache: 4, // 4/2 = 2, != 3
-      shared_cache: false,
-      ..Default::default()
-    };
-    // Recovery: large_offset = large_shared_cache / 2 = 2
-    assert_eq!(compute_shared_cache_offset(0x1000, &formatter), (2u64 << 32) | 0x1000);
-  }
-
-  #[test]
-  fn test_compute_shared_cache_offset_shared_cache_flag() {
-    let formatter = RawFormatterFlags {
-      has_large_offset: 2,
-      large_shared_cache: 4,
-      shared_cache: true,
-      ..Default::default()
-    };
-    // shared_cache flag: LARGE_OFFSET_BASE * 8 + string_offset
-    assert_eq!(compute_shared_cache_offset(0x1000, &formatter), LARGE_OFFSET_BASE * 8 + 0x1000);
+    assert_eq!(compute_shared_cache_offset(input, &formatter), expected);
   }
 
   // --- resolve_strings tests ---
