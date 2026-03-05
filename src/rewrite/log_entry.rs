@@ -114,6 +114,9 @@ pub struct LogEntry<'a, 'b> {
   pub timezone_name: &'a str,
   // Private: deferred message data
   pub(crate) items: ItemsData<'b>,
+  // Signpost fields — populated only for Signpost entries, 0 otherwise.
+  pub(crate) signpost_id: u64,
+  pub(crate) signpost_name: u32,
 }
 
 impl<'a, 'b> LogEntry<'a, 'b> {
@@ -141,8 +144,12 @@ impl<'a, 'b> LogEntry<'a, 'b> {
   pub fn message_with_decoder(&self, decoder: &dyn AppleDecoder) -> String {
     match &self.items {
       ItemsData::Regular { data, flags } => {
-        let items = parse_items_data(data, *flags).map(|(_, d)| d.items).unwrap_or_default();
-        format_message(self.format_string, &items, decoder)
+        let (items, backtrace) = match parse_items_data(data, *flags) {
+          Ok((_, d)) => (d.items, d.backtrace_data),
+          Err(_) => (Vec::new(), None),
+        };
+        let msg = format_message(self.format_string, &items, decoder);
+        self.apply_parity_prefix(msg, backtrace)
       }
       ItemsData::Trace { data } => {
         let items = parse_trace_items(data);
@@ -153,7 +160,15 @@ impl<'a, 'b> LogEntry<'a, 'b> {
         start_time,
         end_time,
       } => {
-        format!("Lost {} log entries between {} and {}", count, start_time, end_time)
+        #[cfg(feature = "rewrite_behave_previous")]
+        {
+          let _ = (count, start_time, end_time);
+          String::new()
+        }
+        #[cfg(not(feature = "rewrite_behave_previous"))]
+        {
+          format!("Lost {} log entries between {} and {}", count, start_time, end_time)
+        }
       }
       ItemsData::Simpledump { message, .. } => message.to_string(),
       ItemsData::Statedump {
@@ -176,6 +191,94 @@ impl<'a, 'b> LogEntry<'a, 'b> {
   pub fn timestamp(&self) -> DateTime<Utc> {
     DateTime::from_timestamp_nanos(self.time as i64)
   }
+
+  /// Apply signpost prefix and backtrace prefix for parity with the old pipeline.
+  /// Without the feature flag, returns the message unchanged.
+  fn apply_parity_prefix(&self, msg: String, _backtrace: Option<&[u8]>) -> String {
+    #[cfg(feature = "rewrite_behave_previous")]
+    {
+      let mut result = msg;
+
+      // Signpost entries get "Signpost ID: XX - Signpost Name: XX\n " prefix
+      if self.event_type == EventType::Signpost {
+        result = format!(
+          "Signpost ID: {:X} - Signpost Name: {:X}\n {result}",
+          self.signpost_id, self.signpost_name,
+        );
+      }
+
+      // Backtrace data gets "Backtrace:\n{lines}\n" prefix
+      if let Some(bt_data) = _backtrace {
+        let bt_str = format_backtrace(bt_data);
+        if !bt_str.is_empty() {
+          result = format!("Backtrace:\n{bt_str}\n{result}");
+        }
+      }
+
+      result
+    }
+    #[cfg(not(feature = "rewrite_behave_previous"))]
+    {
+      msg
+    }
+  }
+}
+
+/// Format raw backtrace bytes into the old pipeline's string format.
+///
+/// Layout: 3 unknown bytes, uuid_count (u8), offset_count (u16 LE),
+/// UUIDs (uuid_count × 16, big-endian u128), offsets (offset_count × 4, LE u32),
+/// indexes (offset_count × 1).
+///
+/// Output: one line per offset: `"UUID_HEX" +0xOFFSET_DECIMAL` joined by newlines.
+/// Matches old pipeline's `FirehosePreamble::get_backtrace_data()`.
+#[cfg(feature = "rewrite_behave_previous")]
+fn format_backtrace(data: &[u8]) -> String {
+  if data.len() < 6 {
+    return String::new();
+  }
+
+  let uuid_count = data[3] as usize;
+  let offset_count = u16::from_le_bytes([data[4], data[5]]) as usize;
+
+  let uuid_start = 6;
+  let uuid_end = uuid_start + uuid_count * 16;
+  let offsets_end = uuid_end + offset_count * 4;
+  let indexes_end = offsets_end + offset_count;
+
+  if data.len() < indexes_end {
+    return String::new();
+  }
+
+  let uuids: Vec<u128> = (0..uuid_count)
+    .map(|i| {
+      let s = uuid_start + i * 16;
+      u128::from_be_bytes(data[s..s + 16].try_into().unwrap())
+    })
+    .collect();
+
+  let offsets: Vec<u32> = (0..offset_count)
+    .map(|i| {
+      let s = uuid_end + i * 4;
+      u32::from_le_bytes(data[s..s + 4].try_into().unwrap())
+    })
+    .collect();
+
+  let indexes = &data[offsets_end..indexes_end];
+
+  let lines: Vec<String> = indexes
+    .iter()
+    .enumerate()
+    .map(|(i, &idx)| {
+      let uuid = uuids.get(idx as usize).copied().unwrap_or(0);
+      let offset = offsets.get(i).copied().unwrap_or(0);
+      // Old pipeline uses: format!("\"{:X}\" +0x{:?}", uuid, offset)
+      // {:?} on u32 gives decimal, so +0x prefix is cosmetic (matches old behavior)
+      format!("\"{uuid:X}\" +0x{offset:?}")
+    })
+    .collect();
+
+  lines.join("\n")
 }
 
 // Statedump data type constants (matches src/constants.rs)

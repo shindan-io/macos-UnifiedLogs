@@ -146,6 +146,8 @@ pub fn visit_tracev3<'a>(
                     subsystem: sd.subsystem,
                     message: sd.message_string,
                   },
+                  signpost_id: 0,
+                  signpost_name: 0,
                 });
               }
               Err(e) => warn!("Failed to parse simpledump chunk: {}", e.to_parse_error()),
@@ -182,6 +184,8 @@ pub fn visit_tracev3<'a>(
                     statedump_data: sd.statedump_data,
                     data_type: sd.data_type,
                   },
+                  signpost_id: 0,
+                  signpost_name: 0,
                 });
               }
               Err(e) => warn!("Failed to parse statedump chunk: {}", e.to_parse_error()),
@@ -287,10 +291,18 @@ fn visit_firehose_entries<'a, 'b>(
             start_time: b.start_time,
             end_time: b.end_time,
           },
+          signpost_id: 0,
+          signpost_name: 0,
         });
         continue;
       }
       RawFirehoseBody::Unknown(_) => continue,
+    };
+
+    // Signpost-specific fields
+    let (signpost_id, signpost_name) = match &body {
+      RawFirehoseBody::Signpost(b) => (b.signpost_id, b.signpost_name.unwrap_or(0)),
+      _ => (0, 0),
     };
 
     // Timestamp
@@ -365,6 +377,8 @@ fn visit_firehose_entries<'a, 'b>(
       boot_uuid,
       timezone_name,
       items,
+      signpost_id,
+      signpost_name,
     });
   }
 }

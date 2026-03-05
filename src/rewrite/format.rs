@@ -46,6 +46,12 @@ impl AppleDecoder for OldAppleDecoder {
       RawItemValue::Private | RawItemValue::Empty | RawItemValue::Null => return None,
     };
 
+    // Replicate check_objects: mask.hash + BaseRaw (0xf2) → return base64 as-is,
+    // bypassing all decoders and formatting (matches old pipeline behavior).
+    if annotation.contains("mask.hash") && item.item_type == RawItemKind::BaseRaw {
+      return Some(value_str);
+    }
+
     match crate::decoders::decoder::to_decoded_value(annotation, &value_str) {
       Ok(Some(decoded)) => Some(decoded.to_string()),
       _ => None,
@@ -206,6 +212,15 @@ fn apply_format(output: &mut String, item: &RawFirehoseItem<'_>, spec: &FormatSp
   }
 
   if is_string_conversion(c) {
+    // Old pipeline base64-encodes Bytes items at parsing stage,
+    // so all format specifiers see base64 strings for byte data.
+    #[cfg(feature = "rewrite_behave_previous")]
+    if let RawItemValue::Bytes(b) = &item.value {
+      let encoded = base64::engine::general_purpose::STANDARD.encode(b);
+      apply_string_format(output, &encoded, spec);
+      return;
+    }
+
     let s = extract_str(&item.value);
     // For string items that are actually numbers (type mismatch), use raw string
     let display: &str = if s.is_empty() {
@@ -243,7 +258,18 @@ fn apply_format(output: &mut String, item: &RawFirehoseItem<'_>, spec: &FormatSp
 
   if is_octal_conversion(c) {
     let n = extract_int(&item.value);
-    apply_octal_format(output, n, spec);
+    // Old pipeline bug: format_right() in message.rs always uses `#` for octal
+    // (unlike hex which properly checks the hashtag flag). Replicate for parity.
+    #[cfg(feature = "rewrite_behave_previous")]
+    {
+      let mut spec = spec.clone();
+      spec.alternate = true;
+      apply_octal_format(output, n, &spec);
+    }
+    #[cfg(not(feature = "rewrite_behave_previous"))]
+    {
+      apply_octal_format(output, n, spec);
+    }
     return;
   }
 
@@ -255,8 +281,15 @@ fn apply_format(output: &mut String, item: &RawFirehoseItem<'_>, spec: &FormatSp
 // --- String formatting ---
 
 fn apply_string_format(output: &mut String, s: &str, spec: &FormatSpec) {
-  let displayed = if spec.has_precision && spec.precision < s.len() {
-    &s[..spec.precision]
+  // Old pipeline: precision=0 for strings means "show full string" (format_right special case).
+  // This happens with %.*s when dynamic precision resolves to 0.
+  #[cfg(feature = "rewrite_behave_previous")]
+  let effective_precision = if spec.has_precision && spec.precision == 0 { s.len() } else { spec.precision };
+  #[cfg(not(feature = "rewrite_behave_previous"))]
+  let effective_precision = spec.precision;
+
+  let displayed = if spec.has_precision && effective_precision < s.len() {
+    &s[..effective_precision]
   } else {
     s
   };
@@ -574,8 +607,21 @@ pub fn format_message(format_string: Option<&str>, items: &[RawFirehoseItem<'_>]
 
   while pos < len {
     if bytes[pos] != b'%' {
-      result.push(bytes[pos] as char);
-      pos += 1;
+      if bytes[pos] < 0x80 {
+        // ASCII byte — safe to cast directly
+        result.push(bytes[pos] as char);
+        pos += 1;
+      } else {
+        // Multi-byte UTF-8: decode the full character
+        let rest = &fmt[pos..];
+        if let Some(ch) = rest.chars().next() {
+          result.push(ch);
+          pos += ch.len_utf8();
+        } else {
+          result.push(bytes[pos] as char);
+          pos += 1;
+        }
+      }
       continue;
     }
 

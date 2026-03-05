@@ -15,6 +15,7 @@ use macos_unifiedlogs::filesystem::LogarchiveProvider;
 use macos_unifiedlogs::log_data_iterator::iterate_all_logs_callback;
 use macos_unifiedlogs::parser::collect_timesync;
 use macos_unifiedlogs::rewrite::logarchive::visit_logarchive;
+use macos_unifiedlogs::rewrite::log_entry::LogEntry;
 use macos_unifiedlogs::unified_log::LogData;
 use uuid::Uuid;
 
@@ -37,6 +38,7 @@ struct CompareRecord {
     message: String,
     boot_uuid: Uuid,
     timezone_name: String,
+    format_string: String,
 }
 
 impl CompareRecord {
@@ -58,6 +60,29 @@ impl CompareRecord {
             message: entry.message.as_str().to_owned(),
             boot_uuid: entry.boot_uuid,
             timezone_name: entry.timezone_name.as_str().to_owned(),
+            format_string: entry.raw_message.to_string(),
+        }
+    }
+
+    fn from_rewrite(entry: &LogEntry<'_, '_>) -> Self {
+        Self {
+            subsystem: entry.effective_subsystem().unwrap_or("").to_owned(),
+            category: entry.category.unwrap_or("").to_owned(),
+            thread_id: entry.thread_id,
+            pid: entry.pid,
+            euid: entry.euid,
+            library: entry.library.unwrap_or("").to_owned(),
+            library_uuid: entry.library_uuid,
+            activity_id: entry.activity_id,
+            time: entry.time,
+            event_type: format!("{:?}", entry.event_type),
+            log_type: format!("{:?}", entry.log_type),
+            process: entry.process.unwrap_or("").to_owned(),
+            process_uuid: entry.process_uuid,
+            message: entry.message(),
+            boot_uuid: entry.boot_uuid,
+            timezone_name: entry.timezone_name.to_owned(),
+            format_string: entry.format_string.unwrap_or("").to_owned(),
         }
     }
 
@@ -184,24 +209,7 @@ fn parity_big_sur() {
     // --- New pipeline ---
     let mut new_records: Vec<CompareRecord> = Vec::new();
     visit_logarchive(&archive, |entry| {
-        new_records.push(CompareRecord {
-            subsystem: entry.effective_subsystem().unwrap_or("").to_owned(),
-            category: entry.category.unwrap_or("").to_owned(),
-            thread_id: entry.thread_id,
-            pid: entry.pid,
-            euid: entry.euid,
-            library: entry.library.unwrap_or("").to_owned(),
-            library_uuid: entry.library_uuid,
-            activity_id: entry.activity_id,
-            time: entry.time,
-            event_type: format!("{:?}", entry.event_type),
-            log_type: format!("{:?}", entry.log_type),
-            process: entry.process.unwrap_or("").to_owned(),
-            process_uuid: entry.process_uuid,
-            message: entry.message(),
-            boot_uuid: entry.boot_uuid,
-            timezone_name: entry.timezone_name.to_owned(),
-        });
+        new_records.push(CompareRecord::from_rewrite(&entry));
     })
     .unwrap();
 
@@ -236,6 +244,19 @@ fn parity_big_sur() {
     let mut field_totals: HashMap<&'static str, usize> = HashMap::new();
     let mut message_diff_examples: Vec<(usize, String, String)> = Vec::new();
 
+    // Diff categorization buckets
+    let mut cat_signpost: usize = 0;
+    let mut cat_backtrace: usize = 0;
+    let mut cat_loss: usize = 0;
+    let mut cat_octal: usize = 0;
+    let mut cat_bytes: usize = 0;
+    let mut cat_private: usize = 0;
+    let mut cat_float: usize = 0;
+    let mut cat_missing_fmt: usize = 0;
+    let mut cat_other: usize = 0;
+    let mut cat_other_examples: Vec<(usize, String, String, String)> = Vec::new();
+    let mut cat_octal_fmt_examples: Vec<(usize, String, String, String)> = Vec::new();
+
     for i in 0..compare_len {
         let entry_diffs = diff_records(i, &old_records[i], &new_records[i]);
         if entry_diffs.is_empty() {
@@ -248,10 +269,63 @@ fn parity_big_sur() {
             message_only += 1;
         }
 
-        for d in entry_diffs {
+        for d in &entry_diffs {
             *field_totals.entry(d.field).or_insert(0) += 1;
             if d.field == "message" && message_diff_examples.len() < 20 {
                 message_diff_examples.push((d.index, d.old.clone(), d.new.clone()));
+            }
+        }
+
+        // Categorize message diffs
+        if only_message {
+            let old_msg = &entry_diffs[0].old;
+            let new_msg = &entry_diffs[0].new;
+            if old_msg.contains("Signpost ID:") || new_msg.contains("Signpost ID:") {
+                cat_signpost += 1;
+            } else if old_msg.contains("Backtrace:") || new_msg.contains("Backtrace:") {
+                cat_backtrace += 1;
+            } else if new_msg.contains("Lost ") && old_msg == "\"\"" {
+                cat_loss += 1;
+            } else if old_msg.contains("0o") && !new_msg.contains("0o") {
+                cat_octal += 1;
+                if cat_octal_fmt_examples.len() < 5 {
+                    cat_octal_fmt_examples.push((
+                        entry_diffs[0].index,
+                        entry_diffs[0].old.clone(),
+                        entry_diffs[0].new.clone(),
+                        old_records[i].format_string.clone(),
+                    ));
+                }
+            } else if old_msg.contains("==\\\"") || old_msg.contains("==)")
+                || old_msg.contains("== ") || old_msg.ends_with("==\\\"")
+                || (new_msg.contains("<Invalid UTF-8>") && !old_msg.contains("<Invalid UTF-8>"))
+                || (new_msg.contains("Could not extract string") && !old_msg.contains("Could not extract string"))
+            {
+                cat_bytes += 1;
+            } else if new_msg.contains("<private>") && !old_msg.contains("<private>") {
+                cat_private += 1;
+            } else if new_msg.contains("<missing format string>") {
+                cat_missing_fmt += 1;
+            } else {
+                // Check for float precision diffs (large numbers differ in trailing digits)
+                let old_clean = old_msg.replace('"', "");
+                let new_clean = new_msg.replace('"', "");
+                if old_clean.len() > 20 && new_clean.len() > 20
+                    && old_clean[..15] == new_clean[..15]
+                    && (old_clean.contains("000000") || new_clean.contains("000000"))
+                {
+                    cat_float += 1;
+                } else {
+                    cat_other += 1;
+                    if cat_other_examples.len() < 20 {
+                        cat_other_examples.push((
+                            entry_diffs[0].index,
+                            entry_diffs[0].old.clone(),
+                            entry_diffs[0].new.clone(),
+                            new_records[i].format_string.clone(),
+                        ));
+                    }
+                }
             }
         }
     }
@@ -262,6 +336,17 @@ fn parity_big_sur() {
     eprintln!("  of which {message_only} are message-only (formatting gaps)");
     let structural = total_mismatched_entries - message_only;
     eprintln!("  structural diffs (non-message fields): {structural}");
+
+    eprintln!("\nMessage diff categories:");
+    eprintln!("  signpost prefix: {cat_signpost}");
+    eprintln!("  backtrace:       {cat_backtrace}");
+    eprintln!("  loss message:    {cat_loss}");
+    eprintln!("  octal (0o):      {cat_octal}");
+    eprintln!("  bytes/base64:    {cat_bytes}");
+    eprintln!("  private leak:    {cat_private}");
+    eprintln!("  float precision: {cat_float}");
+    eprintln!("  missing fmt str: {cat_missing_fmt}");
+    eprintln!("  other:           {cat_other}");
 
     if !field_totals.is_empty() {
         eprintln!("\nMismatches by field:");
@@ -274,7 +359,7 @@ fn parity_big_sur() {
     }
 
     if !message_diff_examples.is_empty() {
-        eprintln!("\nMessage diff examples:");
+        eprintln!("\nMessage diff examples (first 20):");
         for (idx, old, new) in &message_diff_examples {
             let old_trunc = if old.len() > 120 {
                 format!("{}...", &old[..120])
@@ -287,6 +372,34 @@ fn parity_big_sur() {
                 new.clone()
             };
             eprintln!("  [{idx}] old: {old_trunc}");
+            eprintln!("       new: {new_trunc}");
+        }
+    }
+
+    if !cat_octal_fmt_examples.is_empty() {
+        eprintln!("\nOctal diff examples (with format string):");
+        for (idx, old, new, fmt) in &cat_octal_fmt_examples {
+            eprintln!("  [{idx}] fmt: {fmt:?}");
+            eprintln!("       old: {old}");
+            eprintln!("       new: {new}");
+        }
+    }
+
+    if !cat_other_examples.is_empty() {
+        eprintln!("\n'Other' category examples:");
+        for (idx, old, new, fmt) in &cat_other_examples {
+            let old_trunc = if old.len() > 200 {
+                format!("{}...", &old[..200])
+            } else {
+                old.clone()
+            };
+            let new_trunc = if new.len() > 200 {
+                format!("{}...", &new[..200])
+            } else {
+                new.clone()
+            };
+            eprintln!("  [{idx}] fmt: {fmt:?}");
+            eprintln!("       old: {old_trunc}");
             eprintln!("       new: {new_trunc}");
         }
     }
