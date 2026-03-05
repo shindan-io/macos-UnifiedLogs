@@ -173,7 +173,7 @@ pub(crate) fn check_objects(
     }
 }
 
-fn to_decoded_value<'a>(
+pub(crate) fn to_decoded_value<'a>(
     format_string: &'a str,
     message_strings: &'a str,
 ) -> Result<Option<Decoded>, DecoderError<'a>> {

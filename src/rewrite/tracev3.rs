@@ -408,7 +408,19 @@ fn map_signpost_log_type(log_type: FirehoseLogType) -> LogType {
 
 fn combine_activity_id(ids: Option<(u32, u32)>) -> u64 {
   match ids {
-    Some((lo, hi)) => u64::from(lo) | (u64::from(hi) << 32),
+    Some((lo, hi)) => {
+      let raw = u64::from(lo) | (u64::from(hi) << 32);
+      // Under the feature flag, mask off the high bit sentinel (0x80000000 in hi)
+      // to match the old pipeline which used only the lower u32: u64::from(lo).
+      #[cfg(feature = "rewrite_behave_previous")]
+      {
+        raw & 0x7FFFFFFFFFFFFFFF
+      }
+      #[cfg(not(feature = "rewrite_behave_previous"))]
+      {
+        raw
+      }
+    }
     None => 0,
   }
 }

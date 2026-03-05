@@ -14,7 +14,11 @@ use crate::decoders::{config, location};
 
 use super::chunkset::firehose::flags::FirehoseFlags;
 use super::chunkset::firehose::item::{parse_items_data, parse_trace_items};
-use super::format::{AppleDecoder, NoDecoder, format_message};
+#[cfg(not(feature = "rewrite_behave_previous"))]
+use super::format::NoDecoder;
+#[cfg(feature = "rewrite_behave_previous")]
+use super::format::OldAppleDecoder;
+use super::format::{AppleDecoder, format_message};
 
 /// Event type classification for a log entry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -123,7 +127,14 @@ impl<'a, 'b> LogEntry<'a, 'b> {
 
   /// Format the log message on demand. This is the only allocation point.
   pub fn message(&self) -> String {
-    self.message_with_decoder(&NoDecoder)
+    #[cfg(feature = "rewrite_behave_previous")]
+    {
+      self.message_with_decoder(&OldAppleDecoder)
+    }
+    #[cfg(not(feature = "rewrite_behave_previous"))]
+    {
+      self.message_with_decoder(&NoDecoder)
+    }
   }
 
   /// Format with a custom Apple decoder.

@@ -5,6 +5,9 @@
 
 use crate::rewrite::helpers::utf8_str;
 
+#[cfg(feature = "rewrite_behave_previous")]
+use base64::Engine;
+
 use super::chunkset::firehose::item::{RawFirehoseItem, RawItemKind, RawItemValue};
 use std::fmt::Write;
 
@@ -23,6 +26,30 @@ pub struct NoDecoder;
 impl AppleDecoder for NoDecoder {
   fn decode(&self, _annotation: &str, _item: &RawFirehoseItem<'_>) -> Option<String> {
     None
+  }
+}
+
+/// Apple decoder that delegates to the existing `check_objects` decoders from `src/decoders/`.
+/// Handles `bool`/`BOOL`, `uuid_t`, `darwin.errno`, `darwin.mode`, and all other annotated types.
+/// Gated behind the `rewrite_behave_previous` feature flag for exact parity with the old pipeline.
+#[cfg(feature = "rewrite_behave_previous")]
+pub struct OldAppleDecoder;
+
+#[cfg(feature = "rewrite_behave_previous")]
+impl AppleDecoder for OldAppleDecoder {
+  fn decode(&self, annotation: &str, item: &RawFirehoseItem<'_>) -> Option<String> {
+    let value_str: String = match &item.value {
+      RawItemValue::I64(n) => n.to_string(),
+      RawItemValue::U64(n) => n.to_string(),
+      RawItemValue::Str(s) => s.to_string(),
+      RawItemValue::Bytes(b) => base64::engine::general_purpose::STANDARD.encode(b),
+      RawItemValue::Private | RawItemValue::Empty | RawItemValue::Null => return None,
+    };
+
+    match crate::decoders::decoder::to_decoded_value(annotation, &value_str) {
+      Ok(Some(decoded)) => Some(decoded.to_string()),
+      _ => None,
+    }
   }
 }
 
@@ -153,6 +180,8 @@ fn extract_str<'a>(value: &'a RawItemValue<'a>) -> &'a str {
   match value {
     RawItemValue::Str(s) => s,
     RawItemValue::Bytes(b) => utf8_str(b),
+    #[cfg(feature = "rewrite_behave_previous")]
+    RawItemValue::Null => "(null)",
     _ => "",
   }
 }
@@ -776,7 +805,16 @@ fn item_to_string(item: &RawFirehoseItem<'_>) -> String {
     RawItemValue::Bytes(b) => String::from_utf8_lossy(b).into_owned(),
     RawItemValue::Private => "<private>".to_string(),
     RawItemValue::Empty => String::new(),
-    RawItemValue::Null => String::new(),
+    RawItemValue::Null => {
+      #[cfg(feature = "rewrite_behave_previous")]
+      {
+        String::from("(null)")
+      }
+      #[cfg(not(feature = "rewrite_behave_previous"))]
+      {
+        String::new()
+      }
+    }
   }
 }
 

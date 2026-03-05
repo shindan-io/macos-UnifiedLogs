@@ -28,6 +28,9 @@ thiserror = "2"
 num_enum = "0.7"
 bitflags = "2.11"
 
+[features]
+rewrite_behave_previous = []
+
 [dev-dependencies]
 chrono = "0.4.42"
 criterion = "0.8.1"

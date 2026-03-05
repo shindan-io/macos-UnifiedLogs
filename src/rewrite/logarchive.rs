@@ -194,10 +194,10 @@ fn load_uuidtext_buffers(base: &Path) -> Vec<(Uuid, Vec<u8>)> {
 
 /// Collect all tracev3 file paths in processing order.
 ///
-/// Order: `Persist` → `HighVolume` → `Special` → `Signpost` → `logdata.LiveData.tracev3`
+/// Order: `HighVolume` → `Persist` → `Signpost` → `Special` → `logdata.LiveData.tracev3` (alphabetical)
 /// Within each directory, files are sorted by name (numeric ordering).
 fn collect_tracev3_paths(base: &Path) -> Vec<PathBuf> {
-  let subdirs = ["Persist", "HighVolume", "Special", "Signpost"];
+  let subdirs = ["HighVolume", "Persist", "Signpost", "Special"];
   let mut paths = Vec::new();
 
   for subdir in &subdirs {
