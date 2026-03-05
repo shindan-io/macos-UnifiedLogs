@@ -233,15 +233,35 @@ mod tests {
 
   #[test]
   fn test_visit_logarchive_big_sur() {
+    use crate::rewrite::log_entry::{EventType, LogType};
+
     let base = test_data_path().join("system_logs_big_sur.logarchive");
 
     let mut count = 0_usize;
-    visit_logarchive(&base, |_entry| {
+    visit_logarchive(&base, |entry| {
+      // Regression assertions on the first entry (from Persist/0000000000000001.tracev3)
+      if count == 0 {
+        assert_eq!(entry.process, "/usr/libexec/lightsoutmanagementRecoveryOSd");
+        assert_eq!(entry.library, "/usr/libexec/lightsoutmanagementRecoveryOSd");
+        assert_eq!(entry.subsystem, "");
+        assert_eq!(entry.category, "");
+        assert_eq!(entry.pid, 50);
+        assert_eq!(entry.euid, 0);
+        assert_eq!(entry.thread_id, 663);
+        assert_eq!(entry.activity_id, 0);
+        assert_eq!(entry.event_type, EventType::Log);
+        assert_eq!(entry.log_type, LogType::Default);
+        assert_eq!(entry.time, 1_642_302_211_489_633_000.0);
+        assert_eq!(entry.boot_uuid, Uuid::parse_str("9a6a3124-274a-44b2-9abf-2bc9e4599b3b").unwrap());
+        assert_eq!(entry.timezone_name, "Pacific");
+        assert_eq!(entry.format_string, Some("%s"));
+        assert_eq!(entry.message(), "main");
+      }
       count += 1;
     })
     .unwrap();
 
-    assert!(count > 200_000, "expected > 200k entries from full logarchive, got {count}");
+    assert_eq!(count, 747_294, "expected 747,294 entries from full logarchive, got {count}");
   }
 
   #[test]
