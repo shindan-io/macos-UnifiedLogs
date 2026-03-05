@@ -10,6 +10,8 @@ use serde::ser::SerializeStruct;
 use serde::{Serialize, Serializer};
 use uuid::Uuid;
 
+use crate::decoders::{config, location};
+
 use super::chunkset::firehose::flags::FirehoseFlags;
 use super::chunkset::firehose::item::{parse_items_data, parse_trace_items};
 use super::format::{AppleDecoder, NoDecoder, format_message};
@@ -111,6 +113,14 @@ pub struct LogEntry<'a, 'b> {
 }
 
 impl<'a, 'b> LogEntry<'a, 'b> {
+  /// Return the effective subsystem — simpledump entries carry it in `ItemsData`.
+  pub fn effective_subsystem(&self) -> Option<&str> {
+    match &self.items {
+      ItemsData::Simpledump { subsystem, .. } => Some(subsystem),
+      _ => self.subsystem,
+    }
+  }
+
   /// Format the log message on demand. This is the only allocation point.
   pub fn message(&self) -> String {
     self.message_with_decoder(&NoDecoder)
@@ -183,20 +193,40 @@ fn format_statedump_data(data_type: u32, data: &[u8], title_name: &str) -> Strin
         base64::engine::general_purpose::STANDARD.encode(data)
       ),
     },
-    STATEDUMP_DATA_OBJECT => {
-      // Custom object decoding (location, DNS, network config) not yet ported to rewrite.
-      format!("Unsupported custom statedump object: {title_name}")
-    }
+    STATEDUMP_DATA_OBJECT => format_statedump_object(data, title_name),
     _ => std::str::from_utf8(data)
       .map(|s| s.to_string())
       .unwrap_or_else(|_| String::from("Failed to extract statedump data")),
   }
 }
 
+/// Decode a statedump custom object (data_type=3) using the appropriate decoder.
+fn format_statedump_object(data: &[u8], title_name: &str) -> String {
+  let result = match title_name {
+    "CLDaemonStatusStateTracker" => location::get_daemon_status_tracker(data).map(|(_, r)| r.to_string()),
+    "CLClientManagerStateTracker" => location::get_state_tracker_data(data).map(|(_, r)| r.to_string()),
+    "CLLocationManagerStateTracker" => {
+      location::get_location_tracker_state(data).map(|(_, r)| r.to_string())
+    }
+    "DNS Configuration" => config::get_dns_config(data).map(|(_, r)| r.to_string()),
+    "Network information" => config::get_network_interface(data).map(|(_, r)| r.to_string()),
+    _ => {
+      return format!(
+        "Unsupported Statedump object: {title_name}-{}",
+        base64::engine::general_purpose::STANDARD.encode(data)
+      );
+    }
+  };
+  match result {
+    Ok(s) => s,
+    Err(_) => format!("Failed to parse statedump object: {title_name}"),
+  }
+}
+
 impl Serialize for LogEntry<'_, '_> {
   fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
     let mut state = serializer.serialize_struct("LogEntry", 17)?;
-    state.serialize_field("subsystem", &self.subsystem)?;
+    state.serialize_field("subsystem", &self.effective_subsystem())?;
     state.serialize_field("category", &self.category)?;
     state.serialize_field("thread_id", &self.thread_id)?;
     state.serialize_field("pid", &self.pid)?;

@@ -1,2 +1,2 @@
 [workspace]
-members = ["unifiedlog_iterator"]
+members = ["unifiedlog_iterator", "unifiedlog_iterator_rewrite"]
