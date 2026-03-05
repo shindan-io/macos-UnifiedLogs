@@ -69,7 +69,7 @@ pub fn visit_tracev3<'a>(
   dsc_files: &'a HashMap<Uuid, RawSharedCacheStrings<'a>>,
   uuidtext_files: &'a HashMap<Uuid, RawUUIDText<'a>>,
   oversize_cache: &mut OversizeCache,
-  mut callback: impl FnMut(LogEntry<'a>),
+  mut callback: impl for<'b> FnMut(LogEntry<'a, 'b>),
 ) -> Result<(), ParseError> {
   let mut current_header: Option<RawHeaderChunk<'a>> = None;
   let mut current_catalog: Option<RawCatalogChunk<'a>> = None;
@@ -131,15 +131,15 @@ pub fn visit_tracev3<'a>(
 // ---------------------------------------------------------------------------
 
 #[allow(clippy::too_many_arguments)]
-fn process_firehose_entries<'a>(
-  fh: &RawFirehose<'_>,
+fn process_firehose_entries<'a, 'b>(
+  fh: &RawFirehose<'b>,
   header: &RawHeaderChunk<'a>,
   catalog: &RawCatalogChunk<'a>,
   resolver: &TimestampResolver,
   dsc_files: &'a HashMap<Uuid, RawSharedCacheStrings<'a>>,
   uuidtext_files: &'a HashMap<Uuid, RawUUIDText<'a>>,
-  oversize_cache: &OversizeCache,
-  callback: &mut impl FnMut(LogEntry<'a>),
+  oversize_cache: &'b OversizeCache,
+  callback: &mut impl FnMut(LogEntry<'a, 'b>),
 ) {
   let boot_uuid = header.boot_uuid;
   let timezone_name = extract_timezone_name(header.timezone_path);
@@ -239,12 +239,12 @@ fn process_firehose_entries<'a>(
     );
 
     // Build deferred items data — message formatted on demand via LogEntry::message()
-    // All variants clone raw bytes into Vec<u8> because the mutable ChunkSetReader
-    // iterator prevents zero-copy borrows. Items data is small (typically 10–100 bytes).
+    // All variants borrow raw bytes zero-copy from the chunk data or oversize cache.
+    // Lifetime 'b is scoped to the current chunkset iteration, which outlives the callback.
     let items = if let Some(data_ref) = data_ref {
       match oversize_cache.get(data_ref, fh.first_proc_id, fh.second_proc_id) {
         Some(d) => ItemsData::Regular {
-          data: d.to_vec(),
+          data: d,
           flags: entry.flags,
         },
         None => {
@@ -259,11 +259,11 @@ fn process_firehose_entries<'a>(
     } else {
       match &body {
         RawFirehoseBody::Trace(t) => ItemsData::Trace {
-          data: t.items_data.to_vec(),
+          data: t.items_data,
         },
         _ => match body.standard_items_data() {
           Some(d) => ItemsData::Regular {
-            data: d.to_vec(),
+            data: d,
             flags: entry.flags,
           },
           None => ItemsData::None,

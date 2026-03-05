@@ -20,7 +20,7 @@ use super::uuidtext::RawUUIDText;
 /// The callback receives each `LogEntry` as it is produced. Individual file or parse
 /// failures are logged as warnings and skipped — only a missing timesync directory
 /// is a hard error.
-pub fn visit_logarchive(path: &Path, mut callback: impl FnMut(LogEntry<'_>)) -> Result<(), std::io::Error> {
+pub fn visit_logarchive(path: &Path, mut callback: impl for<'a, 'b> FnMut(LogEntry<'a, 'b>)) -> Result<(), std::io::Error> {
   // 1. Timesync → TimestampResolver
   let timesync_data = load_timesync_data(&path.join("timesync"))?;
   let resolver = TimestampResolver::new(timesync_data);
