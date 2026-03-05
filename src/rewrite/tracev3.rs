@@ -104,7 +104,7 @@ pub fn visit_tracev3<'a>(
                 continue;
               };
 
-              process_firehose_entries(
+              visit_firehose_entries(
                 &fh,
                 header,
                 catalog,
@@ -131,7 +131,7 @@ pub fn visit_tracev3<'a>(
 // ---------------------------------------------------------------------------
 
 #[allow(clippy::too_many_arguments)]
-fn process_firehose_entries<'a, 'b>(
+fn visit_firehose_entries<'a, 'b>(
   fh: &RawFirehose<'b>,
   header: &RawHeaderChunk<'a>,
   catalog: &RawCatalogChunk<'a>,
@@ -258,9 +258,7 @@ fn process_firehose_entries<'a, 'b>(
       }
     } else {
       match &body {
-        RawFirehoseBody::Trace(t) => ItemsData::Trace {
-          data: t.items_data,
-        },
+        RawFirehoseBody::Trace(t) => ItemsData::Trace { data: t.items_data },
         _ => match body.standard_items_data() {
           Some(d) => ItemsData::Regular {
             data: d,
@@ -436,5 +434,4 @@ mod tests {
     // Different second_proc_id
     assert_eq!(cache.get(1, 100, 201), None);
   }
-
 }
