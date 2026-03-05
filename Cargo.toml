@@ -7,7 +7,9 @@ repository = "https://github.com/mandiant/macos-unifiedlogs"
 description = "A library to help parse macOS UnifiedLogs"
 keywords = ["forensics", "macOS", "unifiedlog"]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[features]
+rewrite_behave_previous = []
 
 [dependencies]
 nom = "8.0.0"
@@ -27,9 +29,6 @@ strum = { version = "0.27.2", features = ["derive"] }
 thiserror = "2"
 num_enum = "0.7"
 bitflags = "2.11"
-
-[features]
-rewrite_behave_previous = []
 
 [dev-dependencies]
 chrono = "0.4.42"
