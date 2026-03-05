@@ -11,14 +11,11 @@ use super::chunks::ChunkTag;
 use super::chunkset::firehose::RawFirehose;
 use super::chunkset::firehose::body::{RawFirehoseBody, RawFormatterFlags};
 use super::chunkset::firehose::entry::FirehoseLogType;
-use super::chunkset::firehose::flags::FirehoseFlags;
-use super::chunkset::firehose::item::parse_items_data;
 use super::chunkset::oversize::RawOversize;
 use super::dsc::RawSharedCacheStrings;
 use super::error::{NomExt, ParseError};
-use super::format::{NoDecoder, format_message};
 use super::header::RawHeaderChunk;
-use super::log_entry::{EventType, LogEntry, LogType};
+use super::log_entry::{EventType, ItemsData, LogEntry, LogType};
 use super::resolve::resolve_strings;
 use super::timesync::TimestampResolver;
 use super::uuidtext::RawUUIDText;
@@ -66,7 +63,7 @@ impl OversizeCache {
 /// The callback receives each log entry as it is produced. Entry-level errors
 /// (bad body parse, missing oversize data) are logged as warnings and skipped.
 #[allow(clippy::too_many_arguments)]
-pub fn process_tracev3<'a>(
+pub fn visit_tracev3<'a>(
   data: &'a [u8],
   resolver: &TimestampResolver,
   dsc_files: &'a HashMap<Uuid, RawSharedCacheStrings<'a>>,
@@ -139,7 +136,7 @@ pub fn process_tracev3_vec<'a>(
   oversize_cache: &mut OversizeCache,
   out: &mut Vec<LogEntry<'a>>,
 ) -> Result<(), ParseError> {
-  process_tracev3(data, resolver, dsc_files, uuidtext_files, oversize_cache, |entry| out.push(entry))
+  visit_tracev3(data, resolver, dsc_files, uuidtext_files, oversize_cache, |entry| out.push(entry))
 }
 
 // ---------------------------------------------------------------------------
@@ -210,7 +207,6 @@ fn process_firehose_entries<'a>(
       RawFirehoseBody::Loss(b) => {
         let abs_ct = entry.absolute_continuous_time(fh.base_continuous_time);
         let time = resolver.resolve(&boot_uuid, abs_ct, fh.base_continuous_time);
-        let message = format!("Lost {} log entries between {} and {}", b.count, b.start_time, b.end_time);
         callback(LogEntry {
           subsystem: "",
           category: "",
@@ -225,10 +221,14 @@ fn process_firehose_entries<'a>(
           log_type: LogType::Loss,
           process: "",
           process_uuid: Uuid::nil(),
-          message,
-          raw_message: "",
+          format_string: None,
           boot_uuid,
           timezone_name,
+          items: ItemsData::Loss {
+            count: b.count,
+            start_time: b.start_time,
+            end_time: b.end_time,
+          },
         });
         continue;
       }
@@ -251,23 +251,37 @@ fn process_firehose_entries<'a>(
       uuidtext_files,
     );
 
-    // Format message — handle oversize and regular items separately
-    let message = if let Some(data_ref) = data_ref {
-      format_oversize_message(
-        data_ref,
-        fh.first_proc_id,
-        fh.second_proc_id,
-        entry.flags,
-        resolved.format_string,
-        oversize_cache,
-      )
+    // Build deferred items data — message formatted on demand via LogEntry::message()
+    // All variants clone raw bytes into Vec<u8> because the mutable ChunkSetReader
+    // iterator prevents zero-copy borrows. Items data is small (typically 10–100 bytes).
+    let items = if let Some(data_ref) = data_ref {
+      match oversize_cache.get(data_ref, fh.first_proc_id, fh.second_proc_id) {
+        Some(d) => ItemsData::Regular {
+          data: d.to_vec(),
+          flags: entry.flags,
+        },
+        None => {
+          warn!(
+            "Missing oversize data for data_ref={data_ref}, \
+             proc=({}, {})",
+            fh.first_proc_id, fh.second_proc_id
+          );
+          ItemsData::None
+        }
+      }
     } else {
-      let item_data = body.parse_items(entry.flags);
-      format_message(
-        resolved.format_string,
-        item_data.as_ref().map_or(&[] as &[_], |d| &d.items),
-        &NoDecoder,
-      )
+      match &body {
+        RawFirehoseBody::Trace(t) => ItemsData::Trace {
+          data: t.items_data.to_vec(),
+        },
+        _ => match body.standard_items_data() {
+          Some(d) => ItemsData::Regular {
+            data: d.to_vec(),
+            flags: entry.flags,
+          },
+          None => ItemsData::None,
+        },
+      }
     };
 
     // Catalog lookups
@@ -291,32 +305,12 @@ fn process_firehose_entries<'a>(
       log_type,
       process: resolved.process.unwrap_or(""),
       process_uuid: resolved.process_uuid,
-      message,
-      raw_message: resolved.format_string.unwrap_or(""),
+      format_string: resolved.format_string,
       boot_uuid,
       timezone_name,
+      items,
     });
   }
-}
-
-/// Format a message using oversize data from the cache.
-fn format_oversize_message(
-  data_ref: u32,
-  first_proc_id: u64,
-  second_proc_id: u32,
-  flags: FirehoseFlags,
-  format_string: Option<&str>,
-  cache: &OversizeCache,
-) -> String {
-  let Some(oversize_data) = cache.get(data_ref, first_proc_id, second_proc_id) else {
-    warn!(
-      "Missing oversize data for data_ref={data_ref}, \
-             proc=({first_proc_id}, {second_proc_id})"
-    );
-    return format_message(format_string, &[], &NoDecoder);
-  };
-  let items = parse_items_data(oversize_data, flags).map(|(_, d)| d.items).unwrap_or_default();
-  format_message(format_string, &items, &NoDecoder)
 }
 
 // ---------------------------------------------------------------------------
@@ -622,10 +616,11 @@ mod tests {
     assert!(entries.len() > 200_000, "expected > 200k entries, got {}", entries.len());
 
     let first = &entries[0];
+    let first_msg = first.message();
     assert!(
-      first.message.contains("LOMD"),
+      first_msg.contains("LOMD"),
       "first message should contain 'LOMD', got: {}",
-      first.message
+      first_msg
     );
     assert!(
       first.process.contains("lightsoutmanagementd"),

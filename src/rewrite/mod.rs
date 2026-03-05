@@ -12,6 +12,7 @@ pub mod format;
 pub mod header;
 pub mod helpers;
 pub mod log_entry;
+pub mod logarchive;
 pub mod resolve;
 pub mod timesync;
 pub mod tracev3;

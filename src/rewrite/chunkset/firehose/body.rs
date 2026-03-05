@@ -55,7 +55,7 @@ impl<'a> RawFirehoseBody<'a> {
   }
 
   /// Get `items_data` from standard (non-trace) body types.
-  fn standard_items_data(&self) -> Option<&'a [u8]> {
+  pub(crate) fn standard_items_data(&self) -> Option<&'a [u8]> {
     match self {
       Self::Activity(b) => Some(b.items_data),
       Self::NonActivity(b) => Some(b.items_data),
