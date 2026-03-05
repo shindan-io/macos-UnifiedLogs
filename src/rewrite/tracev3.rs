@@ -12,6 +12,8 @@ use super::chunkset::firehose::RawFirehose;
 use super::chunkset::firehose::body::{RawFirehoseBody, RawFormatterFlags};
 use super::chunkset::firehose::entry::FirehoseLogType;
 use super::chunkset::oversize::RawOversize;
+use super::chunkset::simpledump::RawSimpleDump;
+use super::chunkset::statedump::RawStatedump;
 use super::dsc::RawSharedCacheStrings;
 use super::error::{NomExt, ParseError};
 use super::header::RawHeaderChunk;
@@ -115,7 +117,76 @@ pub fn visit_tracev3<'a>(
                 &mut callback,
               );
             }
-            _ => {} // skip simpledump/statedump for now
+            ChunkTag::Simpledump => match RawSimpleDump::parse(inner.data) {
+              Ok((_, sd)) => {
+                let Some(header) = &current_header else {
+                  continue;
+                };
+                let time =
+                  resolver.resolve(&header.boot_uuid, sd.continuous_time, 1);
+                let timezone_name = extract_timezone_name(header.timezone_path);
+                callback(LogEntry {
+                  subsystem: None,
+                  category: None,
+                  thread_id: sd.thread_id,
+                  pid: sd.first_proc_id,
+                  euid: 0,
+                  library: None,
+                  library_uuid: sd.sender_uuid,
+                  activity_id: 0,
+                  time,
+                  event_type: EventType::Simpledump,
+                  log_type: LogType::Simpledump,
+                  process: None,
+                  process_uuid: sd.dsc_uuid,
+                  format_string: None,
+                  boot_uuid: header.boot_uuid,
+                  timezone_name,
+                  items: ItemsData::Simpledump {
+                    subsystem: sd.subsystem,
+                    message: sd.message_string,
+                  },
+                });
+              }
+              Err(e) => warn!("Failed to parse simpledump chunk: {}", e.to_parse_error()),
+            },
+            ChunkTag::Statedump => match RawStatedump::parse(inner.data) {
+              Ok((_, sd)) => {
+                let Some(header) = &current_header else {
+                  continue;
+                };
+                let time =
+                  resolver.resolve(&header.boot_uuid, sd.continuous_time, 1);
+                let timezone_name = extract_timezone_name(header.timezone_path);
+                callback(LogEntry {
+                  subsystem: None,
+                  category: None,
+                  thread_id: 0,
+                  pid: sd.first_proc_id,
+                  euid: 0,
+                  library: None,
+                  library_uuid: Uuid::nil(),
+                  activity_id: sd.activity_id,
+                  time,
+                  event_type: EventType::Statedump,
+                  log_type: LogType::Statedump,
+                  process: None,
+                  process_uuid: Uuid::nil(),
+                  format_string: None,
+                  boot_uuid: header.boot_uuid,
+                  timezone_name,
+                  items: ItemsData::Statedump {
+                    title_name: sd.title_name,
+                    decoder_library: sd.decoder_library,
+                    decoder_type: sd.decoder_type,
+                    statedump_data: sd.statedump_data,
+                    data_type: sd.data_type,
+                  },
+                });
+              }
+              Err(e) => warn!("Failed to parse statedump chunk: {}", e.to_parse_error()),
+            },
+            _ => {} // truly unknown chunk types
           }
         }
       }

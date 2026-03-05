@@ -4,6 +4,7 @@
 //! All fields borrow from source data buffers. The `message` is formatted
 //! on demand via `.message()` — no heap allocation until explicitly requested.
 
+use base64::Engine;
 use chrono::{DateTime, Utc};
 use serde::ser::SerializeStruct;
 use serde::{Serialize, Serializer};
@@ -64,6 +65,16 @@ pub(crate) enum ItemsData<'b> {
   Trace { data: &'b [u8] },
   /// Loss entry: formatted lazily from count + time range.
   Loss { count: u64, start_time: u64, end_time: u64 },
+  /// SimpleDump: message is pre-formatted in the chunk data.
+  Simpledump { subsystem: &'b str, message: &'b str },
+  /// StateDump: raw data to be decoded based on data_type.
+  Statedump {
+    title_name: &'b str,
+    decoder_library: &'b str,
+    decoder_type: &'b str,
+    statedump_data: &'b [u8],
+    data_type: u32,
+  },
   /// No items (Unknown, or genuinely empty).
   None,
 }
@@ -123,6 +134,19 @@ impl<'a, 'b> LogEntry<'a, 'b> {
       } => {
         format!("Lost {} log entries between {} and {}", count, start_time, end_time)
       }
+      ItemsData::Simpledump { message, .. } => message.to_string(),
+      ItemsData::Statedump {
+        title_name,
+        decoder_library,
+        decoder_type,
+        statedump_data,
+        data_type,
+      } => {
+        let data_string = format_statedump_data(*data_type, statedump_data, title_name);
+        format!(
+          "title: {title_name}\nObject Type: {decoder_library}\nObject Type: {decoder_type}\n{data_string}"
+        )
+      }
       ItemsData::None => format_message(self.format_string, &[], decoder),
     }
   }
@@ -130,6 +154,42 @@ impl<'a, 'b> LogEntry<'a, 'b> {
   /// Compute wall-clock timestamp on demand from `time` (nanoseconds since UNIX epoch).
   pub fn timestamp(&self) -> DateTime<Utc> {
     DateTime::from_timestamp_nanos(self.time as i64)
+  }
+}
+
+// Statedump data type constants (matches src/constants.rs)
+const STATEDUMP_DATA_PLIST: u32 = 1;
+const STATEDUMP_DATA_PROTOBUF: u32 = 2;
+const STATEDUMP_DATA_OBJECT: u32 = 3;
+
+/// Format statedump data based on its type (plist, protobuf, custom object, or raw string).
+fn format_statedump_data(data_type: u32, data: &[u8], title_name: &str) -> String {
+  match data_type {
+    STATEDUMP_DATA_PLIST => {
+      if data.is_empty() {
+        return String::from("Empty plist data");
+      }
+      match plist::from_bytes::<plist::Value>(data) {
+        Ok(value) => serde_json::to_string(&value)
+          .unwrap_or_else(|_| String::from("Failed to convert plist data to json")),
+        Err(_) => String::from("Failed to get plist data"),
+      }
+    }
+    STATEDUMP_DATA_PROTOBUF => match sunlight::light::extract_protobuf(data) {
+      Ok(map) => serde_json::to_string(&map)
+        .unwrap_or_else(|_| String::from("Failed to serialize Protobuf HashMap")),
+      Err(_) => format!(
+        "Failed to parse StateDump protobuf: {}",
+        base64::engine::general_purpose::STANDARD.encode(data)
+      ),
+    },
+    STATEDUMP_DATA_OBJECT => {
+      // Custom object decoding (location, DNS, network config) not yet ported to rewrite.
+      format!("Unsupported custom statedump object: {title_name}")
+    }
+    _ => std::str::from_utf8(data)
+      .map(|s| s.to_string())
+      .unwrap_or_else(|_| String::from("Failed to extract statedump data")),
   }
 }
 

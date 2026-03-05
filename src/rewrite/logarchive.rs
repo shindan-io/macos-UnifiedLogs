@@ -261,7 +261,7 @@ mod tests {
     })
     .unwrap();
 
-    assert_eq!(count, 747_294, "expected 747,294 entries from full logarchive, got {count}");
+    assert_eq!(count, 747_616, "expected 747,616 entries from full logarchive, got {count}");
   }
 
   #[test]
