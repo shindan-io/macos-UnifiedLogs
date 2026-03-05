@@ -78,18 +78,18 @@ pub(crate) enum ItemsData {
 /// the message string on demand. This is the only allocation point.
 #[derive(Debug)]
 pub struct LogEntry<'a> {
-  pub subsystem: &'a str,
-  pub category: &'a str,
+  pub subsystem: Option<&'a str>,
+  pub category: Option<&'a str>,
   pub thread_id: u64,
   pub pid: u64,
   pub euid: u32,
-  pub library: &'a str,
+  pub library: Option<&'a str>,
   pub library_uuid: Uuid,
   pub activity_id: u64,
   pub time: f64,
   pub event_type: EventType,
   pub log_type: LogType,
-  pub process: &'a str,
+  pub process: Option<&'a str>,
   pub process_uuid: Uuid,
   pub format_string: Option<&'a str>,
   pub boot_uuid: Uuid,
@@ -135,18 +135,18 @@ impl<'a> LogEntry<'a> {
 impl Serialize for LogEntry<'_> {
   fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
     let mut state = serializer.serialize_struct("LogEntry", 17)?;
-    state.serialize_field("subsystem", self.subsystem)?;
-    state.serialize_field("category", self.category)?;
+    state.serialize_field("subsystem", &self.subsystem)?;
+    state.serialize_field("category", &self.category)?;
     state.serialize_field("thread_id", &self.thread_id)?;
     state.serialize_field("pid", &self.pid)?;
     state.serialize_field("euid", &self.euid)?;
-    state.serialize_field("library", self.library)?;
+    state.serialize_field("library", &self.library)?;
     state.serialize_field("library_uuid", &self.library_uuid)?;
     state.serialize_field("activity_id", &self.activity_id)?;
     state.serialize_field("time", &self.time)?;
     state.serialize_field("event_type", &self.event_type)?;
     state.serialize_field("log_type", &self.log_type)?;
-    state.serialize_field("process", self.process)?;
+    state.serialize_field("process", &self.process)?;
     state.serialize_field("process_uuid", &self.process_uuid)?;
     let message = self.message();
     state.serialize_field("message", &message)?;

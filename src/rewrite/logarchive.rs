@@ -241,10 +241,10 @@ mod tests {
     visit_logarchive(&base, |entry| {
       // Regression assertions on the first entry (from Persist/0000000000000001.tracev3)
       if count == 0 {
-        assert_eq!(entry.process, "/usr/libexec/lightsoutmanagementRecoveryOSd");
-        assert_eq!(entry.library, "/usr/libexec/lightsoutmanagementRecoveryOSd");
-        assert_eq!(entry.subsystem, "");
-        assert_eq!(entry.category, "");
+        assert_eq!(entry.process, Some("/usr/libexec/lightsoutmanagementRecoveryOSd"));
+        assert_eq!(entry.library, Some("/usr/libexec/lightsoutmanagementRecoveryOSd"));
+        assert_eq!(entry.subsystem, None);
+        assert_eq!(entry.category, None);
         assert_eq!(entry.pid, 50);
         assert_eq!(entry.euid, 0);
         assert_eq!(entry.thread_id, 663);

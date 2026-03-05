@@ -54,14 +54,14 @@ impl<'a> RawUUIDText<'a> {
   }
 
   /// Image path at the end of `footer_data`, after all format string ranges.
-  pub fn image_path(&self) -> &'a str {
+  pub fn image_path(&self) -> Option<&'a str> {
     let total: u32 = self.entries.iter().map(|e| e.entry_size).sum();
     let start = total as usize;
     if start >= self.footer_data.len() {
-      return "";
+      return None;
     }
-    let (_, path) = utf8_str_from_cstring(&self.footer_data[start..]).unwrap_or((&[], ""));
-    path
+    let (_, path) = utf8_str_from_cstring(&self.footer_data[start..]).ok()?;
+    Some(path)
   }
 
   /// Extract format string at a given virtual offset.
@@ -150,7 +150,8 @@ mod tests {
     let (_, result) = RawUUIDText::parse(&buffer).unwrap();
     let image_path = result.image_path();
 
-    assert!(!image_path.is_empty());
+    assert!(image_path.is_some());
+    let image_path = image_path.unwrap();
     assert!(image_path.starts_with('/'), "Expected absolute path, got: {image_path}");
     Ok(())
   }

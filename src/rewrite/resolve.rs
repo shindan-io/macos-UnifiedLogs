@@ -107,13 +107,15 @@ fn resolve_shared_cache<'a>(
   let is_dynamic = original_offset & DYNAMIC_OFFSET_FLAG != 0;
 
   let dsc = dsc_uuid.and_then(|uuid| dsc_files.get(&uuid));
-  let process = uuidtext_files.get(&main_uuid).map(|u| u.image_path());
+  let process = uuidtext_files.get(&main_uuid).and_then(|u| u.image_path());
 
   if is_dynamic {
-    let (library, library_uuid) = dsc.and_then(|d| d.fallback_library_info()).unwrap_or(("", Uuid::nil()));
+    let (library, library_uuid) = dsc
+      .and_then(|d| d.fallback_library_info())
+      .map_or((None, Uuid::nil()), |(l, u)| (Some(l), u));
     return ResolvedStrings {
       format_string: Some(PERCENT_S),
-      library: Some(library),
+      library,
       process,
       library_uuid,
       process_uuid: main_uuid,
@@ -134,10 +136,12 @@ fn resolve_shared_cache<'a>(
   }
 
   // Fallback: invalid offset — still provide library info if possible
-  let (library, library_uuid) = dsc.and_then(|d| d.fallback_library_info()).unwrap_or(("", Uuid::nil()));
+  let (library, library_uuid) = dsc
+    .and_then(|d| d.fallback_library_info())
+    .map_or((None, Uuid::nil()), |(l, u)| (Some(l), u));
   ResolvedStrings {
     format_string: None,
-    library: Some(library),
+    library,
     process,
     library_uuid,
     process_uuid: main_uuid,
@@ -157,7 +161,7 @@ fn resolve_main_exe<'a>(
   let main_uuid = entry.map_or(Uuid::nil(), |e| e.main_uuid);
 
   let uuidtext = uuidtext_files.get(&main_uuid);
-  let image_path = uuidtext.map(|u| u.image_path());
+  let image_path = uuidtext.and_then(|u| u.image_path());
   let is_dynamic = original_offset & DYNAMIC_OFFSET_FLAG != 0;
 
   let format_string = if is_dynamic {
@@ -205,8 +209,8 @@ fn resolve_absolute<'a>(
   let is_dynamic = (original_offset & DYNAMIC_OFFSET_FLAG != 0) || string_offset == absolute_offset;
 
   let library_uuidtext = uuidtext_files.get(&library_uuid);
-  let library = library_uuidtext.map(|u| u.image_path());
-  let process = uuidtext_files.get(&main_uuid).map(|u| u.image_path());
+  let library = library_uuidtext.and_then(|u| u.image_path());
+  let process = uuidtext_files.get(&main_uuid).and_then(|u| u.image_path());
 
   let format_string = if is_dynamic {
     Some(PERCENT_S)
@@ -241,8 +245,8 @@ fn resolve_uuid_relative<'a>(
   let is_dynamic = original_offset & DYNAMIC_OFFSET_FLAG != 0;
 
   let library_uuidtext = uuidtext_files.get(&uuid);
-  let library = library_uuidtext.map(|u| u.image_path());
-  let process = uuidtext_files.get(&main_uuid).map(|u| u.image_path());
+  let library = library_uuidtext.and_then(|u| u.image_path());
+  let process = uuidtext_files.get(&main_uuid).and_then(|u| u.image_path());
 
   let format_string = if is_dynamic {
     Some(PERCENT_S)

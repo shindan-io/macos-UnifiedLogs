@@ -195,18 +195,18 @@ fn process_firehose_entries<'a>(
         let abs_ct = entry.absolute_continuous_time(fh.base_continuous_time);
         let time = resolver.resolve(&boot_uuid, abs_ct, fh.base_continuous_time);
         callback(LogEntry {
-          subsystem: "",
-          category: "",
+          subsystem: None,
+          category: None,
           thread_id: entry.thread_id,
           pid: 0,
           euid: 0,
-          library: "",
+          library: None,
           library_uuid: Uuid::nil(),
           activity_id: 0,
           time,
           event_type: EventType::Loss,
           log_type: LogType::Loss,
-          process: "",
+          process: None,
           process_uuid: Uuid::nil(),
           format_string: None,
           boot_uuid,
@@ -274,7 +274,7 @@ fn process_firehose_entries<'a>(
     // Catalog lookups
     let (subsystem, category) = subsystem_value
       .and_then(|sv| catalog.get_subsystem(sv, fh.first_proc_id, fh.second_proc_id))
-      .map_or(("", ""), |s| (s.subsystem, s.category));
+      .map_or((None, None), |s| (Some(s.subsystem), Some(s.category)));
     let pid = catalog.get_pid(fh.first_proc_id, fh.second_proc_id).unwrap_or(0);
     let euid = catalog.get_euid(fh.first_proc_id, fh.second_proc_id).unwrap_or(0);
 
@@ -284,13 +284,13 @@ fn process_firehose_entries<'a>(
       thread_id: entry.thread_id,
       pid,
       euid,
-      library: resolved.library.unwrap_or(""),
+      library: resolved.library,
       library_uuid: resolved.library_uuid,
       activity_id,
       time,
       event_type,
       log_type,
-      process: resolved.process.unwrap_or(""),
+      process: resolved.process,
       process_uuid: resolved.process_uuid,
       format_string: resolved.format_string,
       boot_uuid,
