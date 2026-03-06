@@ -346,8 +346,12 @@ fn format_statedump_data(data_type: u32, data: &[u8], title_name: &str) -> Strin
       }
     }
     STATEDUMP_DATA_PROTOBUF => match sunlight::light::extract_protobuf(data) {
-      Ok(map) => serde_json::to_string(&map)
-        .unwrap_or_else(|_| String::from("Failed to serialize Protobuf HashMap")),
+      Ok(map) => {
+        #[cfg(feature = "rewrite_behave_previous")]
+        let map: std::collections::BTreeMap<_, _> = map.into_iter().collect();
+        serde_json::to_string(&map)
+          .unwrap_or_else(|_| String::from("Failed to serialize Protobuf HashMap"))
+      }
       Err(_) => format!(
         "Failed to parse StateDump protobuf: {}",
         base64::engine::general_purpose::STANDARD.encode(data)

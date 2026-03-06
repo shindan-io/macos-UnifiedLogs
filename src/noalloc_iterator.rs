@@ -940,8 +940,13 @@ impl<'file, 'ts> NoAllocLogStream<'file, 'ts> {
             STATEDUMP_DATA_PLIST => Statedump::<&str>::parse_statedump_plist(&sd.statedump_data),
             STATEDUMP_DATA_PROTOBUF => {
                 match sunlight::light::extract_protobuf(&sd.statedump_data) {
-                    Ok(map) => serde_json::to_string(&map)
-                        .unwrap_or_else(|_| String::from("Failed to serialize Protobuf HashMap")),
+                    Ok(map) => {
+                        let sorted: std::collections::BTreeMap<_, _> =
+                            map.into_iter().collect();
+                        serde_json::to_string(&sorted).unwrap_or_else(|_| {
+                            String::from("Failed to serialize Protobuf HashMap")
+                        })
+                    }
                     Err(_) => format!(
                         "Failed to parse StateDump protobuf: {}",
                         crate::util::encode_standard(&sd.statedump_data)

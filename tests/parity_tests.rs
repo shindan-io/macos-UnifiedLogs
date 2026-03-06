@@ -191,11 +191,20 @@ fn categorize_message_diff(
         *cat_private += 1;
     } else if new_msg.contains("<missing format string>") {
         *cat_missing_fmt += 1;
+    } else if (old_msg.contains("<private>") || old_msg.contains("Could not find path string"))
+        && !new_msg.contains("<private>")
+        && !new_msg.contains("Could not find path string")
+    {
+        // Reverse private: old pipeline failed to extract private data, new pipeline succeeded.
+        // This is an improvement, not a regression. Typically caused by cursor alignment
+        // bugs in the old pipeline's parse_private_data().
+        *cat_private += 1;
     } else {
         let old_clean = old_msg.replace('"', "");
         let new_clean = new_msg.replace('"', "");
         if old_clean.len() > 20 && new_clean.len() > 20
             && old_clean[..15] == new_clean[..15]
+            && !old_clean.contains("<private>") && !new_clean.contains("<private>")
             && (old_clean.contains("000000") || new_clean.contains("000000"))
         {
             *cat_float += 1;
