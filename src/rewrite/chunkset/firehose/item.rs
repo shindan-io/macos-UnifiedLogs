@@ -491,7 +491,7 @@ pub fn fill_private_data_compat<'a>(
   private_data_virtual_offset: u16,
   collapsed: u8,
 ) {
-  use crate::util::extract_string_size;
+  use crate::rewrite::helpers::extract_string_size;
 
   let stripped = if collapsed != 1 {
     let zeros = private_data.iter().take_while(|&&b| b == 0).count();

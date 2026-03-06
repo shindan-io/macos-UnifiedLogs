@@ -6,6 +6,7 @@ pub mod chunk;
 pub mod chunks;
 pub mod chunks_reader;
 pub mod chunkset;
+pub mod decoders;
 pub mod dsc;
 pub mod error;
 pub mod format;

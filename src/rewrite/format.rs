@@ -56,7 +56,7 @@ impl AppleDecoder for OldAppleDecoder {
       return Some(value_str);
     }
 
-    match crate::decoders::decoder::to_decoded_value(annotation, &value_str) {
+    match crate::rewrite::decoders::decoder::to_decoded_value(annotation, &value_str) {
       Ok(Some(decoded)) => Some(decoded.to_string()),
       _ => None,
     }

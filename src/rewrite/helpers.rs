@@ -1,8 +1,13 @@
+use base64::{DecodeError, Engine, engine::general_purpose};
+use log::{error, warn};
 use nom::{
   Parser,
   bytes::complete::{take, take_while},
   combinator::opt,
+  error::ErrorKind,
 };
+use std::str::from_utf8;
+use uuid::Uuid;
 
 pub(crate) const INVALID_UTF8: &str = "<Invalid UTF-8>";
 const NULL_BYTE: u8 = 0;
@@ -55,6 +60,139 @@ pub(crate) fn utf8_str_from_cstring(input: &[u8]) -> nom::IResult<&[u8], &str> {
   let (input, (str_part, _)) = tup.parse(input)?;
   let str_part = utf8_str(str_part);
   Ok((input, str_part))
+}
+
+/// Base64 decode data using the STANDARD engine (alphabet along with "+" and "/")
+pub(crate) fn decode_standard(data: &str) -> Result<Vec<u8>, DecodeError> {
+  general_purpose::STANDARD.decode(data)
+}
+
+/// Base64 encode data using the STANDARD engine (alphabet along with "+" and "/")
+pub(crate) fn encode_standard(data: &[u8]) -> String {
+  general_purpose::STANDARD.encode(data)
+}
+
+/// Extract strings that contain end of string characters
+pub(crate) fn extract_string(data: &[u8]) -> nom::IResult<&[u8], &str> {
+  let last_value = data.last();
+  match last_value {
+    Some(value) => {
+      if value != &NULL_BYTE {
+        let (input, path) = take(data.len())(data)?;
+        let path_string = from_utf8(path);
+        match path_string {
+          Ok(results) => return Ok((input, results)),
+          Err(err) => {
+            warn!("[macos-unifiedlogs] Failed to extract full string: {err:?}");
+            return Ok((input, "Could not extract string"));
+          }
+        }
+      }
+    }
+    None => {
+      error!("[macos-unifiedlogs] Cannot extract string. Empty input.");
+      return Ok((data, "Cannot extract string. Empty input."));
+    }
+  }
+
+  let (input, c_str) = take_while(|b: u8| b != NULL_BYTE)(data)?;
+
+  match from_utf8(c_str) {
+    Ok(utf8_string) => Ok((input, utf8_string)),
+    Err(err) => {
+      warn!("[macos-unifiedlogs] Failed to get string: {err:?}");
+      Ok((input, "Could not extract string"))
+    }
+  }
+}
+
+/// Truncate a string at the first null byte, discarding the null and any trailing garbage.
+fn truncate_at_null(s: &str) -> String {
+  match s.find('\0') {
+    Some(pos) => s[..pos].to_string(),
+    None => s.to_string(),
+  }
+}
+
+/// Extract a size based on provided string size from Firehose string item entries
+pub(crate) fn extract_string_size(data: &[u8], message_size: u64) -> nom::IResult<&[u8], String> {
+  const NULL_STRING: u64 = 0;
+  if message_size == NULL_STRING {
+    return Ok((data, "(null)".to_string()));
+  }
+
+  if data.len() < message_size as usize {
+    let (input, path) = take(data.len())(data)?;
+    let path_string = String::from_utf8(path.to_vec());
+    match path_string {
+      Ok(results) => return Ok((input, truncate_at_null(&results))),
+      Err(err) => {
+        error!("[macos-unifiedlogs] Failed to get extract specific string size: {err:?}")
+      }
+    }
+  }
+
+  let message_size = match u64_to_usize(message_size) {
+    Some(m) => m,
+    None => {
+      error!("[macos-unifiedlogs] u64 is bigger than system usize");
+      return Err(nom::Err::Error(nom::error::Error::new(
+        data,
+        nom::error::ErrorKind::TooLarge,
+      )));
+    }
+  };
+
+  let (input, path) = take(message_size)(data)?;
+  let path_string = String::from_utf8(path.to_vec());
+  match path_string {
+    Ok(results) => return Ok((input, truncate_at_null(&results))),
+    Err(err) => error!("[macos-unifiedlogs] Failed to get specific string: {err:?}"),
+  }
+  Ok((input, String::from("Could not find path string")))
+}
+
+/// Extract an UTF8 string from a byte array, stops at `NULL_BYTE` or END OF STRING.
+/// Consumes the end byte. Fails if the string is empty.
+pub(crate) fn non_empty_cstring(input: &[u8]) -> nom::IResult<&[u8], String> {
+  if input.is_empty() {
+    return Ok((input, String::new()));
+  }
+  let mut tup = (take_while(|b: u8| b != NULL_BYTE), opt(take(1_usize)));
+  let (input, (str_part, _)) = tup.parse(input)?;
+  match from_utf8(str_part) {
+    Ok(s) if !s.is_empty() => Ok((input, s.to_string())),
+    _ => Err(nom::Err::Error(nom::error::Error {
+      input,
+      code: ErrorKind::Fail,
+    })),
+  }
+}
+
+/// Clean and format UUIDs to be pretty
+pub(crate) fn format_uuid(uuid: Uuid) -> String {
+  format!("{:X}", uuid.simple())
+}
+
+/// Returns joined string without having to collect to vec first
+pub(crate) fn join_strs(
+  strings: impl IntoIterator<Item = impl AsRef<str>>,
+  separator: &str,
+  decorator: Option<&str>,
+) -> String {
+  strings.into_iter().fold(String::new(), |mut acc, s| {
+    if !acc.is_empty() {
+      acc.push_str(separator);
+    }
+    if let Some(decorator) = decorator {
+      acc.push_str(decorator);
+    }
+    acc.push_str(s.as_ref());
+    if let Some(decorator) = decorator {
+      acc.push_str(decorator);
+    }
+    acc
+  })
 }
 
 #[cfg(test)]

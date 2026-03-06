@@ -10,7 +10,7 @@ use serde::ser::SerializeStruct;
 use serde::{Serialize, Serializer};
 use uuid::Uuid;
 
-use crate::decoders::{config, location};
+use super::decoders::{config, location};
 
 use super::chunkset::firehose::flags::FirehoseFlags;
 #[cfg(feature = "rewrite_behave_previous")]
