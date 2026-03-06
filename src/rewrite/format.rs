@@ -393,11 +393,24 @@ fn apply_hex_format(output: &mut String, n: i64, spec: &FormatSpec) {
     if spec.zero_pad && !spec.left_justify {
       output.push_str(plus);
       if spec.alternate {
-        output.push_str("0x");
-        for _ in 0..spec.width.saturating_sub(plus.len() + 2 + hex_digits_len(n)) {
-          output.push('0');
+        #[cfg(feature = "rewrite_behave_previous")]
+        {
+          // Old pipeline bug: format!("{:0>#width$X}") zero-pads the ENTIRE
+          // string including the "0x" prefix from the left.
+          let hex_str_alt = format!("0x{:X}", n);
+          for _ in 0..spec.width.saturating_sub(plus.len() + hex_str_alt.len()) {
+            output.push('0');
+          }
+          output.push_str(&hex_str_alt);
         }
-        let _ = write!(output, "{:X}", n);
+        #[cfg(not(feature = "rewrite_behave_previous"))]
+        {
+          output.push_str("0x");
+          for _ in 0..spec.width.saturating_sub(plus.len() + 2 + hex_digits_len(n)) {
+            output.push('0');
+          }
+          let _ = write!(output, "{:X}", n);
+        }
       } else {
         for _ in 0..pad {
           output.push('0');
