@@ -37,7 +37,10 @@ pub(crate) fn u64_to_usize(n: u64) -> Option<usize> {
 pub(crate) fn utf8_str(data: &[u8]) -> &str {
   std::str::from_utf8(data)
     .inspect_err(|err| log::warn!("{err}"))
-    .map(|s| s.trim_end_matches('\0'))
+    .map(|s| match s.find('\0') {
+      Some(pos) => &s[..pos],
+      None => s,
+    })
     .unwrap_or(INVALID_UTF8)
 }
 

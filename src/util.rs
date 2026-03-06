@@ -68,6 +68,14 @@ pub fn join_strs(
     })
 }
 
+/// Truncate a string at the first null byte, discarding the null and any trailing garbage.
+fn truncate_at_null(s: &str) -> String {
+    match s.find('\0') {
+        Some(pos) => s[..pos].to_string(),
+        None => s.to_string(),
+    }
+}
+
 // todo: do better and retrurn &str
 /// Extract a size based on provided string size from Firehose string item entries
 pub(crate) fn extract_string_size(data: &[u8], message_size: u64) -> nom::IResult<&[u8], String> {
@@ -82,7 +90,7 @@ pub(crate) fn extract_string_size(data: &[u8], message_size: u64) -> nom::IResul
         let (input, path) = take(data.len())(data)?;
         let path_string = String::from_utf8(path.to_vec());
         match path_string {
-            Ok(results) => return Ok((input, results.trim_end_matches(char::from(0)).to_string())),
+            Ok(results) => return Ok((input, truncate_at_null(&results))),
             Err(err) => {
                 error!("[macos-unifiedlogs] Failed to get extract specific string size: {err:?}")
             }
@@ -104,7 +112,7 @@ pub(crate) fn extract_string_size(data: &[u8], message_size: u64) -> nom::IResul
     let (input, path) = take(message_size)(data)?;
     let path_string = String::from_utf8(path.to_vec());
     match path_string {
-        Ok(results) => return Ok((input, results.trim_end_matches(char::from(0)).to_string())),
+        Ok(results) => return Ok((input, truncate_at_null(&results))),
         Err(err) => error!("[macos-unifiedlogs] Failed to get specific string: {err:?}"),
     }
     Ok((input, String::from("Could not find path string")))
