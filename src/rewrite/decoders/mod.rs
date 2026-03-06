@@ -7,44 +7,48 @@
 
 mod bool;
 pub(crate) mod config;
-mod darwin;
-pub(crate) mod decoder;
-mod dns;
 pub(crate) mod location;
 mod network;
+
+#[cfg(feature = "rewrite_behave_previous")]
+mod darwin;
+#[cfg(feature = "rewrite_behave_previous")]
+pub(crate) mod decoder;
+#[cfg(feature = "rewrite_behave_previous")]
+mod dns;
+#[cfg(feature = "rewrite_behave_previous")]
 mod opendirectory;
+#[cfg(feature = "rewrite_behave_previous")]
 mod time;
+#[cfg(feature = "rewrite_behave_previous")]
 mod uuid;
 
 pub enum DecoderError<'a> {
-    Parse {
-        input: &'a [u8],
-        parser_name: &'a str,
-        message: &'a str,
-    },
+  Parse {
+    input: &'a [u8],
+    parser_name: &'a str,
+    message: &'a str,
+  },
 }
 
 impl std::error::Error for DecoderError<'_> {}
 
 impl std::fmt::Display for DecoderError<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Parse { message, .. } => write!(f, "{message}"),
-        }
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Self::Parse { message, .. } => write!(f, "{message}"),
     }
+  }
 }
 
 impl std::fmt::Debug for DecoderError<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Parse {
-                parser_name,
-                message,
-                input,
-            } => write!(
-                f,
-                "Failed at {parser_name} parser, data {input:?}: {message}"
-            ),
-        }
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Self::Parse {
+        parser_name,
+        message,
+        input,
+      } => write!(f, "Failed at {parser_name} parser, data {input:?}: {message}"),
     }
+  }
 }

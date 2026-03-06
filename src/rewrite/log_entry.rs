@@ -137,7 +137,9 @@ pub struct LogEntry<'a, 'b> {
   // Private: deferred message data
   pub(crate) items: ItemsData<'b>,
   // Signpost fields — populated only for Signpost entries, 0 otherwise.
+  #[cfg_attr(not(feature = "rewrite_behave_previous"), allow(dead_code))]
   pub(crate) signpost_id: u64,
+  #[cfg_attr(not(feature = "rewrite_behave_previous"), allow(dead_code))]
   pub(crate) signpost_name: u32,
   /// Error message for invalid format string offsets (old pipeline parity).
   /// When `format_string` is None, this replaces `<missing format string>`.
