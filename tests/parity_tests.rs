@@ -315,7 +315,7 @@ fn parity_big_sur() {
     let mut total_mismatched_entries: usize = 0;
     let mut message_only: usize = 0;
     let mut field_totals: HashMap<&'static str, usize> = HashMap::new();
-    let mut message_diff_examples: Vec<(usize, String, String)> = Vec::new();
+    let mut message_diff_examples: Vec<(usize, String, String, String)> = Vec::new();
 
     // Diff categorization buckets
     let mut cat_signpost: usize = 0;
@@ -354,7 +354,7 @@ fn parity_big_sur() {
                 for d in &entry_diffs {
                     *field_totals.entry(d.field).or_insert(0) += 1;
                     if d.field == "message" && message_diff_examples.len() < 20 {
-                        message_diff_examples.push((d.index, d.old.clone(), d.new.clone()));
+                        message_diff_examples.push((d.index, d.old.clone(), d.new.clone(), old_records[i].format_string.clone()));
                     }
                 }
                 if only_message {
@@ -410,7 +410,7 @@ fn parity_big_sur() {
                         } else {
                             ("\"<no match in group>\"".to_string(), format!("{msg:?}"))
                         };
-                        message_diff_examples.push((i, old_msg_str, new_msg_str));
+                        message_diff_examples.push((i, old_msg_str, new_msg_str, old_records[i].format_string.clone()));
                     }
 
                     // Categorize using a synthetic FieldDiff
@@ -506,7 +506,7 @@ fn parity_big_sur() {
 
     if !message_diff_examples.is_empty() {
         eprintln!("\nMessage diff examples (first 20):");
-        for (idx, old, new) in &message_diff_examples {
+        for (idx, old, new, fmt) in &message_diff_examples {
             let old_trunc = if old.len() > 120 {
                 format!("{}...", &old[..120])
             } else {
@@ -517,7 +517,8 @@ fn parity_big_sur() {
             } else {
                 new.clone()
             };
-            eprintln!("  [{idx}] old: {old_trunc}");
+            eprintln!("  [{idx}] fmt: {fmt:?}");
+            eprintln!("       old: {old_trunc}");
             eprintln!("       new: {new_trunc}");
         }
     }

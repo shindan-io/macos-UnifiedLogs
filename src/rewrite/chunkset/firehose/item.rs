@@ -480,6 +480,100 @@ pub fn fill_private_data<'a>(
   }
 }
 
+/// Compat variant of `fill_private_data` that uses the old pipeline's `extract_string_size`
+/// so that entries with non-UTF8 private data produce "Could not find path string" (matching
+/// the old pipeline's behavior) instead of resolving to actual content.
+#[cfg(feature = "rewrite_behave_previous")]
+pub fn fill_private_data_compat<'a>(
+  items: &mut [RawFirehoseItem<'a>],
+  private_data: &'a [u8],
+  private_strings_offset: u16,
+  private_data_virtual_offset: u16,
+  collapsed: u8,
+) {
+  use crate::util::extract_string_size;
+
+  let stripped = if collapsed != 1 {
+    let zeros = private_data.iter().take_while(|&&b| b == 0).count();
+    if zeros > 0 && zeros < private_data.len() {
+      &private_data[zeros..]
+    } else {
+      private_data
+    }
+  } else {
+    private_data
+  };
+
+  // Old pipeline uses plain u16 subtraction which wraps on underflow in release mode.
+  // When private_strings_offset < private_data_virtual_offset, this produces a huge offset,
+  // causing the nom take() to fail → items stay as <private>. We replicate that here.
+  let string_offset = private_strings_offset.wrapping_sub(private_data_virtual_offset) as usize;
+  if string_offset > stripped.len() {
+    return;
+  }
+  let mut cursor = &stripped[string_offset..];
+
+  const PRIVATE_STRING_TYPES: [u8; 7] = [0x21, 0x25, 0x41, 0x35, 0x31, 0x81, 0xf1];
+  const BASE64_TYPES: [u8; 2] = [0x35, 0x31];
+  const PRIVATE_NUMBER_TYPE: u8 = 0x01;
+  const PRIVATE_NUMBER_SIZE: u16 = 0x8000;
+
+  for item in items.iter_mut() {
+    let raw_type = match item.value {
+      RawItemValue::Private { raw_item_type } => raw_item_type,
+      _ => continue,
+    };
+
+    if PRIVATE_STRING_TYPES.contains(&raw_type) {
+      if BASE64_TYPES.contains(&raw_type) {
+        let size = item.item_size as usize;
+        let actual_size = size.min(cursor.len());
+        if actual_size == 0 {
+          continue;
+        }
+        let (bytes, rest) = cursor.split_at(actual_size);
+        cursor = rest;
+        item.value = RawItemValue::Bytes(bytes);
+      } else {
+        let size = item.item_size as usize;
+        if size == 0 {
+          continue;
+        }
+        // Use old pipeline's extract_string_size which produces "Could not find path string"
+        // on non-UTF8 data, matching old pipeline behavior exactly.
+        match extract_string_size(cursor, u64::from(item.item_size)) {
+          Ok((rest, s)) => {
+            cursor = rest;
+            // We need to store a &str but extract_string_size returns String.
+            // Store as a leaked &str for compat mode only.
+            item.value = RawItemValue::Str(leak_string(s));
+          }
+          Err(_) => {
+            // Old pipeline propagates nom errors via `?`, bailing out of the
+            // entire parse_private_data function. All remaining items stay as <private>.
+            return;
+          }
+        }
+      }
+    } else if raw_type == PRIVATE_NUMBER_TYPE {
+      if item.item_size == PRIVATE_NUMBER_SIZE {
+        continue;
+      }
+      let size = item.item_size;
+      if let Ok((rest, value)) = parse_item_number(cursor, size) {
+        cursor = rest;
+        item.value = value;
+      }
+    }
+  }
+}
+
+/// Leak a String to get a `&'static str`. Only used in compat mode for parity testing.
+#[cfg(feature = "rewrite_behave_previous")]
+fn leak_string(s: String) -> &'static str {
+  Box::leak(s.into_boxed_str())
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;

@@ -140,6 +140,11 @@ impl<'a> RawFirehoseEntryReader<'a> {
   pub fn new(data: &'a [u8]) -> Self {
     Self { data }
   }
+
+  /// Remaining unconsumed bytes after iteration completes.
+  pub fn remaining(&self) -> &'a [u8] {
+    self.data
+  }
 }
 
 impl<'a> Iterator for RawFirehoseEntryReader<'a> {

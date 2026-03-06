@@ -13,7 +13,11 @@ use uuid::Uuid;
 use crate::decoders::{config, location};
 
 use super::chunkset::firehose::flags::FirehoseFlags;
-use super::chunkset::firehose::item::{fill_private_data, parse_items_data, parse_trace_items};
+#[cfg(feature = "rewrite_behave_previous")]
+use super::chunkset::firehose::item::fill_private_data_compat;
+#[cfg(not(feature = "rewrite_behave_previous"))]
+use super::chunkset::firehose::item::fill_private_data;
+use super::chunkset::firehose::item::{parse_items_data, parse_trace_items};
 #[cfg(not(feature = "rewrite_behave_previous"))]
 use super::format::NoDecoder;
 #[cfg(feature = "rewrite_behave_previous")]
@@ -64,6 +68,11 @@ pub(crate) struct PrivateDataContext<'b> {
   pub private_strings_offset: u16,
   pub private_data_virtual_offset: u16,
   pub collapsed: u8,
+  /// Extended private data region for compat mode — extends to end of chunkset buffer.
+  /// The old pipeline had access to subsequent chunks' data when parsing private items,
+  /// producing different results (e.g., "Could not find path string") for oversized items.
+  #[cfg(feature = "rewrite_behave_previous")]
+  pub extended_private_data: Option<&'b [u8]>,
 }
 
 /// Raw data needed to format a message on demand.
@@ -186,9 +195,18 @@ impl<'a, 'b> LogEntry<'a, 'b> {
           ..
         } = &self.items
         {
+          #[cfg(not(feature = "rewrite_behave_previous"))]
           fill_private_data(
             &mut items,
             ctx.private_data,
+            ctx.private_strings_offset,
+            ctx.private_data_virtual_offset,
+            ctx.collapsed,
+          );
+          #[cfg(feature = "rewrite_behave_previous")]
+          fill_private_data_compat(
+            &mut items,
+            ctx.extended_private_data.unwrap_or(ctx.private_data),
             ctx.private_strings_offset,
             ctx.private_data_virtual_offset,
             ctx.collapsed,

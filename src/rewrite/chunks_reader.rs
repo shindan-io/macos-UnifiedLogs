@@ -6,6 +6,10 @@ use nom::bytes::complete::take;
 pub struct RawChunk<'a> {
   pub preamble: ChunkPreamble,
   pub data: &'a [u8],
+  /// Everything from the start of this chunk's data to the end of the buffer.
+  /// Only used in compat mode to replicate the old pipeline's extended private data access.
+  #[cfg(feature = "rewrite_behave_previous")]
+  pub data_and_tail: &'a [u8],
 }
 
 #[derive(Debug)]
@@ -50,6 +54,11 @@ impl<'a> Iterator for RawChunksReader<'a> {
       Err(e) => return Some(Err(e.to_parse_error())),
     };
 
+    // Capture data_and_tail BEFORE scoping — everything from data start to end of buffer.
+    // The old pipeline's firehose parser had access to this entire region for private data.
+    #[cfg(feature = "rewrite_behave_previous")]
+    let data_and_tail = input;
+
     let (input, data) = match take(preamble.data_size)(input) {
       Ok(ok) => ok,
       Err(e) => return Some(Err(e.to_parse_error())),
@@ -63,7 +72,12 @@ impl<'a> Iterator for RawChunksReader<'a> {
     };
 
     self.input = input;
-    Some(Ok(RawChunk { preamble, data }))
+    Some(Ok(RawChunk {
+      preamble,
+      data,
+      #[cfg(feature = "rewrite_behave_previous")]
+      data_and_tail,
+    }))
   }
 }
 
