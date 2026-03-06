@@ -97,10 +97,6 @@ impl CompareRecord {
         )
     }
 
-    /// Multiset key for matching entries between pipelines.
-    fn multiset_key(&self) -> (u64, u64, u64, &str, &str) {
-        self.sort_key()
-    }
 }
 
 /// Single field mismatch between old and new records.
@@ -147,6 +143,74 @@ fn diff_records(index: usize, old: &CompareRecord, new: &CompareRecord) -> Vec<F
 
 fn test_data_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/test_data")
+}
+
+/// Categorize a message-only diff into one of the known buckets.
+#[allow(clippy::too_many_arguments)]
+fn categorize_message_diff(
+    d: &FieldDiff,
+    record_idx: usize,
+    old_record: &CompareRecord,
+    cat_signpost: &mut usize,
+    cat_backtrace: &mut usize,
+    cat_loss: &mut usize,
+    cat_octal: &mut usize,
+    cat_bytes: &mut usize,
+    cat_private: &mut usize,
+    cat_float: &mut usize,
+    cat_missing_fmt: &mut usize,
+    cat_other: &mut usize,
+    cat_other_examples: &mut Vec<(usize, String, String, String)>,
+    cat_octal_fmt_examples: &mut Vec<(usize, String, String, String)>,
+) {
+    let old_msg = &d.old;
+    let new_msg = &d.new;
+    if old_msg.contains("Signpost ID:") || new_msg.contains("Signpost ID:") {
+        *cat_signpost += 1;
+    } else if old_msg.contains("Backtrace:") || new_msg.contains("Backtrace:") {
+        *cat_backtrace += 1;
+    } else if new_msg.contains("Lost ") && old_msg == "\"\"" {
+        *cat_loss += 1;
+    } else if old_msg.contains("0o") && !new_msg.contains("0o") {
+        *cat_octal += 1;
+        if cat_octal_fmt_examples.len() < 5 {
+            cat_octal_fmt_examples.push((
+                d.index,
+                d.old.clone(),
+                d.new.clone(),
+                old_record.format_string.clone(),
+            ));
+        }
+    } else if old_msg.contains("==\\\"") || old_msg.contains("==)")
+        || old_msg.contains("== ") || old_msg.ends_with("==\\\"")
+        || (new_msg.contains("<Invalid UTF-8>") && !old_msg.contains("<Invalid UTF-8>"))
+        || (new_msg.contains("Could not extract string") && !old_msg.contains("Could not extract string"))
+    {
+        *cat_bytes += 1;
+    } else if new_msg.contains("<private>") && !old_msg.contains("<private>") {
+        *cat_private += 1;
+    } else if new_msg.contains("<missing format string>") {
+        *cat_missing_fmt += 1;
+    } else {
+        let old_clean = old_msg.replace('"', "");
+        let new_clean = new_msg.replace('"', "");
+        if old_clean.len() > 20 && new_clean.len() > 20
+            && old_clean[..15] == new_clean[..15]
+            && (old_clean.contains("000000") || new_clean.contains("000000"))
+        {
+            *cat_float += 1;
+        } else {
+            *cat_other += 1;
+            if cat_other_examples.len() < 20 {
+                cat_other_examples.push((
+                    record_idx,
+                    d.old.clone(),
+                    d.new.clone(),
+                    old_record.format_string.clone(),
+                ));
+            }
+        }
+    }
 }
 
 /// Remove entries from `new_records` that don't appear in `old_records` (by multiset key).
@@ -257,77 +321,150 @@ fn parity_big_sur() {
     let mut cat_other_examples: Vec<(usize, String, String, String)> = Vec::new();
     let mut cat_octal_fmt_examples: Vec<(usize, String, String, String)> = Vec::new();
 
-    for i in 0..compare_len {
-        let entry_diffs = diff_records(i, &old_records[i], &new_records[i]);
-        if entry_diffs.is_empty() {
-            continue;
+    // Group-aware comparison: entries with identical sort keys are compared
+    // as multisets to avoid phantom diffs from undefined sort order.
+    let mut i = 0;
+    while i < compare_len {
+        // Find group of entries sharing the same sort key
+        let key = old_records[i].sort_key();
+        let mut j = i + 1;
+        while j < compare_len && old_records[j].sort_key() == key {
+            j += 1;
         }
-        total_mismatched_entries += 1;
+        let group_size = j - i;
 
-        let only_message = entry_diffs.len() == 1 && entry_diffs[0].field == "message";
-        if only_message {
-            message_only += 1;
-        }
-
-        for d in &entry_diffs {
-            *field_totals.entry(d.field).or_insert(0) += 1;
-            if d.field == "message" && message_diff_examples.len() < 20 {
-                message_diff_examples.push((d.index, d.old.clone(), d.new.clone()));
-            }
-        }
-
-        // Categorize message diffs
-        if only_message {
-            let old_msg = &entry_diffs[0].old;
-            let new_msg = &entry_diffs[0].new;
-            if old_msg.contains("Signpost ID:") || new_msg.contains("Signpost ID:") {
-                cat_signpost += 1;
-            } else if old_msg.contains("Backtrace:") || new_msg.contains("Backtrace:") {
-                cat_backtrace += 1;
-            } else if new_msg.contains("Lost ") && old_msg == "\"\"" {
-                cat_loss += 1;
-            } else if old_msg.contains("0o") && !new_msg.contains("0o") {
-                cat_octal += 1;
-                if cat_octal_fmt_examples.len() < 5 {
-                    cat_octal_fmt_examples.push((
-                        entry_diffs[0].index,
-                        entry_diffs[0].old.clone(),
-                        entry_diffs[0].new.clone(),
-                        old_records[i].format_string.clone(),
-                    ));
+        if group_size == 1 {
+            // Single entry — compare directly (no ambiguity)
+            let entry_diffs = diff_records(i, &old_records[i], &new_records[i]);
+            if !entry_diffs.is_empty() {
+                total_mismatched_entries += 1;
+                let only_message = entry_diffs.len() == 1 && entry_diffs[0].field == "message";
+                if only_message {
+                    message_only += 1;
                 }
-            } else if old_msg.contains("==\\\"") || old_msg.contains("==)")
-                || old_msg.contains("== ") || old_msg.ends_with("==\\\"")
-                || (new_msg.contains("<Invalid UTF-8>") && !old_msg.contains("<Invalid UTF-8>"))
-                || (new_msg.contains("Could not extract string") && !old_msg.contains("Could not extract string"))
-            {
-                cat_bytes += 1;
-            } else if new_msg.contains("<private>") && !old_msg.contains("<private>") {
-                cat_private += 1;
-            } else if new_msg.contains("<missing format string>") {
-                cat_missing_fmt += 1;
-            } else {
-                // Check for float precision diffs (large numbers differ in trailing digits)
-                let old_clean = old_msg.replace('"', "");
-                let new_clean = new_msg.replace('"', "");
-                if old_clean.len() > 20 && new_clean.len() > 20
-                    && old_clean[..15] == new_clean[..15]
-                    && (old_clean.contains("000000") || new_clean.contains("000000"))
-                {
-                    cat_float += 1;
-                } else {
-                    cat_other += 1;
-                    if cat_other_examples.len() < 20 {
-                        cat_other_examples.push((
-                            entry_diffs[0].index,
-                            entry_diffs[0].old.clone(),
-                            entry_diffs[0].new.clone(),
-                            new_records[i].format_string.clone(),
-                        ));
+                for d in &entry_diffs {
+                    *field_totals.entry(d.field).or_insert(0) += 1;
+                    if d.field == "message" && message_diff_examples.len() < 20 {
+                        message_diff_examples.push((d.index, d.old.clone(), d.new.clone()));
+                    }
+                }
+                if only_message {
+                    categorize_message_diff(
+                        &entry_diffs[0], i, &old_records[i],
+                        &mut cat_signpost, &mut cat_backtrace, &mut cat_loss,
+                        &mut cat_octal, &mut cat_bytes, &mut cat_private,
+                        &mut cat_float, &mut cat_missing_fmt, &mut cat_other,
+                        &mut cat_other_examples, &mut cat_octal_fmt_examples,
+                    );
+                }
+            }
+        } else {
+            // Multi-entry group — multiset comparison on full records
+            // Count messages in each pipeline for this group
+            let old_msgs: HashMap<&str, usize> = {
+                let mut m = HashMap::new();
+                for r in &old_records[i..j] {
+                    *m.entry(r.message.as_str()).or_default() += 1;
+                }
+                m
+            };
+            let new_msgs: HashMap<&str, usize> = {
+                let mut m = HashMap::new();
+                for r in &new_records[i..j] {
+                    *m.entry(r.message.as_str()).or_default() += 1;
+                }
+                m
+            };
+
+            // Collect all unique message keys
+            let mut all_keys: Vec<&str> = old_msgs.keys().copied().collect();
+            for k in new_msgs.keys() {
+                if !old_msgs.contains_key(k) {
+                    all_keys.push(k);
+                }
+            }
+
+            for msg in &all_keys {
+                let old_n = old_msgs.get(msg).copied().unwrap_or(0);
+                let new_n = new_msgs.get(msg).copied().unwrap_or(0);
+                if old_n != new_n {
+                    // Real diffs: entries present in one but not the other
+                    let diff_count = old_n.abs_diff(new_n);
+                    total_mismatched_entries += diff_count;
+                    message_only += diff_count;
+                    *field_totals.entry("message").or_insert(0) += diff_count;
+
+                    if message_diff_examples.len() < 20 {
+                        // Find a counterpart message for the diff example
+                        let (old_msg_str, new_msg_str) = if old_n > new_n {
+                            (format!("{msg:?}"), "\"<no match in group>\"".to_string())
+                        } else {
+                            ("\"<no match in group>\"".to_string(), format!("{msg:?}"))
+                        };
+                        message_diff_examples.push((i, old_msg_str, new_msg_str));
+                    }
+
+                    // Categorize using a synthetic FieldDiff
+                    // Find the actual old and new messages for categorization
+                    if old_n > new_n {
+                        // Message exists in old but not new — find closest new match
+                        let sample_old = old_records[i..j].iter().find(|r| r.message == *msg).unwrap();
+                        let sample_new = new_records[i..j].iter().next().unwrap();
+                        let fd = FieldDiff {
+                            index: i,
+                            field: "message",
+                            old: format!("{:?}", sample_old.message),
+                            new: format!("{:?}", sample_new.message),
+                        };
+                        for _ in 0..diff_count {
+                            categorize_message_diff(
+                                &fd, i, sample_old,
+                                &mut cat_signpost, &mut cat_backtrace, &mut cat_loss,
+                                &mut cat_octal, &mut cat_bytes, &mut cat_private,
+                                &mut cat_float, &mut cat_missing_fmt, &mut cat_other,
+                                &mut cat_other_examples, &mut cat_octal_fmt_examples,
+                            );
+                        }
+                    } else {
+                        let sample_old = old_records[i..j].iter().next().unwrap();
+                        let sample_new = new_records[i..j].iter().find(|r| r.message == *msg).unwrap();
+                        let fd = FieldDiff {
+                            index: i,
+                            field: "message",
+                            old: format!("{:?}", sample_old.message),
+                            new: format!("{:?}", sample_new.message),
+                        };
+                        for _ in 0..diff_count {
+                            categorize_message_diff(
+                                &fd, i, sample_old,
+                                &mut cat_signpost, &mut cat_backtrace, &mut cat_loss,
+                                &mut cat_octal, &mut cat_bytes, &mut cat_private,
+                                &mut cat_float, &mut cat_missing_fmt, &mut cat_other,
+                                &mut cat_other_examples, &mut cat_octal_fmt_examples,
+                            );
+                        }
+                    }
+                }
+            }
+
+            // Also check non-message structural fields within the group.
+            // For structural fields, entries in the same group should be identical
+            // regardless of position, so compare sorted-by-message pairs.
+            let mut old_group: Vec<&CompareRecord> = old_records[i..j].iter().collect();
+            let mut new_group: Vec<&CompareRecord> = new_records[i..j].iter().collect();
+            old_group.sort_by_key(|r| &r.message);
+            new_group.sort_by_key(|r| &r.message);
+            for (oi, ni) in old_group.iter().zip(new_group.iter()) {
+                let diffs = diff_records(i, oi, ni);
+                for d in &diffs {
+                    if d.field != "message" {
+                        *field_totals.entry(d.field).or_insert(0) += 1;
                     }
                 }
             }
         }
+
+        i = j;
     }
 
     // --- Report ---
@@ -428,7 +565,7 @@ fn parity_big_sur() {
             "boot_uuid",
             "timezone_name",
         ];
-        let mut sorted: Vec<_> = field_totals_copy(&old_records, &new_records);
+        let sorted: Vec<_> = field_totals_copy(&old_records, &new_records);
         for field in &non_message_fields {
             let count = sorted.iter().find(|(f, _)| f == field).map(|(_, c)| *c).unwrap_or(0);
             assert_eq!(
@@ -467,18 +604,71 @@ fn parity_big_sur() {
     }
 }
 
-/// Collect field mismatch counts (helper for assertions).
+/// Collect field mismatch counts using group-aware comparison (helper for assertions).
 #[cfg(feature = "rewrite_behave_previous")]
 fn field_totals_copy(
     old_records: &[CompareRecord],
     new_records: &[CompareRecord],
 ) -> Vec<(&'static str, usize)> {
+    let compare_len = old_records.len().min(new_records.len());
     let mut totals: HashMap<&'static str, usize> = HashMap::new();
-    for i in 0..old_records.len().min(new_records.len()) {
-        let diffs = diff_records(i, &old_records[i], &new_records[i]);
-        for d in diffs {
-            *totals.entry(d.field).or_default() += 1;
+    let mut i = 0;
+    while i < compare_len {
+        let key = old_records[i].sort_key();
+        let mut j = i + 1;
+        while j < compare_len && old_records[j].sort_key() == key {
+            j += 1;
         }
+
+        if j - i == 1 {
+            let diffs = diff_records(i, &old_records[i], &new_records[i]);
+            for d in diffs {
+                *totals.entry(d.field).or_default() += 1;
+            }
+        } else {
+            // Multiset comparison for messages
+            let old_msgs: HashMap<&str, usize> = {
+                let mut m = HashMap::new();
+                for r in &old_records[i..j] {
+                    *m.entry(r.message.as_str()).or_default() += 1;
+                }
+                m
+            };
+            let new_msgs: HashMap<&str, usize> = {
+                let mut m = HashMap::new();
+                for r in &new_records[i..j] {
+                    *m.entry(r.message.as_str()).or_default() += 1;
+                }
+                m
+            };
+            let mut all_keys: Vec<&str> = old_msgs.keys().copied().collect();
+            for k in new_msgs.keys() {
+                if !old_msgs.contains_key(k) {
+                    all_keys.push(k);
+                }
+            }
+            for msg in &all_keys {
+                let old_n = old_msgs.get(msg).copied().unwrap_or(0);
+                let new_n = new_msgs.get(msg).copied().unwrap_or(0);
+                if old_n != new_n {
+                    *totals.entry("message").or_default() += old_n.abs_diff(new_n);
+                }
+            }
+            // Non-message fields: compare sorted-by-message pairs
+            let mut old_group: Vec<&CompareRecord> = old_records[i..j].iter().collect();
+            let mut new_group: Vec<&CompareRecord> = new_records[i..j].iter().collect();
+            old_group.sort_by_key(|r| &r.message);
+            new_group.sort_by_key(|r| &r.message);
+            for (oi, ni) in old_group.iter().zip(new_group.iter()) {
+                let diffs = diff_records(i, oi, ni);
+                for d in diffs {
+                    if d.field != "message" {
+                        *totals.entry(d.field).or_default() += 1;
+                    }
+                }
+            }
+        }
+        i = j;
     }
     totals.into_iter().collect()
 }

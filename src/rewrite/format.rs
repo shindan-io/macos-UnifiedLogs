@@ -217,6 +217,13 @@ fn apply_format(output: &mut String, item: &RawFirehoseItem<'_>, spec: &FormatSp
   }
 
   if is_string_conversion(c) {
+    // Old pipeline: extract_string_size() returns "(null)" for ALL items with size=0
+    #[cfg(feature = "rewrite_behave_previous")]
+    if item.item_size == 0 && matches!(&item.value, RawItemValue::Str(s) if s.is_empty()) {
+      apply_string_format(output, "(null)", spec);
+      return;
+    }
+
     // Old pipeline base64-encodes Bytes items at parsing stage,
     // so all format specifiers see base64 strings for byte data.
     #[cfg(feature = "rewrite_behave_previous")]
@@ -279,6 +286,11 @@ fn apply_format(output: &mut String, item: &RawFirehoseItem<'_>, spec: &FormatSp
   }
 
   // 'n' and 'Z' — just emit the raw value as a string
+  #[cfg(feature = "rewrite_behave_previous")]
+  if item.item_size == 0 && matches!(&item.value, RawItemValue::Str(s) if s.is_empty()) {
+    output.push_str("(null)");
+    return;
+  }
   let s = extract_str(&item.value);
   output.push_str(s);
 }
