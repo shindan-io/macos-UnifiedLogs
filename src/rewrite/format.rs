@@ -43,7 +43,11 @@ impl AppleDecoder for OldAppleDecoder {
       RawItemValue::U64(n) => n.to_string(),
       RawItemValue::Str(s) => s.to_string(),
       RawItemValue::Bytes(b) => base64::engine::general_purpose::STANDARD.encode(b),
-      RawItemValue::Private { .. } | RawItemValue::Empty | RawItemValue::Null => return None,
+      RawItemValue::Private { .. } => return None,
+      // Old pipeline calls decoders with empty string for size-0 items (e.g. sockaddr("") →
+      // "Unknown sockaddr family: 0"). Most decoders will fail on empty input and we'll
+      // return None below, matching the fallthrough behavior.
+      RawItemValue::Empty | RawItemValue::Null => String::new(),
     };
 
     // Replicate check_objects: mask.hash + BaseRaw (0xf2) → return base64 as-is,
@@ -188,6 +192,7 @@ fn extract_str<'a>(value: &'a RawItemValue<'a>) -> &'a str {
     RawItemValue::Bytes(b) => utf8_str(b),
     #[cfg(feature = "rewrite_behave_previous")]
     RawItemValue::Null => "(null)",
+    RawItemValue::Private { .. } => "<private>",
     _ => "",
   }
 }
@@ -553,20 +558,29 @@ fn parse_specifier(bytes: &[u8]) -> (FormatSpec, usize, bool) {
 
   // 3. Precision
   if pos < len && bytes[pos] == b'.' {
-    pos += 1;
-    spec.has_precision = true;
-    if pos < len && bytes[pos] == b'*' {
-      // Dynamic precision — will be filled from precision item
+    // Old pipeline regex: (?:\.(?:\d+|\*))? — requires digit or * after dot.
+    // Bare `%.f` fails to match → treated as literal.
+    #[cfg(feature = "rewrite_behave_previous")]
+    let should_consume_dot = pos + 1 < len && (bytes[pos + 1].is_ascii_digit() || bytes[pos + 1] == b'*');
+    #[cfg(not(feature = "rewrite_behave_previous"))]
+    let should_consume_dot = true;
+
+    if should_consume_dot {
       pos += 1;
-    } else {
-      let start = pos;
-      while pos < len && bytes[pos].is_ascii_digit() {
+      spec.has_precision = true;
+      if pos < len && bytes[pos] == b'*' {
+        // Dynamic precision — will be filled from precision item
         pos += 1;
-      }
-      if pos > start
-        && let Ok(p) = std::str::from_utf8(&bytes[start..pos]).unwrap_or("0").parse::<usize>()
-      {
-        spec.precision = p;
+      } else {
+        let start = pos;
+        while pos < len && bytes[pos].is_ascii_digit() {
+          pos += 1;
+        }
+        if pos > start
+          && let Ok(p) = std::str::from_utf8(&bytes[start..pos]).unwrap_or("0").parse::<usize>()
+        {
+          spec.precision = p;
+        }
       }
     }
   }
@@ -663,6 +677,30 @@ pub fn format_message(format_string: Option<&str>, items: &[RawFirehoseItem<'_>]
 
       // If '}' is last char (no conversion type after it) → emit literal
       if pos >= len || !is_conversion_char(bytes[pos] as char) {
+        // Old pipeline regex only recognizes [-+0#] as flags (no space), digits,
+        // and `*` as valid chars after `}` in annotated specifiers. Anything else
+        // (space, `.` without preceding width, etc.) causes the regex to match
+        // only `%{annotation}` with `}` as conversion → treated as literal.
+        // Old pipeline regex after `}`: flags [-+0#], width [\d*], precision \.\d+|\*,
+        // length modifiers [hlwIztq], then conversion. Space and bare `.` (no digits) are NOT valid.
+        #[cfg(feature = "rewrite_behave_previous")]
+        let is_valid_spec_start = pos < len
+          && (matches!(bytes[pos], b'-' | b'+' | b'0' | b'#' | b'*' | b'1'..=b'9'
+                | b'h' | b'l' | b'w' | b'I' | b'z' | b't' | b'q')
+              || (bytes[pos] == b'.' && pos + 1 < len
+                  && (bytes[pos + 1].is_ascii_digit() || bytes[pos + 1] == b'*')));
+        #[cfg(not(feature = "rewrite_behave_previous"))]
+        let is_valid_spec_start = true;
+
+        if !is_valid_spec_start {
+          // Emit as literal — old pipeline treats this as typeless annotation
+          result.push('%');
+          result.push('{');
+          result.push_str(&annotation);
+          result.push('}');
+          continue;
+        }
+
         // Check for flags/width/length before potential conversion
         let (spec, spec_consumed, _dynamic) = if pos < len {
           parse_specifier(&bytes[pos..])
@@ -716,7 +754,12 @@ pub fn format_message(format_string: Option<&str>, items: &[RawFirehoseItem<'_>]
     skip_precision_items(items, &mut item_index);
 
     if item_index >= items.len() {
-      result.push_str("<decode: missing data>");
+      {
+        #[cfg(feature = "rewrite_behave_previous")]
+        result.push_str("<Missing message data>");
+        #[cfg(not(feature = "rewrite_behave_previous"))]
+        result.push_str("<decode: missing data>");
+      }
       continue;
     }
 
@@ -727,7 +770,12 @@ pub fn format_message(format_string: Option<&str>, items: &[RawFirehoseItem<'_>]
     }
 
     if item_index >= items.len() {
-      result.push_str("<decode: missing data>");
+      {
+        #[cfg(feature = "rewrite_behave_previous")]
+        result.push_str("<Missing message data>");
+        #[cfg(not(feature = "rewrite_behave_previous"))]
+        result.push_str("<decode: missing data>");
+      }
       continue;
     }
 
@@ -798,7 +846,12 @@ fn format_annotated_item(
   skip_precision_items(items, item_index);
 
   if *item_index >= items.len() {
-    result.push_str("<decode: missing data>");
+    {
+        #[cfg(feature = "rewrite_behave_previous")]
+        result.push_str("<Missing message data>");
+        #[cfg(not(feature = "rewrite_behave_previous"))]
+        result.push_str("<decode: missing data>");
+      }
     return;
   }
 
@@ -928,7 +981,6 @@ mod tests {
   #[test_case("count: %d", 42  => "count: 42" ; "integer")]
   #[test_case("%x", 255        => "FF" ; "hex uppercase")]
   #[test_case("%#x", 255       => "0xFF" ; "hex alternate")]
-  #[test_case("%o", 493        => "755" ; "octal")]
   #[test_case("%04d", 2        => "0002" ; "zero pad width")]
   #[test_case("%+d", 42        => "+42" ; "plus sign")]
   #[test_case("%c", 65         => "A" ; "char")]
@@ -938,10 +990,29 @@ mod tests {
   #[test_case("%x", 10         => "A" ; "hex lowercase spec uppercase output")]
   #[test_case("%#4x", 2        => " 0x2" ; "hex hashtag width")]
   #[test_case("%#04o", 100     => "0o144" ; "octal hashtag zero pad")]
-  #[test_case("%07o", 100      => "0000144" ; "octal zero pad")]
   #[test_case("%lld", 42       => "42" ; "length modifier ignored")]
   fn test_format_int(fmt: &str, n: i64) -> String {
     format_message(Some(fmt), &[i64_item(n)], &NoDecoder)
+  }
+
+  // Octal without explicit `#` flag: under rewrite_behave_previous, the old pipeline
+  // always adds `#` (0o prefix), matching its format_right() behavior.
+  #[test]
+  fn octal() {
+    let result = format_message(Some("%o"), &[i64_item(493)], &NoDecoder);
+    #[cfg(feature = "rewrite_behave_previous")]
+    assert_eq!(result, "0o755");
+    #[cfg(not(feature = "rewrite_behave_previous"))]
+    assert_eq!(result, "755");
+  }
+
+  #[test]
+  fn octal_zero_pad() {
+    let result = format_message(Some("%07o"), &[i64_item(100)], &NoDecoder);
+    #[cfg(feature = "rewrite_behave_previous")]
+    assert_eq!(result, "0o00144");
+    #[cfg(not(feature = "rewrite_behave_previous"))]
+    assert_eq!(result, "0000144");
   }
 
   // --- Float: single i64 item (bits), literal expected ---
@@ -1004,6 +1075,9 @@ mod tests {
   #[test]
   fn test_missing_items() {
     let result = format_message(Some("%s %s"), &[str_item("hello")], &NoDecoder);
+    #[cfg(feature = "rewrite_behave_previous")]
+    assert_eq!(result, "hello <Missing message data>");
+    #[cfg(not(feature = "rewrite_behave_previous"))]
     assert_eq!(result, "hello <decode: missing data>");
   }
 
