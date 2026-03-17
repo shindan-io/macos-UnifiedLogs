@@ -794,3 +794,72 @@ fn test_big_sur_simpledump_statedump_resolved() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// Test 14: Statedump pid/euid resolved from catalog (not raw first_proc_id)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_big_sur_statedump_pid_euid_from_catalog() {
+    let base = test_data_path().join("system_logs_big_sur.logarchive");
+
+    // Collect (pid, euid, process) from firehose entries to build a reference set,
+    // then verify statedump entries match.
+    let mut firehose_pid_euid: HashMap<String, Vec<(u64, u32)>> = HashMap::new();
+
+    struct StatedumpInfo {
+        pid: u64,
+        euid: u32,
+        process: Option<String>,
+    }
+    let mut statedumps = Vec::new();
+
+    visit_logarchive(&base, |entry| {
+        if let Some(process) = entry.process {
+            match entry.event_type {
+                EventType::Statedump => {
+                    statedumps.push(StatedumpInfo {
+                        pid: entry.pid,
+                        euid: entry.euid,
+                        process: Some(process.to_string()),
+                    });
+                }
+                EventType::Log | EventType::Activity | EventType::Trace => {
+                    firehose_pid_euid
+                        .entry(process.to_string())
+                        .or_default()
+                        .push((entry.pid, entry.euid));
+                }
+                _ => {}
+            }
+        }
+    })
+    .unwrap();
+
+    assert!(!statedumps.is_empty(), "should have statedump entries");
+
+    // For each statedump with a resolved process, verify its (pid, euid)
+    // appears in the firehose entries for that same process.
+    let mut cross_validated = 0;
+    for sd in &statedumps {
+        let process = sd.process.as_deref().unwrap();
+        if let Some(firehose_values) = firehose_pid_euid.get(process) {
+            assert!(
+                firehose_values.contains(&(sd.pid, sd.euid)),
+                "Statedump for {process} has pid={}, euid={} which doesn't match \
+                 any firehose entry for the same process (found: {:?})",
+                sd.pid,
+                sd.euid,
+                firehose_values
+                    .iter()
+                    .collect::<std::collections::HashSet<_>>()
+            );
+            cross_validated += 1;
+        }
+    }
+
+    assert!(
+        cross_validated > 0,
+        "should have cross-validated at least one statedump against firehose entries"
+    );
+}

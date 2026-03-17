@@ -165,12 +165,28 @@ pub fn visit_tracev3<'a>(
                                     .get(&sd.sender_uuid)
                                     .and_then(|u| u.image_path());
 
+                                // Resolve pid/euid from catalog (same as firehose entries)
+                                #[allow(clippy::cast_possible_truncation)]
+                                let second_proc_id = sd.second_proc_id as u32;
+                                let (pid, euid) =
+                                    if let Some(catalog) = &current_catalog {
+                                        let pid = catalog
+                                            .get_pid(sd.first_proc_id, second_proc_id)
+                                            .unwrap_or(sd.first_proc_id);
+                                        let euid = catalog
+                                            .get_euid(sd.first_proc_id, second_proc_id)
+                                            .unwrap_or(0);
+                                        (pid, euid)
+                                    } else {
+                                        (sd.first_proc_id, 0)
+                                    };
+
                                 callback(LogEntry {
                                     subsystem: None,
                                     category: None,
                                     thread_id: sd.thread_id,
-                                    pid: sd.first_proc_id,
-                                    euid: 0,
+                                    pid,
+                                    euid,
                                     library,
                                     library_uuid: sd.sender_uuid,
                                     activity_id: 0,
@@ -206,8 +222,8 @@ pub fn visit_tracev3<'a>(
                                     resolver.resolve(&header.boot_uuid, sd.continuous_time, 1);
                                 let timezone_name = extract_timezone_name(header.timezone_path);
 
-                                // Resolve process from catalog + UUIDText
-                                let (process, process_uuid) =
+                                // Resolve process, pid, euid from catalog + UUIDText
+                                let (process, process_uuid, pid, euid) =
                                     if let Some(catalog) = &current_catalog {
                                         let entry = catalog.get_process_info(
                                             sd.first_proc_id,
@@ -218,17 +234,21 @@ pub fn visit_tracev3<'a>(
                                         let path = uuidtext_files
                                             .get(&main_uuid)
                                             .and_then(|u| u.image_path());
-                                        (path, main_uuid)
+                                        let pid = entry
+                                            .map_or(sd.first_proc_id, |e| u64::from(e.pid));
+                                        let euid = entry
+                                            .map_or(0, |e| e.effective_user_id);
+                                        (path, main_uuid, pid, euid)
                                     } else {
-                                        (None, Uuid::nil())
+                                        (None, Uuid::nil(), sd.first_proc_id, 0)
                                     };
 
                                 callback(LogEntry {
                                     subsystem: None,
                                     category: None,
                                     thread_id: 0,
-                                    pid: sd.first_proc_id,
-                                    euid: 0,
+                                    pid,
+                                    euid,
                                     library: process,
                                     library_uuid: process_uuid,
                                     activity_id: sd.activity_id,
