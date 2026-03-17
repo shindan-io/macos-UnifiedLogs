@@ -157,44 +157,28 @@ pub fn visit_tracev3<'a>(
                                     resolver.resolve(&header.boot_uuid, sd.continuous_time, 1);
                                 let timezone_name = extract_timezone_name(header.timezone_path);
 
-                                // Resolve process/library from UUIDText
+                                // sender_uuid = process binary, dsc_uuid = DSC/library context
                                 let process = uuidtext_files
-                                    .get(&sd.dsc_uuid)
-                                    .and_then(|u| u.image_path());
-                                let library = uuidtext_files
                                     .get(&sd.sender_uuid)
                                     .and_then(|u| u.image_path());
-
-                                // Resolve pid/euid from catalog (same as firehose entries)
-                                #[allow(clippy::cast_possible_truncation)]
-                                let second_proc_id = sd.second_proc_id as u32;
-                                let (pid, euid) =
-                                    if let Some(catalog) = &current_catalog {
-                                        let pid = catalog
-                                            .get_pid(sd.first_proc_id, second_proc_id)
-                                            .unwrap_or(sd.first_proc_id);
-                                        let euid = catalog
-                                            .get_euid(sd.first_proc_id, second_proc_id)
-                                            .unwrap_or(0);
-                                        (pid, euid)
-                                    } else {
-                                        (sd.first_proc_id, 0)
-                                    };
+                                let library = uuidtext_files
+                                    .get(&sd.dsc_uuid)
+                                    .and_then(|u| u.image_path());
 
                                 callback(LogEntry {
                                     subsystem: None,
                                     category: None,
                                     thread_id: sd.thread_id,
-                                    pid,
-                                    euid,
+                                    pid: sd.first_proc_id,
+                                    euid: 0,
                                     library,
-                                    library_uuid: sd.sender_uuid,
+                                    library_uuid: sd.dsc_uuid,
                                     activity_id: 0,
                                     time,
                                     event_type: EventType::Simpledump,
                                     log_type: LogType::Simpledump,
                                     process,
-                                    process_uuid: sd.dsc_uuid,
+                                    process_uuid: sd.sender_uuid,
                                     format_string: None,
                                     boot_uuid: header.boot_uuid,
                                     timezone_name,
