@@ -732,3 +732,65 @@ fn test_big_sur_loss_entries_resolved() {
     assert!(loss_entries.iter().all(|l| l.pid == 0 && l.euid == 0));
     assert!(loss_entries.iter().all(|l| l.count == 63));
 }
+
+// ---------------------------------------------------------------------------
+// Test 13: Simpledump and Statedump entries resolve process/library
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_big_sur_simpledump_statedump_resolved() {
+    let base = test_data_path().join("system_logs_big_sur.logarchive");
+
+    struct EntryInfo {
+        event_type: EventType,
+        process: Option<String>,
+        library: Option<String>,
+        process_uuid: Uuid,
+    }
+
+    let mut entries = Vec::new();
+
+    visit_logarchive(&base, |entry| {
+        if entry.event_type == EventType::Statedump || entry.event_type == EventType::Simpledump {
+            entries.push(EntryInfo {
+                event_type: entry.event_type,
+                process: entry.process.map(String::from),
+                library: entry.library.map(String::from),
+                process_uuid: entry.process_uuid,
+            });
+        }
+    })
+    .unwrap();
+
+    // Big Sur logarchive has 322 statedump entries and 0 simpledump entries
+    let statedump_count = entries
+        .iter()
+        .filter(|e| e.event_type == EventType::Statedump)
+        .count();
+    assert_eq!(statedump_count, 322);
+
+    // Every Statedump entry with a non-nil process_uuid should have resolved process name
+    let resolved_statedumps: Vec<_> = entries
+        .iter()
+        .filter(|e| e.event_type == EventType::Statedump && e.process_uuid != Uuid::nil())
+        .collect();
+    assert!(
+        !resolved_statedumps.is_empty(),
+        "should have statedump entries with non-nil process_uuid"
+    );
+    for (i, entry) in resolved_statedumps.iter().enumerate() {
+        assert!(
+            entry.process.is_some(),
+            "Statedump entry {i} with non-nil process_uuid should have resolved process"
+        );
+        assert!(
+            entry.library.is_some(),
+            "Statedump entry {i} with non-nil process_uuid should have resolved library"
+        );
+        // For statedumps, library == process (MainExe pattern — no separate sender UUID)
+        assert_eq!(
+            entry.process, entry.library,
+            "Statedump entry {i}: library should equal process"
+        );
+    }
+}

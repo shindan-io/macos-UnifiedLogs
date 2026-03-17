@@ -156,19 +156,28 @@ pub fn visit_tracev3<'a>(
                                 let time =
                                     resolver.resolve(&header.boot_uuid, sd.continuous_time, 1);
                                 let timezone_name = extract_timezone_name(header.timezone_path);
+
+                                // Resolve process/library from UUIDText
+                                let process = uuidtext_files
+                                    .get(&sd.dsc_uuid)
+                                    .and_then(|u| u.image_path());
+                                let library = uuidtext_files
+                                    .get(&sd.sender_uuid)
+                                    .and_then(|u| u.image_path());
+
                                 callback(LogEntry {
                                     subsystem: None,
                                     category: None,
                                     thread_id: sd.thread_id,
                                     pid: sd.first_proc_id,
                                     euid: 0,
-                                    library: None,
+                                    library,
                                     library_uuid: sd.sender_uuid,
                                     activity_id: 0,
                                     time,
                                     event_type: EventType::Simpledump,
                                     log_type: LogType::Simpledump,
-                                    process: None,
+                                    process,
                                     process_uuid: sd.dsc_uuid,
                                     format_string: None,
                                     boot_uuid: header.boot_uuid,
@@ -196,20 +205,38 @@ pub fn visit_tracev3<'a>(
                                 let time =
                                     resolver.resolve(&header.boot_uuid, sd.continuous_time, 1);
                                 let timezone_name = extract_timezone_name(header.timezone_path);
+
+                                // Resolve process from catalog + UUIDText
+                                let (process, process_uuid) =
+                                    if let Some(catalog) = &current_catalog {
+                                        let entry = catalog.get_process_info(
+                                            sd.first_proc_id,
+                                            sd.second_proc_id,
+                                        );
+                                        let main_uuid =
+                                            entry.map_or(Uuid::nil(), |e| e.main_uuid);
+                                        let path = uuidtext_files
+                                            .get(&main_uuid)
+                                            .and_then(|u| u.image_path());
+                                        (path, main_uuid)
+                                    } else {
+                                        (None, Uuid::nil())
+                                    };
+
                                 callback(LogEntry {
                                     subsystem: None,
                                     category: None,
                                     thread_id: 0,
                                     pid: sd.first_proc_id,
                                     euid: 0,
-                                    library: None,
-                                    library_uuid: Uuid::nil(),
+                                    library: process,
+                                    library_uuid: process_uuid,
                                     activity_id: sd.activity_id,
                                     time,
                                     event_type: EventType::Statedump,
                                     log_type: LogType::Statedump,
-                                    process: None,
-                                    process_uuid: Uuid::nil(),
+                                    process,
+                                    process_uuid,
                                     format_string: None,
                                     boot_uuid: header.boot_uuid,
                                     timezone_name,
