@@ -364,9 +364,18 @@ fn visit_firehose_entries<'a, 'b>(
                     let pid = catalog
                         .get_pid(fh.first_proc_id, fh.second_proc_id)
                         .unwrap_or(0);
-                    let euid = catalog
-                        .get_euid(fh.first_proc_id, fh.second_proc_id)
-                        .unwrap_or(0);
+                    let euid = match catalog.get_euid(fh.first_proc_id, fh.second_proc_id) {
+                        Some(euid) => euid,
+                        None => {
+                            if pid > 0 {
+                                warn!(
+                                    "Loss: no catalog entry for proc_ids ({}, {}) pid={pid} — defaulting euid to 0",
+                                    fh.first_proc_id, fh.second_proc_id
+                                );
+                            }
+                            0
+                        }
+                    };
 
                     // Process/library from UUIDText via main_uuid
                     let entry_info =
@@ -508,9 +517,18 @@ fn visit_firehose_entries<'a, 'b>(
         let pid = catalog
             .get_pid(fh.first_proc_id, fh.second_proc_id)
             .unwrap_or(0);
-        let euid = catalog
-            .get_euid(fh.first_proc_id, fh.second_proc_id)
-            .unwrap_or(0);
+        let euid = match catalog.get_euid(fh.first_proc_id, fh.second_proc_id) {
+            Some(euid) => euid,
+            None => {
+                if pid > 0 {
+                    warn!(
+                        "Firehose: no catalog entry for proc_ids ({}, {}) pid={pid} — defaulting euid to 0",
+                        fh.first_proc_id, fh.second_proc_id
+                    );
+                }
+                0
+            }
+        };
 
         callback(LogEntry {
             subsystem,

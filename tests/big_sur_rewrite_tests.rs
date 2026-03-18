@@ -796,6 +796,53 @@ fn test_big_sur_simpledump_statedump_resolved() {
 }
 
 // ---------------------------------------------------------------------------
+// Test: High Sierra euid=501 — verify non-root euid via raw rewrite API
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_high_sierra_euid_nonzero() {
+    let base = test_data_path().join("system_logs_high_sierra.logarchive");
+    let ctx = LogarchiveContext::new(&base);
+    let dsc_files = ctx.dsc_files();
+    let uuidtext_files = ctx.uuidtext_files();
+
+    let data = std::fs::read(base.join("Persist/0000000000000001.tracev3")).unwrap();
+    let mut oversize_cache = OversizeCache::new();
+    let mut found = false;
+    let mut count = 0_usize;
+
+    visit_tracev3(
+        &data,
+        &ctx.resolver,
+        &dsc_files,
+        &uuidtext_files,
+        &mut oversize_cache,
+        |entry| {
+            // Match the same CalNCService entry that high_sierra_tests.rs checks
+            // (pid=580, thread_id=8759, subsystem=com.apple.PersistentConnection, Log/Default)
+            if entry.pid == 580
+                && entry.thread_id == 8759
+                && entry.event_type == EventType::Log
+                && entry.subsystem == Some("com.apple.PersistentConnection")
+            {
+                assert_eq!(
+                    entry.euid, 501,
+                    "CalNCService entry (pid=580) should have euid=501, got {}",
+                    entry.euid
+                );
+                assert_eq!(entry.log_type, LogType::Default);
+                found = true;
+            }
+            count += 1;
+        },
+    )
+    .unwrap();
+
+    assert_eq!(count, 162_402);
+    assert!(found, "should find the CalNCService entry with pid=580, thread_id=8759");
+}
+
+// ---------------------------------------------------------------------------
 // Test 14: Statedump pid/euid resolved from catalog (not raw first_proc_id)
 // ---------------------------------------------------------------------------
 
