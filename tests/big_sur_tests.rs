@@ -17,7 +17,10 @@ use std::{fs::File, path::PathBuf};
 fn collect_logs(provider: &dyn FileProvider) -> Vec<UnifiedLogData> {
     provider
         .tracev3_files()
-        .map(|mut file| parse_log(file.reader()).unwrap())
+        .map(|mut file| {
+            let path = file.source_path().to_string();
+            parse_log(file.reader(), &path).unwrap()
+        })
         .collect()
 }
 
@@ -51,8 +54,8 @@ fn test_parse_log_big_sur() {
     test_path.push("tests/test_data/system_logs_big_sur.logarchive");
     test_path.push("Persist/0000000000000004.tracev3");
 
-    let handle = File::open(test_path.as_path()).unwrap();
-    let log_data = parse_log(handle).unwrap();
+    let handle = File::open(&test_path.as_path()).unwrap();
+    let log_data = parse_log(handle, test_path.to_str().unwrap()).unwrap();
 
     assert_eq!(log_data.catalog_data[0].firehose.len(), 82);
     assert_eq!(log_data.catalog_data[0].simpledump.len(), 0);
@@ -77,8 +80,8 @@ fn test_big_sur_livedata() {
     let timesync_data = collect_timesync(&provider).unwrap();
 
     test_path.push("logdata.LiveData.tracev3");
-    let handle = File::open(test_path.as_path()).unwrap();
-    let results = parse_log(handle).unwrap();
+    let handle = File::open(&test_path.as_path()).unwrap();
+    let results = parse_log(handle, test_path.to_str().unwrap()).unwrap();
     test_path.pop();
 
     let exclude_missing = false;
@@ -123,9 +126,9 @@ fn test_build_log_big_sur() {
 
     test_path.push("Persist/0000000000000004.tracev3");
 
-    let handle = File::open(test_path.as_path()).unwrap();
+    let handle = File::open(&test_path.as_path()).unwrap();
 
-    let log_data = parse_log(handle).unwrap();
+    let log_data = parse_log(handle, test_path.to_str().unwrap()).unwrap();
 
     let exclude_missing = false;
     let (results, _) = build_log(&log_data, &mut provider, &timesync_data, exclude_missing);
@@ -201,6 +204,8 @@ fn test_parse_all_logs_big_sur() {
     let mut empty_format_count = 0;
     let mut sock_count = 0;
     let mut location_harvest_count = 0;
+    let mut parent_activity = 0;
+    let mut no_such_file_or_directory = 0;
 
     // Breakdown log entries by smaller types to ensure count is accurate
     for logs in &log_data_vec {
@@ -266,6 +271,14 @@ fn test_parse_all_logs_big_sur() {
         if logs.message.contains("nw_resolver_create_dns_getaddrinfo_locked_block_invoke [C1] Got DNS result type NoAddress ifindex=0 configuration.ls.apple.com configuration.ls.apple.com. ::") {
             sock_count += 1;
         }
+
+        if logs.parent_activity_id == 208 {
+            parent_activity += 1;
+        }
+
+        if logs.message.contains("No such file or directory") {
+            no_such_file_or_directory += 1;
+        }
     }
 
     assert_eq!(unknown_strings, 0);
@@ -289,6 +302,8 @@ fn test_parse_all_logs_big_sur() {
     assert_eq!(loss_type, 5);
     assert_eq!(sock_count, 2);
     assert_eq!(location_harvest_count, 11);
+    assert_eq!(parent_activity, 5);
+    assert_eq!(no_such_file_or_directory, 1728)
 }
 
 #[test]
@@ -493,9 +508,9 @@ fn test_parse_all_logs_private_with_public_mix_big_sur_single_file() {
 
     test_path.push("Persist/0000000000000009.tracev3");
 
-    let handle = File::open(test_path.as_path()).unwrap();
+    let handle = File::open(&test_path.as_path()).unwrap();
 
-    let log_data = parse_log(handle).unwrap();
+    let log_data = parse_log(handle, test_path.to_str().unwrap()).unwrap();
 
     let exclude_missing = false;
     let (results, _) = build_log(&log_data, &mut provider, &timesync_data, exclude_missing);
@@ -538,9 +553,9 @@ fn test_parse_all_logs_private_with_public_mix_big_sur_special_file() {
 
     test_path.push("Special/0000000000000008.tracev3");
 
-    let handle = File::open(test_path.as_path()).unwrap();
+    let handle = File::open(&test_path.as_path()).unwrap();
 
-    let log_data = parse_log(handle).unwrap();
+    let log_data = parse_log(handle, test_path.to_str().unwrap()).unwrap();
 
     let exclude_missing = false;
     let (results, _) = build_log(&log_data, &mut provider, &timesync_data, exclude_missing);
@@ -584,9 +599,9 @@ fn test_big_sur_missing_oversize_strings() {
 
     // livedata may have oversize string data in other tracev3 on disk
     test_path.push("logdata.LiveData.tracev3");
-    let handle = File::open(test_path.as_path()).unwrap();
+    let handle = File::open(&test_path.as_path()).unwrap();
 
-    let log_data = parse_log(handle).unwrap();
+    let log_data = parse_log(handle, test_path.to_str().unwrap()).unwrap();
     test_path.pop();
 
     let exclude_missing = false;
@@ -615,22 +630,22 @@ fn test_big_sur_oversize_strings_in_another_file() {
 
     // Get most recent Persist tracev3 file could contain oversize log entries
     test_path.push("Persist/0000000000000005.tracev3");
-    let handle = File::open(test_path.as_path()).unwrap();
+    let handle = File::open(&test_path.as_path()).unwrap();
 
-    let mut log_data = parse_log(handle).unwrap();
+    let mut log_data = parse_log(handle, test_path.to_str().unwrap()).unwrap();
     test_path.pop();
     test_path.pop();
 
     // Get most recent Special tracev3 file that could contain oversize log entries
     test_path.push("Special/0000000000000005.tracev3");
-    let handle = File::open(test_path.as_path()).unwrap();
-    let mut special_data = parse_log(handle).unwrap();
+    let handle = File::open(&test_path.as_path()).unwrap();
+    let mut special_data = parse_log(handle, test_path.to_str().unwrap()).unwrap();
     test_path.pop();
     test_path.pop();
 
     test_path.push("logdata.LiveData.tracev3");
-    let handle = File::open(test_path.as_path()).unwrap();
-    let mut results = parse_log(handle).unwrap();
+    let handle = File::open(&test_path.as_path()).unwrap();
+    let mut results = parse_log(handle, test_path.to_str().unwrap()).unwrap();
     test_path.pop();
 
     results.oversize.append(&mut log_data.oversize);
