@@ -173,6 +173,8 @@ impl TimesyncBoot {
            Final results is unix epoch timestamp in nano seconds
         */
 
+        dbg!(&firehose_log_delta_time, &firehose_preamble_time, &boot_uuid, &timesync_data.get(boot_uuid).map(|boot| &boot.boot_time));
+
         let mut timesync_continous_time = 0;
         let mut timesync_walltime = 0;
 
