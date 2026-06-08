@@ -185,6 +185,12 @@ impl Iterator for LogIterator<'_> {
                     preamble.base_continous_time,
                 );
 
+                let have_to_stop =  timestamp == 1.691564022502301e18;
+                // if have_to_stop {
+                //     dbg!(&timestamp);
+                //     panic!("found");
+                // }
+
                 // Our struct format to hold and show the log data
                 let mut log_data = LogData {
                     subsystem: String::new(),
@@ -243,6 +249,12 @@ impl Iterator for LogIterator<'_> {
 
                         match message_data {
                             Ok((_, results)) => {
+                                if have_to_stop {
+                                    dbg!(&results.library);
+                                    dbg!(&timestamp);
+                                    panic!("found");
+                                }
+
                                 log_data.library = results.library;
                                 log_data.library_uuid = results.library_uuid;
                                 log_data.process = results.process;
@@ -622,6 +634,8 @@ impl Iterator for LogIterator<'_> {
                 statedump.continuous_time,
                 no_firehose_preamble,
             );
+
+
             let log_data = LogData {
                 subsystem: String::new(),
                 thread_id: 0,
