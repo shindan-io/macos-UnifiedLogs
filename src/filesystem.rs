@@ -114,7 +114,6 @@ impl FileProvider for LiveSystemProvider {
         let path = PathBuf::from("/private/var/db/diagnostics");
 
         let entries = WalkDir::new(path)
-            .sort_by(|a, b| a.file_name().cmp(b.file_name()))
             .into_iter()
             .filter_map(|entry| entry.ok())
             .filter(|entry| matches!(LogFileType::from(entry.path()), LogFileType::TraceV3));
@@ -355,7 +354,6 @@ impl FileProvider for LogarchiveProvider {
     /// ```
     fn tracev3_files(&self) -> Box<dyn Iterator<Item = Box<dyn SourceFile>>> {
         let entries = WalkDir::new(&self.base)
-            .sort_by(|a, b| a.file_name().cmp(b.file_name()))
             .into_iter()
             .filter_map(|entry| entry.ok())
             .filter(|entry| matches!(LogFileType::from(entry.path()), LogFileType::TraceV3));
