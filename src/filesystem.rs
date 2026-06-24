@@ -537,7 +537,7 @@ impl FileProvider for LogarchiveProvider {
             .filter_map(|entry| entry.ok())
             .filter(|entry| matches!(LogFileType::from(entry.path()), LogFileType::Timesync));
 
-        let iter = sort_source_files(entries)
+        let iter = sort_files(entries)
             .into_iter()
             .filter_map(|entry| Some(Box::new(LocalFile::new(entry.path()).ok()?) as _));
 
