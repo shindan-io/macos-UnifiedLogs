@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Error, ErrorKind};
 use std::path::{Component, Path, PathBuf};
-use walkdir::WalkDir;
+use walkdir::{DirEntry, WalkDir};
 
 pub struct LocalFile {
     reader: File,
@@ -112,29 +112,32 @@ impl From<&Path> for LogFileType {
 impl FileProvider for LiveSystemProvider {
     fn tracev3_files(&self) -> Box<dyn Iterator<Item = Box<dyn SourceFile>>> {
         let path = PathBuf::from("/private/var/db/diagnostics");
-        sort_files(
-            WalkDir::new(path)
-                .sort_by(|a, b| a.file_name().cmp(b.file_name()))
-                .into_iter()
-                .filter_map(|entry| entry.ok())
-                .filter(|entry| matches!(LogFileType::from(entry.path()), LogFileType::TraceV3))
-                .filter_map(|entry| {
-                    Some(Box::new(LocalFile::new(entry.path()).ok()?) as Box<dyn SourceFile>)
-                }),
-        )
+
+        let entries = WalkDir::new(path)
+            .into_iter()
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| matches!(LogFileType::from(entry.path()), LogFileType::TraceV3));
+
+        let iter = sort_files(entries)
+            .into_iter()
+            .filter_map(|entry| Some(Box::new(LocalFile::new(entry.path()).ok()?) as _));
+
+        Box::new(iter)
     }
 
     fn uuidtext_files(&self) -> Box<dyn Iterator<Item = Box<dyn SourceFile>>> {
         let path = PathBuf::from("/private/var/db/uuidtext");
-        sort_files(
-            WalkDir::new(path)
-                .into_iter()
-                .filter_map(|entry| entry.ok())
-                .filter(|entry| matches!(LogFileType::from(entry.path()), LogFileType::UUIDText))
-                .filter_map(|entry| {
-                    Some(Box::new(LocalFile::new(entry.path()).ok()?) as Box<dyn SourceFile>)
-                }),
-        )
+
+        let entries = WalkDir::new(path)
+            .into_iter()
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| matches!(LogFileType::from(entry.path()), LogFileType::UUIDText));
+
+        let iter = sort_files(entries)
+            .into_iter()
+            .filter_map(|entry| Some(Box::new(LocalFile::new(entry.path()).ok()?) as _));
+
+        Box::new(iter)
     }
 
     fn read_uuidtext(&self, uuid: &str) -> Result<UUIDText, Error> {
@@ -277,28 +280,32 @@ impl FileProvider for LiveSystemProvider {
 
     fn dsc_files(&self) -> Box<dyn Iterator<Item = Box<dyn SourceFile>>> {
         let path = PathBuf::from("/private/var/db/uuidtext/dsc");
-        sort_files(WalkDir::new(path).into_iter().filter_map(|entry| {
-            if !matches!(
-                LogFileType::from(entry.as_ref().ok()?.path()),
-                LogFileType::Dsc
-            ) {
-                return None;
-            }
-            Some(Box::new(LocalFile::new(entry.ok()?.path()).ok()?) as Box<dyn SourceFile>)
-        }))
+
+        let entries = WalkDir::new(path)
+            .into_iter()
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| matches!(LogFileType::from(entry.path()), LogFileType::Dsc));
+
+        let iter = sort_files(entries)
+            .into_iter()
+            .filter_map(|entry| Some(Box::new(LocalFile::new(entry.path()).ok()?) as _));
+
+        Box::new(iter)
     }
 
     fn timesync_files(&self) -> Box<dyn Iterator<Item = Box<dyn SourceFile>>> {
         let path = PathBuf::from("/private/var/db/diagnostics/timesync");
-        sort_files(
-            WalkDir::new(path)
-                .into_iter()
-                .filter_map(|entry| entry.ok())
-                .filter(|entry| matches!(LogFileType::from(entry.path()), LogFileType::Timesync))
-                .filter_map(|entry| {
-                    Some(Box::new(LocalFile::new(entry.path()).ok()?) as Box<dyn SourceFile>)
-                }),
-        )
+
+        let entries = WalkDir::new(path)
+            .into_iter()
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| matches!(LogFileType::from(entry.path()), LogFileType::Timesync));
+
+        let iter = sort_files(entries)
+            .into_iter()
+            .filter_map(|entry| Some(Box::new(LocalFile::new(entry.path()).ok()?) as _));
+
+        Box::new(iter)
     }
 }
 
@@ -346,28 +353,29 @@ impl FileProvider for LogarchiveProvider {
     ///    }
     /// ```
     fn tracev3_files(&self) -> Box<dyn Iterator<Item = Box<dyn SourceFile>>> {
-        sort_files(
-            WalkDir::new(&self.base)
-                .sort_by(|a, b| a.file_name().cmp(b.file_name()))
-                .into_iter()
-                .filter_map(|entry| entry.ok())
-                .filter(|entry| matches!(LogFileType::from(entry.path()), LogFileType::TraceV3))
-                .filter_map(|entry| {
-                    Some(Box::new(LocalFile::new(entry.path()).ok()?) as Box<dyn SourceFile>)
-                }),
-        )
+        let entries = WalkDir::new(&self.base)
+            .into_iter()
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| matches!(LogFileType::from(entry.path()), LogFileType::TraceV3));
+
+        let iter = sort_files(entries)
+            .into_iter()
+            .filter_map(|entry| Some(Box::new(LocalFile::new(entry.path()).ok()?) as _));
+
+        Box::new(iter)
     }
 
     fn uuidtext_files(&self) -> Box<dyn Iterator<Item = Box<dyn SourceFile>>> {
-        sort_files(
-            WalkDir::new(&self.base)
-                .into_iter()
-                .filter_map(|entry| entry.ok())
-                .filter(|entry| matches!(LogFileType::from(entry.path()), LogFileType::UUIDText))
-                .filter_map(|entry| {
-                    Some(Box::new(LocalFile::new(entry.path()).ok()?) as Box<dyn SourceFile>)
-                }),
-        )
+        let entries = WalkDir::new(&self.base)
+            .into_iter()
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| matches!(LogFileType::from(entry.path()), LogFileType::UUIDText));
+
+        let iter = sort_files(entries)
+            .into_iter()
+            .filter_map(|entry| Some(Box::new(LocalFile::new(entry.path()).ok()?) as _));
+
+        Box::new(iter)
     }
 
     fn read_uuidtext(&self, uuid: &str) -> Result<UUIDText, Error> {
@@ -466,15 +474,16 @@ impl FileProvider for LogarchiveProvider {
     }
 
     fn dsc_files(&self) -> Box<dyn Iterator<Item = Box<dyn SourceFile>>> {
-        sort_files(
-            WalkDir::new(&self.base)
-                .into_iter()
-                .filter_map(|entry| entry.ok())
-                .filter(|entry| matches!(LogFileType::from(entry.path()), LogFileType::Dsc))
-                .filter_map(|entry| {
-                    Some(Box::new(LocalFile::new(entry.path()).ok()?) as Box<dyn SourceFile>)
-                }),
-        )
+        let entries = WalkDir::new(&self.base)
+            .into_iter()
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| matches!(LogFileType::from(entry.path()), LogFileType::Dsc));
+
+        let iter = sort_files(entries)
+            .into_iter()
+            .filter_map(|entry| Some(Box::new(LocalFile::new(entry.path()).ok()?) as _));
+
+        Box::new(iter)
     }
 
     fn update_uuid(&mut self, uuid: &str, uuid2: &str) {
@@ -521,15 +530,16 @@ impl FileProvider for LogarchiveProvider {
     }
 
     fn timesync_files(&self) -> Box<dyn Iterator<Item = Box<dyn SourceFile>>> {
-        sort_files(
-            WalkDir::new(&self.base)
-                .into_iter()
-                .filter_map(|entry| entry.ok())
-                .filter(|entry| matches!(LogFileType::from(entry.path()), LogFileType::Timesync))
-                .filter_map(|entry| {
-                    Some(Box::new(LocalFile::new(entry.path()).ok()?) as Box<dyn SourceFile>)
-                }),
-        )
+        let entries = WalkDir::new(&self.base)
+            .into_iter()
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| matches!(LogFileType::from(entry.path()), LogFileType::Timesync));
+
+        let iter = sort_files(entries)
+            .into_iter()
+            .filter_map(|entry| Some(Box::new(LocalFile::new(entry.path()).ok()?) as _));
+
+        Box::new(iter)
     }
 }
 
@@ -537,12 +547,10 @@ impl FileProvider for LogarchiveProvider {
 /// in order to have deterministic output of the parser.
 /// Not having it would cause parsing differences across systems
 /// (macOS does not guarantee order of files returned by the filesystem).
-fn sort_files(
-    files: impl Iterator<Item = Box<dyn SourceFile>>,
-) -> Box<dyn Iterator<Item = Box<dyn SourceFile>>> {
+fn sort_files(files: impl Iterator<Item = DirEntry>) -> Vec<DirEntry> {
     let mut files = files.collect::<Vec<_>>();
-    files.sort_by(|a, b| a.source_path().cmp(b.source_path()));
-    Box::new(files.into_iter())
+    files.sort_by(|a, b| a.path().cmp(b.path()));
+    files
 }
 
 #[cfg(test)]
