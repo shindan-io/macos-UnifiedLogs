@@ -549,8 +549,8 @@ fn parse_specifier(bytes: &[u8]) -> (FormatSpec, usize, bool) {
 
     // 3. Precision
     if pos < len && bytes[pos] == b'.' {
-        // Pipeline regex: (?:\.(?:\d+|\*)?)? — the digits after the dot are
-        // optional, so a bare `%.f` is a specifier with precision 0.
+        // Precision may not have an additional value
+        // Example: %.f or %.lf is valid precision. The precision value is 0
         pos += 1;
         spec.has_precision = true;
         if pos < len && bytes[pos] == b'*' {
@@ -1158,6 +1158,24 @@ mod tests {
             "<SBHMultiplexingManager:D0000749E2E8F40> creating new multiplexing view controller \
              controller <SBHMultiplexingViewController:E0000749C5A5E00> for \
              D8F2438E-AACF-4ED9-AD47-F5A1598215C7 at level: 0"
+        );
+    }
+
+    /// Upstream #153 `test_format_firehose_log_message_tricky_precision`: a bare
+    /// `%.f` renders the natural float (240), not a literal.
+    #[test]
+    fn test_format_message_tricky_precision() {
+        let fmt = "%p - ProcessThrottlerTimedActivity::activityTimedOut: %{public}s \
+                   (timeout: %.f sec)";
+        let items = [
+            i64_item(4_833_657_296),
+            str_item("View was recently visible"),
+            i64_item(4_642_648_265_865_560_064),
+        ];
+        assert_eq!(
+            format_message(Some(fmt), &items),
+            "1201BC1D0 - ProcessThrottlerTimedActivity::activityTimedOut: \
+             View was recently visible (timeout: 240 sec)"
         );
     }
 }
