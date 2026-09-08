@@ -333,7 +333,7 @@ impl Display for LocationStateTrackerData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "{{\"locationRestricted\":{}, \"locationServicesenabledStatus\":{}}}",
+            "{{\"locationRestricted\":{}, \"locationServicesEnabledStatus\":{}}}",
             bool_from_int(self.location_restricted),
             self.location_enabled
         )
@@ -803,7 +803,7 @@ mod tests {
 
         assert_eq!(
             result.to_string(),
-            "{\"locationRestricted\":false, \"locationServicesenabledStatus\":1}"
+            "{\"locationRestricted\":false, \"locationServicesEnabledStatus\":1}"
         )
     }
 
@@ -825,7 +825,7 @@ mod tests {
 
         assert_eq!(
             result.to_string(),
-            "{\"locationRestricted\":false, \"locationServicesenabledStatus\":1}"
+            "{\"locationRestricted\":false, \"locationServicesEnabledStatus\":1}"
         )
     }
 

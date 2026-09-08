@@ -303,22 +303,30 @@ fn flush_deferred_entries<'d, 's: 'd>(
                     };
                     let time = resolver.resolve(&header.boot_uuid, sd.continuous_time, 1);
                     let timezone_name = extract_timezone_name(header.timezone_path);
+                    let entry_info = current_catalog
+                        .as_ref()
+                        .and_then(|c| c.get_process_info(sd.first_proc_id, sd.second_proc_id));
+                    let (process_uuid, process) = main_process(entry_info, strings);
+                    let euid = current_catalog
+                        .as_ref()
+                        .and_then(|c| c.get_euid(sd.first_proc_id, sd.second_proc_id))
+                        .unwrap_or(0);
                     callback(LogEntry {
                         subsystem: None,
                         category: None,
                         thread_id: 0,
                         pid: sd.first_proc_id,
-                        euid: 0,
+                        euid,
                         persona_id: None,
                         library: None,
-                        library_uuid: Uuid::nil(),
+                        library_uuid: sd.uuid,
                         activity_id: sd.activity_id,
                         parent_activity_id: None,
                         time,
                         event_type: EventType::Statedump,
                         log_type: LogType::Statedump,
-                        process: None,
-                        process_uuid: Uuid::nil(),
+                        process,
+                        process_uuid,
                         format_string: None,
                         boot_uuid: header.boot_uuid,
                         timezone_name,
