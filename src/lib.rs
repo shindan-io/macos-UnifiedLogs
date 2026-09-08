@@ -78,6 +78,8 @@ pub mod header;
 pub(crate) mod helpers;
 pub mod log_entry;
 pub mod logarchive;
+/// lzbitmap decompression (Golden Gate / iOS 27 chunksets)
+mod lzbitmap;
 /// Format string / library / process path resolution
 pub mod resolve;
 /// Timesync file parsing and timestamp resolution

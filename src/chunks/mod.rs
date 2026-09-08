@@ -10,6 +10,8 @@ pub mod statedump;
 
 const BV41_COMPRESSED: u32 = 825_521_762; // "bv41"
 const BV41_UNCOMPRESSED: u32 = 758_412_898; // "bv4-"
+// Only two likely to exist
+const LZBITMAP_SIGS: [u32; 4] = [206_389_850, 156_058_202, 223_167_066, 139_280_986];
 
 /// Typed chunk tag — identifies the kind of chunk in a tracev3 file.
 #[derive(
@@ -154,10 +156,22 @@ impl<'a> ChunksetPayload<'a> {
                     })?;
                 Ok(ChunksetPayload::Decompressed(Rc::new(decompressed)))
             }
+            // The chunkset signature is itself the lzbitmap header, so the decompressor
+            // gets the un-advanced buffer. `uncompressed_size` is not a size here.
+            sig if LZBITMAP_SIGS.contains(&sig) => {
+                let (_, decompressed) = lzbitmap::lzbitmap_decompress(data).map_err(|e| {
+                    ParseError::decompress_error(
+                        0,
+                        e.to_string(),
+                        Some("chunkset lzbitmap decompress"),
+                    )
+                })?;
+                Ok(ChunksetPayload::Decompressed(Rc::new(decompressed)))
+            }
             _ => Err(ParseError::unknown_chunk_tag(
                 0,
                 signature,
-                Some("chunkset signature (expected bv41 or bv4-)"),
+                Some("chunkset signature (expected bv41, bv4- or lzbitmap)"),
             )),
         }
     }

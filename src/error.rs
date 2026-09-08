@@ -25,7 +25,7 @@ pub enum ParseError {
         source: Utf8Error,
         context: Option<&'static str>,
     },
-    #[error("LZ4 decompression failed at offset {offset:#x}: {message}")]
+    #[error("Decompression failed at offset {offset:#x}: {message}")]
     DecompressError {
         offset: Offset,
         message: String,
