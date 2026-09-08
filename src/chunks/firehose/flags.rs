@@ -14,6 +14,8 @@ bitflags::bitflags! {
   pub struct FirehoseFlags: u16 {
     const HAS_CURRENT_AID   = 0x0001;
     const HAS_LARGE_OFFSET  = 0x0020;
+    /// Added in Golden Gate/iOS 27
+    const HAS_PERSONA       = 0x0040;
     const HAS_UNIQUE_PID    = 0x0010;
     const HAS_PRIVATE_DATA  = 0x0100;
     const HAS_SUBSYSTEM     = 0x0200;

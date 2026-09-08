@@ -439,6 +439,7 @@ impl OutputWriter {
                     "Thread ID",
                     "PID",
                     "EUID",
+                    "Persona ID",
                     "Library",
                     "Library UUID",
                     "Activity ID",
@@ -480,6 +481,10 @@ impl OutputWriter {
                     &record.thread_id.to_string(),
                     &record.pid.to_string(),
                     &record.euid.to_string(),
+                    &record
+                        .persona_id
+                        .map(|id| id.to_string())
+                        .unwrap_or_default(),
                     &record.library.unwrap_or_default(),
                     &format_uuid(record.library_uuid),
                     &record.activity_id.to_string(),

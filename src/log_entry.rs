@@ -89,6 +89,8 @@ pub enum MessageFlags {
     HasPrivateData,
     HasOversize,
     HasSubsystem,
+    /// Added in Golden Gate/iOS 27
+    HasPersona,
 }
 
 /// Context for filling private item values from the firehose private data section.
@@ -155,6 +157,9 @@ pub struct LogEntry<'a, 'b> {
     pub thread_id: u64,
     pub pid: u64,
     pub euid: u32,
+    /// Persona ID from the firehose entry — present if `HAS_PERSONA` (0x0040).
+    /// Added in Golden Gate/iOS 27.
+    pub persona_id: Option<u32>,
     pub library: Option<&'a str>,
     pub library_uuid: Uuid,
     pub activity_id: u64,
@@ -436,12 +441,13 @@ impl Serialize for LogEntry<'_, '_> {
         // UUIDs as uppercase hex without hyphens, matching the historical
         // output format (and the CSV output)
         let mut uuid_buffer = Uuid::encode_buffer();
-        let mut state = serializer.serialize_struct("LogEntry", 21)?;
+        let mut state = serializer.serialize_struct("LogEntry", 22)?;
         state.serialize_field("subsystem", &self.subsystem)?;
         state.serialize_field("category", &self.category)?;
         state.serialize_field("thread_id", &self.thread_id)?;
         state.serialize_field("pid", &self.pid)?;
         state.serialize_field("euid", &self.euid)?;
+        state.serialize_field("persona_id", &self.persona_id)?;
         state.serialize_field("library", &self.library)?;
         state.serialize_field(
             "library_uuid",

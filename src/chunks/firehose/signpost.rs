@@ -10,6 +10,8 @@ use super::flags::{FirehoseFlags, RawFormatterFlags};
 pub struct RawSignpostBody<'a> {
     /// Activity ID — present if `HAS_CURRENT_AID` (0x0001).
     pub activity_id: Option<(u32, u32)>,
+    /// Persona ID — present if `HAS_PERSONA` (0x0040). Added in Golden Gate/iOS 27.
+    pub persona_id: Option<u32>,
     /// Private string (offset, size) — present if `HAS_PRIVATE_DATA` (0x0100).
     pub private_strings: Option<(u16, u16)>,
     pub pc_id: u32,
@@ -37,6 +39,8 @@ impl<'a> RawSignpostBody<'a> {
             (le_u32, le_u32),
         )
         .parse(input)?;
+        let (input, persona_id) =
+            cond(flags.contains(FirehoseFlags::HAS_PERSONA), le_u32).parse(input)?;
         let (input, private_strings) = cond(
             flags.contains(FirehoseFlags::HAS_PRIVATE_DATA),
             (le_u16, le_u16),
@@ -77,6 +81,7 @@ impl<'a> RawSignpostBody<'a> {
             &[],
             Self {
                 activity_id,
+                persona_id,
                 private_strings,
                 pc_id,
                 formatter,
@@ -135,5 +140,19 @@ mod tests {
         // 20 bytes - 4 (pc_id) - 0 (main_exe) - 2 (subsystem) - 8 (signpost_id) - 4 (name) = 2
         assert_eq!(sp.items_data.len(), 2);
         Ok(())
+    }
+
+    #[test]
+    fn test_signpost_persona_flag() {
+        let test = [
+            232, 3, 0, 0, 248, 253, 216, 218, 1, 0, 1, 0, 1, 53, 45, 172, 71, 70, 1, 18, 99, 57,
+            219, 90, 1, 0, 0, 3, 0, 4, 1, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 4, 10, 0, 0, 0,
+        ];
+        let flags = FirehoseFlags::from_bits_retain(33380);
+        let (_, result) = RawSignpostBody::parse(&test, flags).unwrap();
+        assert_eq!(result.persona_id, Some(1000));
+        assert!(result.formatter.shared_cache);
+        assert_eq!(result.formatter.has_large_offset, 1);
+        assert_eq!(result.subsystem, Some(1));
     }
 }

@@ -9,6 +9,8 @@ use super::flags::{FirehoseFlags, RawFormatterFlags};
 pub struct RawNonActivityBody<'a> {
     /// Activity ID — present if `HAS_CURRENT_AID` (0x0001).
     pub activity_id: Option<(u32, u32)>,
+    /// Persona ID — present if `HAS_PERSONA` (0x0040). Added in Golden Gate/iOS 27.
+    pub persona_id: Option<u32>,
     /// Private string (offset, size) — present if `HAS_PRIVATE_DATA` (0x0100).
     pub private_strings: Option<(u16, u16)>,
     pub pc_id: u32,
@@ -32,6 +34,8 @@ impl<'a> RawNonActivityBody<'a> {
             (le_u32, le_u32),
         )
         .parse(input)?;
+        let (input, persona_id) =
+            cond(flags.contains(FirehoseFlags::HAS_PERSONA), le_u32).parse(input)?;
         let (input, private_strings) = cond(
             flags.contains(FirehoseFlags::HAS_PRIVATE_DATA),
             (le_u16, le_u16),
@@ -51,6 +55,7 @@ impl<'a> RawNonActivityBody<'a> {
             &[],
             Self {
                 activity_id,
+                persona_id,
                 private_strings,
                 pc_id,
                 formatter,
@@ -108,5 +113,23 @@ mod tests {
         // 94 total bytes - 4 (pc_id) - 4 (formatter) - 2 (subsystem) = 84 items bytes
         assert_eq!(na.items_data.len(), 84);
         Ok(())
+    }
+
+    #[test]
+    fn test_persona_flag() {
+        let test = [
+            200, 0, 0, 0, 72, 5, 91, 0, 6, 0, 34, 6, 0, 8, 16, 148, 64, 1, 1, 0, 0, 0, 34, 4, 0, 0,
+            11, 0, 0, 4, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 4, 1, 0, 0, 0, 34, 4, 11, 0, 54, 0, 97,
+            99, 116, 105, 118, 97, 116, 105, 110, 103, 0, 99, 111, 109, 46, 97, 112, 112, 108, 101,
+            46, 99, 102, 112, 114, 101, 102, 115, 100, 46, 100, 97, 101, 109, 111, 110, 46, 115,
+            121, 115, 116, 101, 109, 46, 112, 101, 101, 114, 91, 54, 53, 93, 46, 48, 120, 49, 48,
+            49, 52, 48, 57, 52, 49, 48, 0,
+        ];
+        let flags = FirehoseFlags::from_bits_retain(580);
+        let (_, result) = RawNonActivityBody::parse(&test, flags).unwrap();
+        assert_eq!(result.persona_id, Some(200));
+        assert_eq!(result.subsystem, Some(6));
+        assert!(result.formatter.shared_cache);
+        assert_eq!(result.pc_id, 5965128);
     }
 }

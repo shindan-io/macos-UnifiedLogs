@@ -13,6 +13,8 @@ pub struct RawActivityBody<'a> {
     pub pid: Option<u64>,
     /// Current activity ID — present if `HAS_CURRENT_AID` (0x0001).
     pub current_aid: Option<(u32, u32)>,
+    /// Persona ID — present if `HAS_PERSONA` (0x0040). Added in Golden Gate/iOS 27.
+    pub persona_id: Option<u32>,
     /// Other activity ID — present if `HAS_SUBSYSTEM` (0x0200), reinterpreted for Activity.
     pub other_aid: Option<(u32, u32)>,
     pub pc_id: u32,
@@ -39,6 +41,8 @@ impl<'a> RawActivityBody<'a> {
             (le_u32, le_u32),
         )
         .parse(input)?;
+        let (input, persona_id) =
+            cond(flags.contains(FirehoseFlags::HAS_PERSONA), le_u32).parse(input)?;
         // In Activity entries, HAS_SUBSYSTEM means "has other activity ID"
         let (input, other_aid) = cond(
             flags.contains(FirehoseFlags::HAS_SUBSYSTEM),
@@ -55,6 +59,7 @@ impl<'a> RawActivityBody<'a> {
                 activity_id,
                 pid,
                 current_aid,
+                persona_id,
                 other_aid,
                 pc_id,
                 formatter,

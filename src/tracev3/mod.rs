@@ -250,6 +250,7 @@ fn flush_deferred_entries<'d, 's: 'd>(
                         thread_id: sd.thread_id,
                         pid: sd.first_proc_id,
                         euid: 0,
+                        persona_id: None,
                         library: None,
                         library_uuid: sd.sender_uuid,
                         activity_id: 0,
@@ -308,6 +309,7 @@ fn flush_deferred_entries<'d, 's: 'd>(
                         thread_id: 0,
                         pid: sd.first_proc_id,
                         euid: 0,
+                        persona_id: None,
                         library: None,
                         library_uuid: Uuid::nil(),
                         activity_id: sd.activity_id,
@@ -491,6 +493,7 @@ fn visit_firehose_entries<'d: 'b, 'b, 's: 'd>(
                     thread_id: entry.thread_id,
                     pid,
                     euid,
+                    persona_id: None,
                     library: process,
                     library_uuid: main_uuid,
                     activity_id: 0,
@@ -538,6 +541,7 @@ fn visit_firehose_entries<'d: 'b, 'b, 's: 'd>(
                     thread_id: entry.thread_id,
                     pid,
                     euid,
+                    persona_id: None,
                     library: None,
                     library_uuid: Uuid::nil(),
                     activity_id: 0,
@@ -560,6 +564,14 @@ fn visit_firehose_entries<'d: 'b, 'b, 's: 'd>(
                 })?;
                 continue;
             }
+        };
+
+        // Persona ID — only firehose bodies that carry the HAS_PERSONA field
+        let persona_id = match &body {
+            RawFirehoseBody::Activity(b) => b.persona_id,
+            RawFirehoseBody::NonActivity(b) => b.persona_id,
+            RawFirehoseBody::Signpost(b) => b.persona_id,
+            _ => None,
         };
 
         // Signpost-specific fields
@@ -676,6 +688,7 @@ fn visit_firehose_entries<'d: 'b, 'b, 's: 'd>(
             thread_id: entry.thread_id,
             pid,
             euid,
+            persona_id,
             library: resolved.library,
             library_uuid: resolved.library_uuid,
             activity_id,
@@ -774,6 +787,7 @@ fn emit_embedded_unknown_markers<'a: 'b, 'b>(
             thread_id,
             pid,
             euid,
+            persona_id: None,
             library: None,
             library_uuid: Uuid::nil(),
             activity_id: 0,
@@ -813,6 +827,9 @@ fn message_flags_for_body(
             if body.current_aid.is_some() {
                 message_flags.push(MessageFlags::HasCurrentAid);
             }
+            if body.persona_id.is_some() {
+                message_flags.push(MessageFlags::HasPersona);
+            }
             if body.other_aid.is_some() {
                 message_flags.push(MessageFlags::HasOtherAid);
             }
@@ -821,6 +838,9 @@ fn message_flags_for_body(
         RawFirehoseBody::NonActivity(body) => {
             if body.activity_id.is_some() {
                 message_flags.push(MessageFlags::HasCurrentAid);
+            }
+            if body.persona_id.is_some() {
+                message_flags.push(MessageFlags::HasPersona);
             }
             if body.private_strings.is_some() {
                 message_flags.push(MessageFlags::HasPrivateData);
@@ -839,6 +859,9 @@ fn message_flags_for_body(
         RawFirehoseBody::Signpost(body) => {
             if body.activity_id.is_some() {
                 message_flags.push(MessageFlags::HasCurrentAid);
+            }
+            if body.persona_id.is_some() {
+                message_flags.push(MessageFlags::HasPersona);
             }
             if body.private_strings.is_some() {
                 message_flags.push(MessageFlags::HasPrivateData);
@@ -1072,6 +1095,7 @@ mod tests {
             activity_id: Some((10, 0)),
             pid: None,
             current_aid: None,
+            persona_id: None,
             other_aid: Some((30, 0)),
             pc_id: 0,
             formatter: RawFormatterFlags::default(),
@@ -1087,6 +1111,7 @@ mod tests {
             activity_id: Some((10, 0)),
             pid: Some(236),
             current_aid: Some((10, 0)),
+            persona_id: None,
             other_aid: Some((30, 0)),
             pc_id: 0,
             formatter: RawFormatterFlags {
@@ -1121,6 +1146,7 @@ mod tests {
 
         let nonactivity = RawNonActivityBody {
             activity_id: Some((10, 0)),
+            persona_id: None,
             private_strings: Some((1, 2)),
             pc_id: 0,
             formatter: RawFormatterFlags {
@@ -1161,5 +1187,51 @@ mod tests {
     #[test_case(""                                           => ""         ; "empty")]
     fn test_extract_timezone_name(input: &str) -> &str {
         extract_timezone_name(input)
+    }
+
+    /// Upstream #150 asserts the persona flag lands first in the message-flag
+    /// vector. Our bodies carry no flag vec, so the ordering is checked here,
+    /// where `message_flags_for_body` builds it.
+    #[test]
+    fn test_message_flags_persona_ordering() {
+        use crate::chunks::firehose::nonactivity::RawNonActivityBody;
+        use crate::chunks::firehose::signpost::RawSignpostBody;
+
+        let non_activity = [
+            200, 0, 0, 0, 72, 5, 91, 0, 6, 0, 34, 6, 0, 8, 16, 148, 64, 1, 1, 0, 0, 0, 34, 4, 0, 0,
+            11, 0, 0, 4, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 4, 1, 0, 0, 0, 34, 4, 11, 0, 54, 0, 97,
+            99, 116, 105, 118, 97, 116, 105, 110, 103, 0, 99, 111, 109, 46, 97, 112, 112, 108, 101,
+            46, 99, 102, 112, 114, 101, 102, 115, 100, 46, 100, 97, 101, 109, 111, 110, 46, 115,
+            121, 115, 116, 101, 109, 46, 112, 101, 101, 114, 91, 54, 53, 93, 46, 48, 120, 49, 48,
+            49, 52, 48, 57, 52, 49, 48, 0,
+        ];
+        let flags = FirehoseFlags::from_bits_retain(580);
+        let (_, body) = RawNonActivityBody::parse(&non_activity, flags).unwrap();
+        let formatter = body.formatter;
+        assert_eq!(
+            message_flags_for_body(&RawFirehoseBody::NonActivity(body), flags, &formatter),
+            vec![
+                MessageFlags::HasPersona,
+                MessageFlags::SharedCache,
+                MessageFlags::HasSubsystem
+            ]
+        );
+
+        let signpost = [
+            232, 3, 0, 0, 248, 253, 216, 218, 1, 0, 1, 0, 1, 53, 45, 172, 71, 70, 1, 18, 99, 57,
+            219, 90, 1, 0, 0, 3, 0, 4, 1, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 4, 10, 0, 0, 0,
+        ];
+        let flags = FirehoseFlags::from_bits_retain(33380);
+        let (_, body) = RawSignpostBody::parse(&signpost, flags).unwrap();
+        let formatter = body.formatter;
+        assert_eq!(
+            message_flags_for_body(&RawFirehoseBody::Signpost(body), flags, &formatter),
+            vec![
+                MessageFlags::HasPersona,
+                MessageFlags::SharedCache,
+                MessageFlags::HasLargeOffset,
+                MessageFlags::HasSubsystem
+            ]
+        );
     }
 }
