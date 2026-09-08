@@ -386,7 +386,16 @@ fn format_statedump_data(data_type: u32, data: &[u8], title_name: &str) -> Strin
             match plist::from_bytes::<plist::Value>(data) {
                 Ok(value) => serde_json::to_string(&value)
                     .unwrap_or_else(|_| String::from("Failed to convert plist data to json")),
-                Err(_) => String::from("Failed to get plist data"),
+                // plist could also just be plaintext
+                Err(_) => match crate::helpers::utf8_str_from_cstring(data) {
+                    Ok((_, string_data)) => String::from(string_data),
+                    Err(err) => {
+                        log::error!(
+                            "[macos-unifiedlogs] Failed to extract plist string from statedump: {err:?}"
+                        );
+                        String::from("Failed to extract plist string from statedump")
+                    }
+                },
             }
         }
         STATEDUMP_DATA_PROTOBUF => match sunlight::light::extract_protobuf(data) {
