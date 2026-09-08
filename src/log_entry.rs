@@ -99,7 +99,6 @@ pub struct PrivateDataContext<'b> {
     pub private_data: &'b [u8],
     pub private_strings_offset: u16,
     pub private_data_virtual_offset: u16,
-    pub collapsed: u8,
 }
 
 /// Raw data needed to format a message on demand.
@@ -253,10 +252,9 @@ impl<'a, 'b> LogEntry<'a, 'b> {
                         ctx.private_data,
                         ctx.private_strings_offset,
                         ctx.private_data_virtual_offset,
-                        ctx.collapsed,
                     );
                 } else if !remaining_private_data.is_empty() {
-                    fill_private_data(&mut items, remaining_private_data, 0, 0, 1);
+                    fill_private_data(&mut items, remaining_private_data, 0, 0);
                 }
                 let msg = format_message(fmt_str, &items);
                 self.apply_parity_prefix(msg, if *is_oversize { None } else { backtrace })

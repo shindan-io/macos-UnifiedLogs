@@ -124,7 +124,7 @@ pub(crate) fn extract_string(data: &[u8]) -> nom::IResult<&[u8], &str> {
 }
 
 /// Extract a sized string (Firehose string items, DNS URLs). Trailing NUL
-/// padding is trimmed; non-UTF-8 bytes yield "Could not find path string",
+/// padding is trimmed; non-UTF-8 bytes yield "[macos-unifiedlogs Could not extract string",
 /// unless the data is also truncated, which is an error.
 pub(crate) fn extract_string_size(data: &[u8], size: usize) -> nom::IResult<&[u8], &str> {
     if size == 0 {
@@ -142,7 +142,7 @@ pub(crate) fn extract_string_size(data: &[u8], size: usize) -> nom::IResult<&[u8
                     ErrorKind::Eof,
                 )));
             }
-            Ok((input, "Could not find path string"))
+            Ok((input, "[macos-unifiedlogs Could not extract string"))
         }
     }
 }
@@ -447,16 +447,16 @@ pub mod tests {
         fn invalid_utf8_yields_placeholder_when_data_is_complete() {
             assert_eq!(
                 ok(extract_string_size(INVALID, 2)),
-                (&b""[..], "Could not find path string")
+                (&b""[..], "[macos-unifiedlogs Could not extract string")
             );
             assert_eq!(
                 ok(extract_string_size(b"\xff\xfeXY", 2)),
-                (&b"XY"[..], "Could not find path string")
+                (&b"XY"[..], "[macos-unifiedlogs Could not extract string")
             );
             // A size that splits a multibyte char is invalid but not truncated.
             assert_eq!(
                 ok(extract_string_size(E_ACUTE, 1)),
-                (&E_ACUTE[1..], "Could not find path string")
+                (&E_ACUTE[1..], "[macos-unifiedlogs Could not extract string")
             );
         }
 

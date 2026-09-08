@@ -418,7 +418,7 @@ fn skip_backtrace(data: &[u8]) -> nom::IResult<&[u8], &[u8]> {
 /// - 0x01 otherwise → parse LE number from private data
 /// - Other private types with size == 0 → stays `<private>`
 /// - Other private types with size > 0 → UTF-8 string, or
-///   "Could not find path string" when the bytes are not UTF-8
+///   "[macos-unifiedlogs Could not extract string" when the bytes are not UTF-8
 ///
 /// Every filled value borrows from `private_data`; nothing is allocated.
 pub fn fill_private_data<'a>(
@@ -426,33 +426,22 @@ pub fn fill_private_data<'a>(
     private_data: &'a [u8],
     private_strings_offset: u16,
     private_data_virtual_offset: u16,
-    collapsed: u8,
 ) {
-    // Strip leading zero padding (matching old pipeline firehose_log.rs:299-309)
-    let stripped = if collapsed != 1 {
-        let zeros = private_data.iter().take_while(|&&b| b == 0).count();
-        if zeros > 0 && zeros < private_data.len() {
-            &private_data[zeros..]
-        } else {
-            private_data
-        }
-    } else {
-        private_data
-    };
-
     // Old pipeline uses plain u16 subtraction which wraps on underflow in release mode.
     // When private_strings_offset < private_data_virtual_offset, this produces a huge offset,
     // causing the nom take() to fail → items stay as <private>. We replicate that here.
     let string_offset = private_strings_offset.wrapping_sub(private_data_virtual_offset) as usize;
-    if string_offset > stripped.len() {
+    if string_offset > private_data.len() {
         return;
     }
-    let mut cursor = &stripped[string_offset..];
+    let mut cursor = &private_data[string_offset..];
 
     // Private string type bytes (from old pipeline constants)
     const PRIVATE_STRING_TYPES: [u8; 7] = [0x21, 0x25, 0x41, 0x35, 0x31, 0x81, 0xf1];
     const BASE64_TYPES: [u8; 2] = [0x35, 0x31];
     const PRIVATE_NUMBER_TYPE: u8 = 0x01;
+    const SENSITIVE_NUMBER_TYPE: u8 = 0x05;
+    /// Most significant bit of `item_size`; also the "no value" marker for numbers.
     const PRIVATE_NUMBER_SIZE: u16 = 0x8000;
 
     for item in items.iter_mut() {
@@ -477,6 +466,14 @@ pub fn fill_private_data<'a>(
                 cursor = rest;
                 item.value = RawItemValue::Bytes(bytes);
             } else {
+                // If most significant bit is set (0x8000)
+                // We need to clear it to get the real size
+                // Ex: 0x83f8 is really 0x3f8
+                let size = if item.item_size & PRIVATE_NUMBER_SIZE != 0 {
+                    usize::from(item.item_size & 0x7fff)
+                } else {
+                    size
+                };
                 // Regular private string. On error the old pipeline bailed out of the
                 // whole fill (`?`), leaving the remaining items as <private>.
                 let Ok((rest, s)) = extract_string_size(cursor, size) else {
@@ -485,8 +482,8 @@ pub fn fill_private_data<'a>(
                 cursor = rest;
                 item.value = RawItemValue::Str(s);
             }
-        } else if raw_type == PRIVATE_NUMBER_TYPE {
-            if item.item_size == PRIVATE_NUMBER_SIZE {
+        } else if raw_type == PRIVATE_NUMBER_TYPE || raw_type == SENSITIVE_NUMBER_TYPE {
+            if item.item_size == PRIVATE_NUMBER_SIZE || item.item_size == 0 {
                 // Keep as <private>
                 continue;
             }
@@ -496,7 +493,7 @@ pub fn fill_private_data<'a>(
                 item.value = value;
             }
         }
-        // Sensitive (0x05, 0x45, 0x85) and others: skip, keep as Private
+        // Sensitive strings (0x45, 0x85) and others: skip, keep as Private
     }
 }
 
@@ -715,7 +712,7 @@ mod tests {
             },
         }];
 
-        fill_private_data(&mut items, test_data, 0, 0, 1);
+        fill_private_data(&mut items, test_data, 0, 0);
 
         match &items[0].value {
             RawItemValue::Str(s) => {
@@ -741,11 +738,11 @@ mod tests {
             },
         }];
 
-        fill_private_data(&mut items, test_data, 0, 0, 1);
+        fill_private_data(&mut items, test_data, 0, 0);
 
         assert_eq!(
             items[0].value,
-            RawItemValue::Str("Could not find path string")
+            RawItemValue::Str("[macos-unifiedlogs Could not extract string")
         );
     }
 
@@ -764,7 +761,7 @@ mod tests {
             },
         }];
 
-        fill_private_data(&mut items, test_data, 0, 0, 1);
+        fill_private_data(&mut items, test_data, 0, 0);
 
         match items[0].value {
             RawItemValue::I64(n) => assert_eq!(n, 7_021_802_828_932_469_564),
@@ -833,7 +830,7 @@ mod tests {
             },
         ];
 
-        fill_private_data(&mut items, test_data, 0, 0, 1);
+        fill_private_data(&mut items, test_data, 0, 0);
 
         // Items 0..3 stay Private
         for (i, it) in items.iter().enumerate().take(4) {
@@ -850,5 +847,81 @@ mod tests {
             RawItemValue::Str(s) => assert_eq!(*s, expected),
             other => panic!("expected item 4 to be Str, got {other:?}"),
         }
+    }
+
+    /// Upstream #151 `test_collect_items_sensitive_number`: item type 0x05 carries
+    /// 4 bytes of offset/size metadata like the other sensitive types, and its
+    /// `item_size` of 0x8000 marks it as having no value.
+    #[test]
+    fn test_collect_items_sensitive_number() {
+        let items_data: &[u8] = &[
+            34, 3, // unknown_item=34, number_items=3
+            37, 4, 0, 0, 0, 0, // item 0: type=0x25 (PrivateString), size=4
+            5, 4, 0, 0, 0, 128, // item 1: type=0x05 (Sensitive), size=4, item_size=0x8000
+            37, 4, 0, 0, 0, 0, // item 2: type=0x25 (PrivateString), size=4
+        ];
+
+        let (_, result) = parse_items_data(items_data, FirehoseFlags::empty()).unwrap();
+        assert_eq!(result.items.len(), 3);
+
+        assert_eq!(result.items[1].item_type, RawItemKind::Sensitive);
+        assert_eq!(result.items[1].item_size, 32768);
+        assert_eq!(
+            result.items[1].value,
+            RawItemValue::Private { raw_item_type: 5 }
+        );
+    }
+
+    /// Upstream #151 `test_parse_private_data_sensitive_number`: a 0x05 item with
+    /// `item_size` 0x8000 stays `<private>` and, crucially, consumes nothing from
+    /// the private cursor, so the private strings around it still line up.
+    #[test]
+    fn test_fill_private_data_sensitive_number() {
+        let private = b"abc";
+        let mut items = [
+            RawFirehoseItem {
+                item_type: RawItemKind::PrivateString,
+                item_size: 2,
+                value: RawItemValue::Private {
+                    raw_item_type: 0x25,
+                },
+            },
+            RawFirehoseItem {
+                item_type: RawItemKind::Sensitive,
+                item_size: 0x8000,
+                value: RawItemValue::Private { raw_item_type: 5 },
+            },
+            RawFirehoseItem {
+                item_type: RawItemKind::PrivateString,
+                item_size: 1,
+                value: RawItemValue::Private {
+                    raw_item_type: 0x25,
+                },
+            },
+        ];
+
+        fill_private_data(&mut items, private, 0, 0);
+
+        assert_eq!(items[0].value, RawItemValue::Str("ab"));
+        assert_eq!(items[1].value, RawItemValue::Private { raw_item_type: 5 });
+        assert_eq!(items[2].value, RawItemValue::Str("c"));
+    }
+
+    /// Upstream #151: when the most significant bit of `item_size` is set on a
+    /// private string, it is cleared to get the real size (0x83f8 -> 0x3f8).
+    #[test]
+    fn test_fill_private_data_private_string_msb_size() {
+        let private = b"abcdef";
+        let mut items = [RawFirehoseItem {
+            item_type: RawItemKind::PrivateString,
+            item_size: 0x8000 | 3,
+            value: RawItemValue::Private {
+                raw_item_type: 0x25,
+            },
+        }];
+
+        fill_private_data(&mut items, private, 0, 0);
+
+        assert_eq!(items[0].value, RawItemValue::Str("abc"));
     }
 }

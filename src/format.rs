@@ -549,29 +549,24 @@ fn parse_specifier(bytes: &[u8]) -> (FormatSpec, usize, bool) {
 
     // 3. Precision
     if pos < len && bytes[pos] == b'.' {
-        // Old pipeline regex: (?:\.(?:\d+|\*))? requires digit or * after dot.
-        // Bare `%.f` fails to match and is treated as literal.
-        let should_consume_dot =
-            pos + 1 < len && (bytes[pos + 1].is_ascii_digit() || bytes[pos + 1] == b'*');
-
-        if should_consume_dot {
+        // Pipeline regex: (?:\.(?:\d+|\*)?)? — the digits after the dot are
+        // optional, so a bare `%.f` is a specifier with precision 0.
+        pos += 1;
+        spec.has_precision = true;
+        if pos < len && bytes[pos] == b'*' {
+            // Dynamic precision — will be filled from precision item
             pos += 1;
-            spec.has_precision = true;
-            if pos < len && bytes[pos] == b'*' {
-                // Dynamic precision — will be filled from precision item
+        } else {
+            let start = pos;
+            while pos < len && bytes[pos].is_ascii_digit() {
                 pos += 1;
-            } else {
-                let start = pos;
-                while pos < len && bytes[pos].is_ascii_digit() {
-                    pos += 1;
-                }
-                if pos > start
-                    && let Ok(p) = std::str::from_utf8(&bytes[start..pos])
-                        .unwrap_or("0")
-                        .parse::<usize>()
-                {
-                    spec.precision = p;
-                }
+            }
+            if pos > start
+                && let Ok(p) = std::str::from_utf8(&bytes[start..pos])
+                    .unwrap_or("0")
+                    .parse::<usize>()
+            {
+                spec.precision = p;
             }
         }
     }
@@ -694,16 +689,15 @@ pub fn format_message(format_string: Option<&str>, items: &[RawFirehoseItem<'_>]
                 // and `*` as valid chars after `}` in annotated specifiers. Anything else
                 // (space, `.` without preceding width, etc.) causes the regex to match
                 // only `%{annotation}` with `}` as conversion → treated as literal.
-                // Old pipeline regex after `}`: flags [-+0#], width [\d*], precision \.\d+|\*,
-                // length modifiers [hlwIztq], then conversion. Space and bare `.` (no digits) are NOT valid.
+                // Pipeline regex after `}`: flags [-+0#], width [\d*], precision
+                // \.(?:\d+|\*)?, length modifiers [hlwIztq], then conversion. The digits
+                // after the precision dot are optional, so a bare `.` is valid; space is not.
                 let is_valid_spec_start = pos < len
-                    && (matches!(
+                    && matches!(
                         bytes[pos],
-                        b'-' | b'+' | b'0' | b'#' | b'*' | b'1'
+                        b'-' | b'+' | b'0' | b'#' | b'*' | b'.' | b'1'
                             ..=b'9' | b'h' | b'l' | b'w' | b'I' | b'z' | b't' | b'q'
-                    ) || (bytes[pos] == b'.'
-                        && pos + 1 < len
-                        && (bytes[pos + 1].is_ascii_digit() || bytes[pos + 1] == b'*')));
+                    );
 
                 if !is_valid_spec_start {
                     // Emit as literal — old pipeline treats this as typeless annotation
@@ -1141,6 +1135,29 @@ mod tests {
         assert_eq!(
             result,
             "DCPAVSimpleVideoInterface::setColorElement width = 89"
+        );
+    }
+
+    /// Upstream #151 `test_format_firehose_log_message_tricky`: `%p` renders as
+    /// uppercase hex with no `0x`, and the trailing bare `%.f` is a specifier
+    /// with precision 0 rather than a literal.
+    #[test]
+    fn test_format_message_tricky() {
+        let fmt = "<%{public}@:%p> creating new multiplexing view controller controller \
+                   <%{public}@:%p> for %{public}@ at level: %.f";
+        let items = [
+            str_item("SBHMultiplexingManager"),
+            u64_item(936_749_223_363_120_960),
+            str_item("SBHMultiplexingViewController"),
+            u64_item(1_008_806_817_370_365_440),
+            str_item("D8F2438E-AACF-4ED9-AD47-F5A1598215C7"),
+            u64_item(0),
+        ];
+        assert_eq!(
+            format_message(Some(fmt), &items),
+            "<SBHMultiplexingManager:D0000749E2E8F40> creating new multiplexing view controller \
+             controller <SBHMultiplexingViewController:E0000749C5A5E00> for \
+             D8F2438E-AACF-4ED9-AD47-F5A1598215C7 at level: 0"
         );
     }
 }

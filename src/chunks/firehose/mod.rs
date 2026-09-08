@@ -38,6 +38,9 @@ pub struct RawFirehose<'a> {
     pub base_continuous_time: u64,
     /// All remaining bytes after the 32-byte header (public + private data), zero-copy.
     pub firehose_data: &'a [u8],
+    /// Bytes from the `public_data_size` field onwards — i.e. 16 bytes before
+    /// [`Self::firehose_data`]. `private_data_virtual_offset` is relative to this.
+    pub data_start: &'a [u8],
 }
 
 impl<'a> RawFirehose<'a> {
@@ -47,9 +50,11 @@ impl<'a> RawFirehose<'a> {
         let (input, second_proc_id) = le_u32(input)?;
         let (input, ttl) = le_u8(input)?;
         let (input, collapsed) = le_u8(input)?;
-        let (input, unknown_bytes) = take(2_usize)(input)?;
+        let (data_start, unknown_bytes) = take(2_usize)(input)?;
         let unknown: [u8; 2] = [unknown_bytes[0], unknown_bytes[1]];
-        let (input, public_data_size) = le_u16(input)?;
+        // Private data offset starts here
+        // Public data size includes itself
+        let (input, public_data_size) = le_u16(data_start)?;
         let (input, private_data_virtual_offset) = le_u16(input)?;
         let (input, unknown2) = le_u16(input)?;
         let (input, unknown3) = le_u16(input)?;
@@ -72,6 +77,7 @@ impl<'a> RawFirehose<'a> {
                 unknown3,
                 base_continuous_time,
                 firehose_data,
+                data_start,
             },
         ))
     }

@@ -348,43 +348,33 @@ fn flush_deferred_entries<'d, 's: 'd>(
     ControlFlow::Continue(())
 }
 
-fn legacy_private_data_start<'a>(fh: &RawFirehose<'a>) -> Option<&'a [u8]> {
-    const NO_PRIVATE_DATA: u16 = 0x1000;
-    const PRIVATE_OFFSET_BASE: usize = 0x1000;
-    const PUBLIC_DATA_SIZE_OFFSET: usize = 16;
+/// Start of the private data region, or `None` when the entry carries none.
+///
+/// Upstream #151 replaced a set of heuristics (leftover-data / equal-length /
+/// prepended-private-data cases) with the two rules below.
+fn private_data_start<'a>(fh: &RawFirehose<'a>) -> Option<&'a [u8]> {
+    const PRIVATE_DATA_OFFSET_DEFAULT: u16 = 0x1000;
 
-    if fh.private_data_virtual_offset == NO_PRIVATE_DATA {
+    if fh.private_data_virtual_offset == PRIVATE_DATA_OFFSET_DEFAULT {
         return None;
     }
 
-    let log_data = fh.firehose_data;
-    let public_data_len = fh.public_data_len();
-    if public_data_len > log_data.len() {
-        return None;
+    let virtual_offset = usize::from(fh.private_data_virtual_offset);
+
+    // If Firehose data has been collapsed. Then private data needs to be calculated slightly differently
+    // We need to subtract the private data offset for this chunk from the default private data offset (4096)
+    // And then take whatever is remaining from the public data
+    //
+    // See: https://github.com/libyal/dtformats/blob/main/documentation/Apple%20Unified%20Logging%20and%20Activity%20Tracing%20formats.asciidoc#27-firehose-chunk
+    if fh.collapsed == 1 || virtual_offset > fh.data_start.len() {
+        let public_len = fh.public_data_len();
+        let public_remaining = fh.firehose_data.get(public_len..)?;
+        let size = usize::from(PRIVATE_DATA_OFFSET_DEFAULT - fh.private_data_virtual_offset);
+        return public_remaining.get(..size);
     }
 
-    let mut reader = fh.entries();
-    while reader.next().is_some() {}
-    let remaining_public_len = reader.remaining().len();
-    let input_after_public = &log_data[public_data_len..];
-    let private_data_offset =
-        PRIVATE_OFFSET_BASE.saturating_sub(usize::from(fh.private_data_virtual_offset));
-
-    let start = if input_after_public.len() > private_data_offset && remaining_public_len == 0 {
-        public_data_len + (input_after_public.len() - private_data_offset)
-    } else if log_data.len() == public_data_len {
-        usize::from(fh.private_data_virtual_offset)
-            .wrapping_sub(PUBLIC_DATA_SIZE_OFFSET)
-            .wrapping_sub(remaining_public_len)
-    } else {
-        public_data_len.saturating_sub(remaining_public_len)
-    };
-
-    if start > log_data.len() {
-        return None;
-    }
-
-    Some(&log_data[start..])
+    // Jump to start of private data
+    fh.data_start.get(virtual_offset..)
 }
 
 // ---------------------------------------------------------------------------
@@ -405,7 +395,7 @@ fn visit_firehose_entries<'d: 'b, 'b, 's: 'd>(
     let boot_uuid = header.boot_uuid;
     let timezone_name = extract_timezone_name(header.timezone_path);
 
-    let adjusted_private_data = legacy_private_data_start(fh);
+    let adjusted_private_data = private_data_start(fh);
     let mut emitted_unknown_markers = Vec::new();
 
     for entry in fh.entries() {
@@ -628,7 +618,6 @@ fn visit_firehose_entries<'d: 'b, 'b, 's: 'd>(
                     private_data: pd,
                     private_strings_offset: offset,
                     private_data_virtual_offset: fh.private_data_virtual_offset,
-                    collapsed: fh.collapsed,
                 }),
                 _ => None,
             }
