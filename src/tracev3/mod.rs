@@ -113,8 +113,10 @@ pub fn visit_tracev3<'d, 's: 'd, O: VisitOutcome>(
                     match inner.preamble.tag {
                         ChunkTag::Oversize => match RawOversize::parse(inner.data) {
                             Ok((_, ov)) => {
-                                let boot_uuid =
-                                    current_header.as_ref().map_or_default(|h| h.boot_uuid);
+                                let boot_uuid = current_header
+                                    .as_ref()
+                                    .map(|h| h.boot_uuid)
+                                    .unwrap_or_default();
                                 oversize_cache.insert(boot_uuid, &ov);
                             }
                             Err(e) => {

@@ -7,6 +7,7 @@ license = "Apache-2.0"
 repository = "https://github.com/mandiant/macos-unifiedlogs"
 description = "A library to help parse macOS UnifiedLogs"
 keywords = ["forensics", "macOS", "unifiedlog"]
+rust-version = "1.88"
 
 [dependencies]
 nom = "8.0.0"
