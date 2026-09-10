@@ -246,12 +246,17 @@ fn flush_deferred_entries<'d, 's: 'd>(
                         (Uuid::nil(), None)
                     };
 
+                    // `first_proc_id` is the Catalog proc id key, not a PID: both the
+                    // real PID and the euid live in the Catalog process info entry.
+                    let pid = entry_info.map_or(0, |e| u64::from(e.pid));
+                    let euid = entry_info.map_or(0, |e| e.effective_user_id);
+
                     callback(LogEntry {
                         subsystem: Some(sd.subsystem),
                         category: None,
                         thread_id: sd.thread_id,
-                        pid: sd.first_proc_id,
-                        euid: 0,
+                        pid,
+                        euid,
                         persona_id: None,
                         library: None,
                         library_uuid: sd.sender_uuid,
@@ -309,15 +314,16 @@ fn flush_deferred_entries<'d, 's: 'd>(
                         .as_ref()
                         .and_then(|c| c.get_process_info(sd.first_proc_id, sd.second_proc_id));
                     let (process_uuid, process) = main_process(entry_info, strings);
-                    let euid = current_catalog
-                        .as_ref()
-                        .and_then(|c| c.get_euid(sd.first_proc_id, sd.second_proc_id))
-                        .unwrap_or(0);
+
+                    // `first_proc_id` is the Catalog proc id key, not a PID.
+                    let pid = entry_info.map_or(0, |e| u64::from(e.pid));
+                    let euid = entry_info.map_or(0, |e| e.effective_user_id);
+
                     callback(LogEntry {
                         subsystem: None,
                         category: None,
                         thread_id: 0,
-                        pid: sd.first_proc_id,
+                        pid,
                         euid,
                         persona_id: None,
                         library: None,
