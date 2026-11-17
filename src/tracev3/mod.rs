@@ -21,9 +21,10 @@ use super::chunks::statedump::RawStatedump;
 use super::error::NomExt;
 use super::header::RawHeaderChunk;
 use super::log_entry::{EventType, ItemsData, LogEntry, LogType, MessageFlags, PrivateDataContext};
-use super::resolve::{main_process, resolve_strings};
+use super::resolve::{ResolvedStrings, main_process, resolve_strings};
 use super::timesync::TimestampResolver;
 use super::traits::{FileProvider, VisitOutcome};
+use rustc_hash::FxHashMap;
 use std::cell::RefCell;
 use std::ops::ControlFlow;
 use std::path::PathBuf;
@@ -60,6 +61,8 @@ pub fn visit_tracev3<'d, 's: 'd, O: VisitOutcome>(
     let mut current_header: Option<RawHeaderChunk<'d>> = None;
     let mut current_catalog: Option<RawCatalogChunk<'d>> = None;
     let mut deferred_readers: Vec<ChunkSetReader<'d>> = Vec::new();
+    // Resolution depends on the current catalog: cleared whenever it (or the header) changes.
+    let mut resolve_memo = ResolveMemo::default();
 
     for top_chunk in ChunksReader::new(data) {
         let top_chunk = match top_chunk {
@@ -85,6 +88,7 @@ pub fn visit_tracev3<'d, 's: 'd, O: VisitOutcome>(
                 {
                     return ControlFlow::Break(());
                 }
+                resolve_memo.clear();
                 current_header = Some(h);
             }
             TopChunk::Catalog(c) => {
@@ -103,6 +107,7 @@ pub fn visit_tracev3<'d, 's: 'd, O: VisitOutcome>(
                 {
                     return ControlFlow::Break(());
                 }
+                resolve_memo.clear();
                 current_catalog = Some(c);
             }
             TopChunk::Chunkset(mut reader) => {
@@ -154,6 +159,7 @@ pub fn visit_tracev3<'d, 's: 'd, O: VisitOutcome>(
                                 strings,
                                 oversize_cache,
                                 &evidence,
+                                &mut resolve_memo,
                                 &mut callback,
                             )
                             .is_break()
@@ -405,6 +411,20 @@ fn private_data_start<'a>(fh: &RawFirehose<'a>) -> Option<&'a [u8]> {
 // Per-entry processing
 // ---------------------------------------------------------------------------
 
+/// Every input of [`resolve_strings`] besides the catalog and the string catalog.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+struct ResolveKey {
+    format_string_location: u32,
+    pc_id: u32,
+    formatter: RawFormatterFlags,
+    first_proc_id: u64,
+    second_proc_id: u32,
+}
+
+/// Memoized [`resolve_strings`] results for the current catalog: entries from the
+/// same call site resolve to the same strings.
+type ResolveMemo<'s> = FxHashMap<ResolveKey, ResolvedStrings<'s>>;
+
 #[allow(clippy::too_many_arguments)]
 fn visit_firehose_entries<'d: 'b, 'b, 's: 'd>(
     fh: &RawFirehose<'b>,
@@ -414,6 +434,7 @@ fn visit_firehose_entries<'d: 'b, 'b, 's: 'd>(
     strings: &StringCatalog<'s, impl FileProvider>,
     oversize_cache: &'b OversizeCache<'_>,
     evidence: &Rc<PathBuf>,
+    resolve_memo: &mut ResolveMemo<'s>,
     callback: &mut impl FnMut(LogEntry<'d, 'b>) -> ControlFlow<()>,
 ) -> ControlFlow<()> {
     let boot_uuid = header.boot_uuid;
@@ -599,15 +620,24 @@ fn visit_firehose_entries<'d: 'b, 'b, 's: 'd>(
         let time = resolver.resolve(&boot_uuid, abs_ct, fh.base_continuous_time);
 
         // Resolve strings (format string, library, process paths)
-        let resolved = resolve_strings(
-            entry.format_string_location,
+        let key = ResolveKey {
+            format_string_location: entry.format_string_location,
             pc_id,
-            &formatter,
-            fh.first_proc_id,
-            fh.second_proc_id,
-            catalog,
-            strings,
-        );
+            formatter,
+            first_proc_id: fh.first_proc_id,
+            second_proc_id: fh.second_proc_id,
+        };
+        let resolved = *resolve_memo.entry(key).or_insert_with(|| {
+            resolve_strings(
+                entry.format_string_location,
+                pc_id,
+                &formatter,
+                fh.first_proc_id,
+                fh.second_proc_id,
+                catalog,
+                strings,
+            )
+        });
 
         // Generate error string for invalid format string offsets (old pipeline parity)
         let format_string_error = if resolved.format_string.is_none() {
