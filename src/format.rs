@@ -16,6 +16,7 @@ use base64::Engine;
 
 use super::chunks::firehose::item::{RawFirehoseItem, RawItemKind, RawItemValue};
 use super::decoders::darwin::errno_codes;
+use std::borrow::Cow;
 use std::fmt::Write;
 
 // ---------------------------------------------------------------------------
@@ -28,6 +29,14 @@ use std::fmt::Write;
 /// decoder based on the annotation. Returns `None` if the annotation is not
 /// recognized or the decoder fails — the caller falls back to normal formatting.
 fn decode_annotation(annotation: &str, item: &RawFirehoseItem<'_>) -> Option<String> {
+    // Privacy-only annotations never select a decoder: skip building the value string.
+    if annotation
+        .split(',')
+        .all(|t| matches!(t.trim(), "public" | "private" | "sensitive"))
+    {
+        return None;
+    }
+
     let value_str: String = match &item.value {
         RawItemValue::I64(n) => n.to_string(),
         RawItemValue::U64(n) => n.to_string(),
@@ -312,6 +321,11 @@ fn apply_string_format(output: &mut String, s: &str, spec: &FormatSpec) {
 // --- Integer formatting ---
 
 fn apply_int_format(output: &mut String, n: i64, spec: &FormatSpec) {
+    if !spec.has_width && !spec.show_sign {
+        let _ = write!(output, "{n}");
+        return;
+    }
+
     let plus = if spec.show_sign && n >= 0 { "+" } else { "" };
     let formatted = format!("{n}");
     let core = format!("{plus}{formatted}");
@@ -610,6 +624,16 @@ pub fn format_message(format_string: Option<&str>, items: &[RawFirehoseItem<'_>]
 
     while let Some(&byte) = bytes.get(pos) {
         if byte != b'%' {
+            // Copy the literal run up to the next '%' in one go.
+            let run_end = bytes
+                .get(pos..)
+                .and_then(|rest| rest.iter().position(|&b| b == b'%'))
+                .map_or(bytes.len(), |i| pos + i);
+            if let Some(run) = fmt.get(pos..run_end) {
+                result.push_str(run);
+                pos = run_end;
+                continue;
+            }
             if byte < 0x80 {
                 // ASCII byte — safe to cast directly
                 result.push(byte as char);
@@ -785,15 +809,16 @@ pub fn format_message(format_string: Option<&str>, items: &[RawFirehoseItem<'_>]
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn parse_apple_annotation(bytes: &[u8], start: usize) -> (usize, String, bool) {
+fn parse_apple_annotation(bytes: &[u8], start: usize) -> (usize, Cow<'_, str>, bool) {
     // start points at '{', scan to '}'
     let rest = bytes.get(start + 1..).unwrap_or_default(); // skip '{'
     let annotation_len = rest.iter().take_while(|&&b| b != b'}').count();
-    let annotation: String = rest
-        .iter()
-        .take(annotation_len)
-        .map(|&b| b as char)
-        .collect();
+    let raw = rest.get(..annotation_len).unwrap_or_default();
+    // Bytes map to chars one-to-one (Latin-1); ASCII, the common case, is borrowed as-is.
+    let annotation = match std::str::from_utf8(raw) {
+        Ok(s) if raw.is_ascii() => Cow::Borrowed(s),
+        _ => Cow::Owned(raw.iter().map(|&b| b as char).collect()),
+    };
     let closed = annotation_len < rest.len();
     // '{' + annotation + '}' (if closed)
     let consumed = 1 + annotation_len + usize::from(closed);
