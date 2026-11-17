@@ -23,9 +23,9 @@
 //! this between tracev3 files, driven by [`StringStorage::loaded_bytes`].
 
 use std::cell::{Cell, RefCell};
-use std::collections::HashSet;
 
 use elsa::FrozenMap;
+use rustc_hash::{FxBuildHasher, FxHashSet};
 use tracing::warn;
 use uuid::Uuid;
 
@@ -123,10 +123,10 @@ impl<P: FileProvider> StringStorage<P> {
 /// live as long as the storage borrow `'a`, not the catalog borrow.
 pub struct StringCatalog<'a, P: FileProvider> {
     storage: &'a StringStorage<P>,
-    dsc: FrozenMap<Uuid, Box<RawSharedCacheStrings<'a>>>,
-    uuidtext: FrozenMap<Uuid, Box<RawUUIDText<'a>>>,
-    dsc_missing: RefCell<HashSet<Uuid>>,
-    uuidtext_missing: RefCell<HashSet<Uuid>>,
+    dsc: FrozenMap<Uuid, Box<RawSharedCacheStrings<'a>>, FxBuildHasher>,
+    uuidtext: FrozenMap<Uuid, Box<RawUUIDText<'a>>, FxBuildHasher>,
+    dsc_missing: RefCell<FxHashSet<Uuid>>,
+    uuidtext_missing: RefCell<FxHashSet<Uuid>>,
 }
 
 impl<'a, P: FileProvider> StringCatalog<'a, P> {
@@ -134,10 +134,10 @@ impl<'a, P: FileProvider> StringCatalog<'a, P> {
     pub fn new(storage: &'a StringStorage<P>) -> Self {
         Self {
             storage,
-            dsc: FrozenMap::new(),
-            uuidtext: FrozenMap::new(),
-            dsc_missing: RefCell::new(HashSet::new()),
-            uuidtext_missing: RefCell::new(HashSet::new()),
+            dsc: FrozenMap::default(),
+            uuidtext: FrozenMap::default(),
+            dsc_missing: RefCell::default(),
+            uuidtext_missing: RefCell::default(),
         }
     }
 
