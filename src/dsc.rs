@@ -38,6 +38,9 @@ pub struct RawSharedCacheStrings<'a> {
     pub minor_version: u16,
     pub ranges: Vec<RawRangeDescriptor<'a>>,
     pub uuids: Vec<RawUuidDescriptor<'a>>,
+    /// Ranges are sorted by `range_offset` and do not overlap, so a lookup can
+    /// binary search instead of scanning.
+    sorted_ranges: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -51,7 +54,20 @@ impl<'a> RawSharedCacheStrings<'a> {
     /// Find the range containing `string_offset`, extract the null-terminated
     /// format string, and return it with the associated library path/UUID.
     pub fn format_string(&self, string_offset: u64) -> Option<DscStringResult<'a>> {
-        for range in &self.ranges {
+        // Sorted, disjoint ranges: only the last range starting at or before
+        // `string_offset` can contain it.
+        let candidates = if self.sorted_ranges {
+            let idx = self
+                .ranges
+                .partition_point(|r| r.range_offset <= string_offset);
+            self.ranges
+                .get(idx.saturating_sub(1)..idx)
+                .unwrap_or_default()
+        } else {
+            &self.ranges
+        };
+
+        for range in candidates {
             if string_offset >= range.range_offset
                 && string_offset < (range.range_offset + u64::from(range.range_size))
             {
@@ -127,6 +143,11 @@ impl<'a> RawSharedCacheStrings<'a> {
             range.strings = strings;
         }
 
+        let sorted_ranges = ranges.windows(2).all(|pair| match pair {
+            [a, b] => a.range_offset + u64::from(a.range_size) <= b.range_offset,
+            _ => true,
+        });
+
         Ok((
             input,
             RawSharedCacheStrings {
@@ -134,6 +155,7 @@ impl<'a> RawSharedCacheStrings<'a> {
                 minor_version,
                 ranges,
                 uuids,
+                sorted_ranges,
             },
         ))
     }
