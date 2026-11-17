@@ -1,0 +1,7 @@
+kind: Changed
+body: |
+  `LogEntry::format_string_error` is now an `Option<FormatStringError>` instead of an `Option<String>`:
+  the error text is only rendered when used (`raw_message()`, `message()`, serialization), instead of
+  being allocated for every entry with a missing format string. Use `.to_string()` (it implements
+  `Display`) for the previous text.
+time: 2026-11-17T12:00:01.000000000Z

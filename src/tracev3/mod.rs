@@ -20,12 +20,14 @@ use super::chunks::simpledump::RawSimpleDump;
 use super::chunks::statedump::RawStatedump;
 use super::error::NomExt;
 use super::header::RawHeaderChunk;
-use super::log_entry::{EventType, ItemsData, LogEntry, LogType, MessageFlags, PrivateDataContext};
+use super::log_entry::{
+    EventType, FormatStringError, ItemsData, LogEntry, LogType, MessageFlags, PrivateDataContext,
+};
 use super::resolve::{ResolvedStrings, main_process, resolve_strings};
 use super::timesync::TimestampResolver;
 use super::traits::{FileProvider, VisitOutcome};
 use rustc_hash::FxHashMap;
-use std::cell::RefCell;
+use std::cell::{OnceCell, RefCell};
 use std::ops::ControlFlow;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -294,6 +296,7 @@ fn flush_deferred_entries<'d, 's: 'd>(
                         signpost_name: 0,
                         resolved_message: RefCell::new(None),
                         format_string_error: None,
+                        format_string_error_text: OnceCell::new(),
                     })?;
                 }
                 Err(e) => {
@@ -365,6 +368,7 @@ fn flush_deferred_entries<'d, 's: 'd>(
                         signpost_name: 0,
                         resolved_message: RefCell::new(None),
                         format_string_error: None,
+                        format_string_error_text: OnceCell::new(),
                     })?;
                 }
                 Err(e) => {
@@ -552,6 +556,7 @@ fn visit_firehose_entries<'d: 'b, 'b, 's: 'd>(
                     signpost_name: 0,
                     resolved_message: RefCell::new(None),
                     format_string_error: None,
+                    format_string_error_text: OnceCell::new(),
                 })?;
                 continue;
             }
@@ -596,6 +601,7 @@ fn visit_firehose_entries<'d: 'b, 'b, 's: 'd>(
                     signpost_name: 0,
                     resolved_message: RefCell::new(Some(Rc::new(String::new()))),
                     format_string_error: None,
+                    format_string_error_text: OnceCell::new(),
                 })?;
                 continue;
             }
@@ -640,18 +646,16 @@ fn visit_firehose_entries<'d: 'b, 'b, 's: 'd>(
         });
 
         // Generate error string for invalid format string offsets (old pipeline parity)
-        let format_string_error = if resolved.format_string.is_none() {
-            let string_offset = u64::from(entry.format_string_location);
-            Some(format_string_error_message(
-                string_offset,
-                &formatter,
-                resolved.library_uuid,
-                resolved.process_uuid,
-                resolved.source_found,
-            ))
-        } else {
-            None
-        };
+        let format_string_error = resolved
+            .format_string
+            .is_none()
+            .then_some(FormatStringError {
+                string_offset: u64::from(entry.format_string_location),
+                formatter,
+                library_uuid: resolved.library_uuid,
+                process_uuid: resolved.process_uuid,
+                source_found: resolved.source_found,
+            });
         let process = if format_string_error.is_some() && !resolved.source_found {
             None
         } else {
@@ -751,6 +755,7 @@ fn visit_firehose_entries<'d: 'b, 'b, 's: 'd>(
             signpost_name,
             resolved_message: RefCell::new(None),
             format_string_error,
+            format_string_error_text: OnceCell::new(),
         })?;
     }
 
@@ -851,6 +856,7 @@ fn emit_embedded_unknown_markers<'a: 'b, 'b>(
         signpost_name: 0,
         resolved_message: RefCell::new(Some(Rc::new(String::new()))),
         format_string_error: None,
+        format_string_error_text: OnceCell::new(),
     })?;
     ControlFlow::Continue(())
 }
@@ -1018,65 +1024,6 @@ fn activity_and_parent_ids(activity: &RawActivityBody<'_>) -> (u64, Option<u64>)
 
 fn extract_timezone_name(timezone_path: &str) -> &str {
     timezone_path.rsplit('/').next().unwrap_or(timezone_path)
-}
-
-/// Generate error message matching the old pipeline's format when format string lookup fails.
-///
-/// Two levels of error, distinguished by `uuid_found`:
-/// - **Level 1** (`uuid_found = false`): UUID/DSC file not found → "Failed to get…" / "Unknown…"
-/// - **Level 2** (`uuid_found = true`): File found but offset invalid → "Error: Invalid offset…"
-fn format_string_error_message(
-    string_offset: u64,
-    formatter: &RawFormatterFlags,
-    library_uuid: Uuid,
-    process_uuid: Uuid,
-    uuid_found: bool,
-) -> String {
-    if formatter.shared_cache || formatter.large_shared_cache != 0 {
-        if uuid_found {
-            "Error: Invalid shared string offset".to_string()
-        } else {
-            "Unknown shared string message".to_string()
-        }
-    } else if formatter.absolute {
-        if uuid_found {
-            format!(
-                "Error: Invalid offset {} for absolute UUID {:X}",
-                string_offset,
-                library_uuid.simple()
-            )
-        } else {
-            format!(
-                "Failed to get string message from absolute UUIDText file: {:X}",
-                library_uuid.simple()
-            )
-        }
-    } else if formatter.uuid_relative != [0u8; 16] {
-        let uuid = Uuid::from_bytes(formatter.uuid_relative);
-        if uuid_found {
-            format!(
-                "Error: Invalid offset {} for alternative UUID {:X}",
-                string_offset,
-                uuid.simple()
-            )
-        } else {
-            format!(
-                "Failed to get string message from alternative UUIDText file: {:X}",
-                uuid.simple()
-            )
-        }
-    } else if uuid_found {
-        format!(
-            "Error: Invalid offset {} for UUID {:X}",
-            string_offset,
-            process_uuid.simple()
-        )
-    } else {
-        format!(
-            "Failed to get string message from UUIDText file: {:X}",
-            process_uuid.simple()
-        )
-    }
 }
 
 // ---------------------------------------------------------------------------
