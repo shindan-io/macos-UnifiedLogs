@@ -111,8 +111,6 @@ pub fn parse_items_data<'a>(
     let (input, number_items) = le_u8(input)?;
 
     let mut items: Vec<RawFirehoseItem<'_>> = Vec::with_capacity(number_items as usize);
-    // Indices of items that need string data in pass 2.
-    let mut deferred: Vec<usize> = Vec::new();
     let mut input = input;
 
     // --- Pass 1: headers ---
@@ -181,13 +179,11 @@ pub fn parse_items_data<'a>(
                         value: RawItemValue::Null,
                     });
                 } else {
-                    let idx = items.len();
                     items.push(RawFirehoseItem {
                         item_type: kind,
                         item_size: str_size,
-                        value: RawItemValue::Empty, // placeholder
+                        value: RawItemValue::Empty, // placeholder, filled in pass 2
                     });
-                    deferred.push(idx);
                 }
                 input = rest;
             }
@@ -195,13 +191,11 @@ pub fn parse_items_data<'a>(
                 // Read offset+str_size metadata, defer byte extraction to pass 2.
                 let (rest, _offset) = le_u16(rest)?;
                 let (rest, str_size) = le_u16(rest)?;
-                let idx = items.len();
                 items.push(RawFirehoseItem {
                     item_type: kind,
                     item_size: str_size,
-                    value: RawItemValue::Empty, // placeholder
+                    value: RawItemValue::Empty, // placeholder, filled in pass 2
                 });
-                deferred.push(idx);
                 input = rest;
             }
             RawItemKind::Unknown => {
@@ -243,10 +237,17 @@ pub fn parse_items_data<'a>(
     };
 
     // --- Pass 2: strings/bytes ---
-    for &idx in &deferred {
-        let Some(item) = items.get_mut(idx) else {
-            continue;
-        };
+    // Pass 1 left exactly the string-like items still awaiting their data as `Empty`.
+    let awaiting_data = |item: &RawFirehoseItem<'_>| {
+        matches!(
+            item.item_type,
+            RawItemKind::String
+                | RawItemKind::Object
+                | RawItemKind::Arbitrary
+                | RawItemKind::BaseRaw
+        ) && item.value == RawItemValue::Empty
+    };
+    for item in items.iter_mut().filter(|item| awaiting_data(item)) {
         let str_size = item.item_size as usize;
         let kind = item.item_type;
 

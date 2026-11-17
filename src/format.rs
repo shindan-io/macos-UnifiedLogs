@@ -371,6 +371,15 @@ fn apply_int_format(output: &mut String, n: i64, spec: &FormatSpec) {
 fn apply_hex_format(output: &mut String, n: i64, spec: &FormatSpec) {
     let plus = if spec.show_sign { "+" } else { "" };
 
+    if !spec.has_width {
+        output.push_str(plus);
+        if spec.alternate {
+            output.push_str("0x");
+        }
+        let _ = write!(output, "{n:X}");
+        return;
+    }
+
     // Legacy quirk: both %x and %X produce uppercase hex
     let hex_str = if spec.alternate {
         format!("0x{n:X}")
@@ -608,17 +617,35 @@ fn parse_digits(bytes: &[u8], pos: &mut usize) -> Option<usize> {
 /// Returns an owned `String` — this is where the pipeline transitions from
 /// zero-copy borrowed data to owned formatted output.
 pub fn format_message(format_string: Option<&str>, items: &[RawFirehoseItem<'_>]) -> String {
+    let mut result = String::new();
+    format_message_into(&mut result, format_string, items);
+    result
+}
+
+/// Like [`format_message`], but appends the message to `result`, so a caller
+/// can reuse one buffer across messages.
+pub fn format_message_into(
+    result: &mut String,
+    format_string: Option<&str>,
+    items: &[RawFirehoseItem<'_>],
+) {
     let fmt = match format_string {
-        None => return String::from("<missing format string>"),
+        None => {
+            result.push_str("<missing format string>");
+            return;
+        }
         Some("") => {
             // Empty format string → return first item as string (if any)
-            return items.first().map(item_to_string).unwrap_or_default();
+            if let Some(first) = items.first() {
+                result.push_str(&item_to_string(first));
+            }
+            return;
         }
         Some(s) => s,
     };
 
     let bytes = fmt.as_bytes();
-    let mut result = String::with_capacity(bytes.len());
+    result.reserve(bytes.len());
     let mut pos = 0;
     let mut item_index: usize = 0;
 
@@ -692,7 +719,7 @@ pub fn format_message(format_string: Option<&str>, items: &[RawFirehoseItem<'_>]
                             .unwrap_or('\0'),
                     );
                     spec.has_width = false;
-                    format_annotated_item(&mut result, &annotation, &spec, items, &mut item_index);
+                    format_annotated_item(result, &annotation, &spec, items, &mut item_index);
                 }
                 continue;
             }
@@ -739,7 +766,7 @@ pub fn format_message(format_string: Option<&str>, items: &[RawFirehoseItem<'_>]
                 pos += spec_consumed;
 
                 // We have a conversion after annotation+flags
-                format_annotated_item(&mut result, &annotation, &spec, items, &mut item_index);
+                format_annotated_item(result, &annotation, &spec, items, &mut item_index);
                 continue;
             }
 
@@ -757,7 +784,7 @@ pub fn format_message(format_string: Option<&str>, items: &[RawFirehoseItem<'_>]
                 continue;
             }
 
-            format_annotated_item(&mut result, &annotation, &spec, items, &mut item_index);
+            format_annotated_item(result, &annotation, &spec, items, &mut item_index);
             continue;
         }
 
@@ -798,11 +825,9 @@ pub fn format_message(format_string: Option<&str>, items: &[RawFirehoseItem<'_>]
             continue;
         }
 
-        apply_format(&mut result, item, &spec);
+        apply_format(result, item, &spec);
         item_index += 1;
     }
-
-    result
 }
 
 // ---------------------------------------------------------------------------
