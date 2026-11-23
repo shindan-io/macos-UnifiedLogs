@@ -26,7 +26,7 @@ use super::log_entry::{
 use super::resolve::{ResolvedStrings, main_process, resolve_strings};
 use super::timesync::TimestampResolver;
 use super::traits::{FileProvider, VisitOutcome};
-use rustc_hash::FxHashMap;
+
 use std::cell::{OnceCell, RefCell};
 use std::ops::ControlFlow;
 use std::path::PathBuf;
@@ -427,7 +427,7 @@ struct ResolveKey {
 
 /// Memoized [`resolve_strings`] results for the current catalog: entries from the
 /// same call site resolve to the same strings.
-type ResolveMemo<'s> = FxHashMap<ResolveKey, ResolvedStrings<'s>>;
+type ResolveMemo<'s> = rapidhash::RapidHashMap<ResolveKey, ResolvedStrings<'s>>;
 
 #[allow(clippy::too_many_arguments)]
 fn visit_firehose_entries<'d: 'b, 'b, 's: 'd>(

@@ -14,7 +14,7 @@ use nom::{
     multi::many_m_n,
     number::complete::{be_u128, le_u16, le_u32, le_u64},
 };
-use rustc_hash::FxHashMap;
+
 use tracing::{debug, error, warn};
 use uuid::Uuid;
 
@@ -37,10 +37,11 @@ pub struct RawCatalogChunk<'a> {
     pub catalog_uuids: Vec<Uuid>,
     /// array of strings with end-of-string character
     pub catalog_subsystem_strings: &'a [u8],
-    pub catalog_process_info_entries: FxHashMap<CatalogProcessInfoKey, ProcessInfoEntry>,
+    pub catalog_process_info_entries:
+        rapidhash::RapidHashMap<CatalogProcessInfoKey, ProcessInfoEntry>,
     pub catalog_subchunks: Vec<CatalogSubchunk>,
     /// subsystems lookups, keyed by `(subsystem_value, first_proc_id, second_proc_id)`
-    pub subsystems_strings: FxHashMap<(u16, u64, u32), (&'a str, &'a str)>,
+    pub subsystems_strings: rapidhash::RapidHashMap<(u16, u64, u32), (&'a str, &'a str)>,
 }
 
 #[derive(Debug)]
@@ -101,7 +102,7 @@ impl<'a> RawCatalogChunk<'a> {
         )
         .parse(input)?;
 
-        let mut catalog_process_info_entries = FxHashMap::default();
+        let mut catalog_process_info_entries = rapidhash::RapidHashMap::default();
         for entry in catalog_process_info_entries_vec {
             catalog_process_info_entries.insert(
                 CatalogProcessInfoKey(entry.first_number_proc_id, entry.second_number_proc_id),
@@ -129,7 +130,7 @@ impl<'a> RawCatalogChunk<'a> {
         )
         .parse(input)?;
 
-        let mut subsystems_strings = FxHashMap::with_capacity_and_hasher(
+        let mut subsystems_strings = rapidhash::RapidHashMap::with_capacity_and_hasher(
             catalog_process_info_entries.len(),
             Default::default(),
         );

@@ -25,7 +25,7 @@
 use std::cell::{Cell, RefCell};
 
 use elsa::FrozenMap;
-use rustc_hash::{FxBuildHasher, FxHashSet};
+use rapidhash::fast::RandomState;
 use tracing::warn;
 use uuid::Uuid;
 
@@ -123,10 +123,10 @@ impl<P: FileProvider> StringStorage<P> {
 /// live as long as the storage borrow `'a`, not the catalog borrow.
 pub struct StringCatalog<'a, P: FileProvider> {
     storage: &'a StringStorage<P>,
-    dsc: FrozenMap<Uuid, Box<RawSharedCacheStrings<'a>>, FxBuildHasher>,
-    uuidtext: FrozenMap<Uuid, Box<RawUUIDText<'a>>, FxBuildHasher>,
-    dsc_missing: RefCell<FxHashSet<Uuid>>,
-    uuidtext_missing: RefCell<FxHashSet<Uuid>>,
+    dsc: FrozenMap<Uuid, Box<RawSharedCacheStrings<'a>>, RandomState>,
+    uuidtext: FrozenMap<Uuid, Box<RawUUIDText<'a>>, RandomState>,
+    dsc_missing: RefCell<rapidhash::RapidHashSet<Uuid>>,
+    uuidtext_missing: RefCell<rapidhash::RapidHashSet<Uuid>>,
 }
 
 impl<'a, P: FileProvider> StringCatalog<'a, P> {

@@ -6,7 +6,7 @@
 // See the License for the specific language governing permissions and limitations under the License.
 
 use nom::number::complete::{be_u128, le_i64, le_u16, le_u32, le_u64};
-use rustc_hash::FxHashMap;
+
 use serde::Serialize;
 use std::collections::HashMap;
 use tracing::warn;
@@ -193,7 +193,7 @@ pub fn parse_timesync_file(data: &[u8]) -> nom::IResult<&[u8], HashMap<Uuid, Raw
 /// Wraps a `HashMap<Uuid, RawTimesyncBoot>` and provides the same
 /// calculation as `TimesyncBoot::get_timestamp()`.
 pub struct TimestampResolver {
-    timesync_data: FxHashMap<Uuid, RawTimesyncBoot>,
+    timesync_data: rapidhash::RapidHashMap<Uuid, RawTimesyncBoot>,
 }
 
 impl TimestampResolver {

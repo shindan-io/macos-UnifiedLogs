@@ -26,6 +26,7 @@ thiserror = "2.0.21"
 num_enum = "0.7.6"
 bitflags = "2.13.2"
 elsa = "1.11.2"
+rapidhash = "4.5.1"
 
 [dev-dependencies]
 criterion = "0.8.2"
