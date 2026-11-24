@@ -54,22 +54,19 @@ pub struct DscStringResult<'a> {
 /// Split the ranges into disjoint segments `(start, end, position in ranges)`, sorted
 /// by start, so that a lookup is a single binary search.
 ///
-/// Where ranges overlap, the segment goes to the first range in file order (the one a
-/// scan of `ranges` would find). Valid files have disjoint ranges: one segment each.
-///
-/// Example, B = [10, 20) at position 0 and A = [0, 100) at position 1:
-///
-/// ```text
-/// bounds, sorted: (0, start, 1) (10, start, 0) (20, end, 0) (100, end, 1)
-///
-/// offset | active after its bounds | segment up to the next offset
-///      0 | {1}                     | [0, 10)   → 1 (A)
-///     10 | {0, 1}                  | [10, 20)  → 0 (B, first in file)
-///     20 | {1}                     | [20, 100) → 1 (A)
-///    100 | {}                      | (last offset: nothing after it)
-/// ```
+/// Where ranges overlap, the segment goes to the first range in file order (the one a scan of `ranges` would find).
+/// Valid files should have disjoint ranges: one segment each but we handle overlaps gracefully.
 fn build_segments(ranges: &[RawRangeDescriptor<'_>]) -> Vec<(u64, u64, usize)> {
     // Each range gives two bounds: (offset, starts here?, position in ranges).
+
+    // Example, B = [10, 20) at position 0 and A = [0, 100) at position 1:
+    // bounds, sorted: (0, start, 1) (10, start, 0) (20, end, 0) (100, end, 1)
+    //
+    // offset | active after its bounds | segment up to the next offset
+    //      0 | {1}                     | [0, 10)   → 1 (A)
+    //     10 | {0, 1}                  | [10, 20)  → 0 (B, first in file)
+    //     20 | {1}                     | [20, 100) → 1 (A)
+    //    100 | {}                      | (last offset: nothing after it)
     let mut bounds: Vec<(u64, bool, usize)> = Vec::with_capacity(ranges.len() * 2);
     for (position, range) in ranges.iter().enumerate() {
         let end = range
@@ -106,8 +103,8 @@ fn build_segments(ranges: &[RawRangeDescriptor<'_>]) -> Vec<(u64, u64, usize)> {
         // range in file order (none: a gap between ranges).
         if let Some(&owner) = active.first() {
             match segments.last_mut() {
-                // Same range as the previous segment (a nested range lost to its
-                // container): extend it instead of adding a new one.
+                // Same range as the previous segment (a nested range lost to its container):
+                // extend it instead of adding a new one.
                 Some((_, end, last_owner)) if *last_owner == owner && *end == offset => {
                     *end = next;
                 }
@@ -118,24 +115,25 @@ fn build_segments(ranges: &[RawRangeDescriptor<'_>]) -> Vec<(u64, u64, usize)> {
     segments
 }
 
+/// Position in `ranges` of the range containing `offset`, if any.
+/// Segments are disjoint: only the last one starting at or before `offset` can contain it.
+fn find_range(segments: &[(u64, u64, usize)], offset: u64) -> Option<usize> {
+    let idx = segments.partition_point(|&(start, _, _)| start <= offset);
+    let &(_, end, position) = segments.get(idx.checked_sub(1)?)?;
+    (offset < end).then_some(position)
+}
+
 impl<'a> RawSharedCacheStrings<'a> {
     /// Find the range containing `string_offset`, extract the null-terminated
     /// format string, and return it with the associated library path/UUID.
     pub fn format_string(&self, string_offset: u64) -> Option<DscStringResult<'a>> {
-        // Segments are disjoint: only the last one starting at or before
-        // `string_offset` can contain it.
-        let idx = self
-            .segments
-            .partition_point(|&(start, _, _)| start <= string_offset);
-        let &(_, end, position) = self.segments.get(idx.checked_sub(1)?)?;
-        if string_offset >= end {
-            return None;
-        }
+        let range_idx = find_range(&self.segments, string_offset)?;
+        let range = self.ranges.get(range_idx)?;
 
-        let range = self.ranges.get(position)?;
         let local_offset = (string_offset - range.range_offset) as usize;
         let strings = range.strings.get(local_offset..)?;
         let (_, s) = utf8_str_from_cstring(strings).ok()?;
+
         let uuid_entry = self.uuids.get(range.uuid_index as usize)?;
         Some(DscStringResult {
             format_string: s,
@@ -452,13 +450,6 @@ mod tests {
         }
     }
 
-    /// Owner of `offset` per the segments (one binary search, as in `format_string`).
-    fn owner(segments: &[(u64, u64, usize)], offset: u64) -> Option<usize> {
-        let idx = segments.partition_point(|&(start, _, _)| start <= offset);
-        let &(_, end, position) = segments.get(idx.checked_sub(1)?)?;
-        (offset < end).then_some(position)
-    }
-
     #[test]
     fn test_segments_disjoint() {
         let ranges = [range(30, 10), range(0, 10), range(10, 5)];
@@ -492,31 +483,31 @@ mod tests {
 
     #[test]
     fn test_segments_match_linear_scan() {
-        // Pseudo-random overlapping ranges: the segments must give, for every offset,
-        // the first range in file order that contains it.
-        let mut seed: u64 = 0x2545_f491_4f6c_dd1d;
-        let mut next = |modulo: u64| {
-            seed ^= seed << 13;
-            seed ^= seed >> 7;
-            seed ^= seed << 17;
-            seed % modulo
-        };
-        for _ in 0..200 {
-            let count = next(12) as usize;
-            let ranges: Vec<_> = (0..count)
-                .map(|_| range(next(100), next(40) as u32))
-                .collect();
-            let segments = build_segments(&ranges);
-            assert!(
-                segments
-                    .windows(2)
-                    .all(|w| matches!(w, [a, b] if a.1 <= b.0))
-            );
-            for offset in 0..150 {
-                let expected = ranges.iter().position(|r| {
-                    offset >= r.range_offset && offset < r.range_offset + u64::from(r.range_size)
-                });
-                assert_eq!(owner(&segments, offset), expected, "{ranges:?} @ {offset}");
+        // Every list of 3 ranges with start in 0..6 and size in 0..4 (13,824 lists): all
+        // the ways ranges can be nested, overlap, touch or coincide. A size-0 range
+        // contains nothing, so this also covers lists of 0, 1 or 2 ranges.
+        let shapes: Vec<_> = (0..6)
+            .flat_map(|start| (0..4).map(move |size| range(start, size)))
+            .collect();
+        for &a in &shapes {
+            for &b in &shapes {
+                for &c in &shapes {
+                    let ranges = [a, b, c];
+                    let segments = build_segments(&ranges);
+
+                    // For every offset: the first range in file order that contains it.
+                    for offset in 0..10 {
+                        let linear_found = ranges.iter().position(|r| {
+                            offset >= r.range_offset
+                                && offset < r.range_offset + u64::from(r.range_size)
+                        });
+                        assert_eq!(
+                            find_range(&segments, offset),
+                            linear_found,
+                            "{ranges:?} @ {offset}"
+                        );
+                    }
+                }
             }
         }
     }
