@@ -29,11 +29,7 @@ use std::fmt::Write;
 /// decoder based on the annotation. Returns `None` if the annotation is not
 /// recognized or the decoder fails — the caller falls back to normal formatting.
 fn decode_annotation(annotation: &str, item: &RawFirehoseItem<'_>) -> Option<String> {
-    // Privacy-only annotations never select a decoder: skip building the value string.
-    if annotation
-        .split(',')
-        .all(|t| matches!(t.trim(), "public" | "private" | "sensitive"))
-    {
+    if !crate::decoders::decoder::should_be_decoded(annotation) {
         return None;
     }
 

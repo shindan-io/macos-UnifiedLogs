@@ -112,6 +112,23 @@ impl fmt::Display for Decoded {
     }
 }
 
+/// Whether `annotation` may select a decoder in [`to_decoded_value`]. Returns `false`
+/// for privacy-only annotations (`%{public}s`, `%{private, sensitive}s`, …), which match
+/// no decoder; `true` does not guarantee a match.
+///
+/// Called by `format::decode_annotation` before it builds the value string that
+/// [`to_decoded_value`] takes, to skip that work for the most common annotations.
+///
+/// TODO(https://github.com/mandiant/macos-UnifiedLogs/issues/177): this duplicates the
+/// annotation rules of [`to_decoded_value`]. Refactor both into a single decoder table
+/// (`find_decoder(annotation)`, then decode), and decode `RawItemValue`s directly
+/// instead of strings.
+pub(crate) fn should_be_decoded(annotation: &str) -> bool {
+    !annotation
+        .split(',')
+        .all(|token| matches!(token.trim(), "public" | "private" | "sensitive"))
+}
+
 pub(crate) fn to_decoded_value<'a>(
     format_string: &'a str,
     message_strings: &'a str,
