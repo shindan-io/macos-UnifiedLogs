@@ -427,7 +427,7 @@ struct ResolveKey {
 
 /// Memoized [`resolve_strings`] results for the current catalog: entries from the
 /// same call site resolve to the same strings.
-type ResolveMemo<'s> = rapidhash::RapidHashMap<ResolveKey, ResolvedStrings<'s>>;
+type ResolveMemo<'s> = crate::HashMap<ResolveKey, ResolvedStrings<'s>>;
 
 #[allow(clippy::too_many_arguments)]
 fn visit_firehose_entries<'d: 'b, 'b, 's: 'd>(

@@ -102,3 +102,12 @@ pub mod uuidtext;
 
 /// Byte offset within the data being parsed.
 pub type Offset = usize;
+
+// Faster hash
+use rapidhash::fast::RandomState;
+/// `std` hash map with the crate's [`RandomState`].
+pub type HashMap<K, V> = std::collections::HashMap<K, V, RandomState>;
+/// `std` hash set with the crate's [`RandomState`].
+pub type HashSet<T> = std::collections::HashSet<T, RandomState>;
+/// [`elsa::FrozenMap`] with the crate's [`RandomState`].
+pub type FrozenMap<K, V> = elsa::FrozenMap<K, V, RandomState>;

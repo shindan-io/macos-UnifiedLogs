@@ -193,7 +193,7 @@ pub fn parse_timesync_file(data: &[u8]) -> nom::IResult<&[u8], HashMap<Uuid, Raw
 /// Wraps a `HashMap<Uuid, RawTimesyncBoot>` and provides the same
 /// calculation as `TimesyncBoot::get_timestamp()`.
 pub struct TimestampResolver {
-    timesync_data: rapidhash::RapidHashMap<Uuid, RawTimesyncBoot>,
+    timesync_data: crate::HashMap<Uuid, RawTimesyncBoot>,
 }
 
 impl TimestampResolver {

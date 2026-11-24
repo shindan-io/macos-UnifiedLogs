@@ -22,10 +22,8 @@
 //! entries are alive — `logarchive::StringLoading::Budgeted` automates
 //! this between tracev3 files, driven by [`StringStorage::loaded_bytes`].
 
+use crate::{FrozenMap, HashSet};
 use std::cell::{Cell, RefCell};
-
-use elsa::FrozenMap;
-use rapidhash::fast::RandomState;
 use tracing::warn;
 use uuid::Uuid;
 
@@ -53,8 +51,8 @@ impl<P: FileProvider> StringStorage<P> {
     pub fn new(provider: P) -> Self {
         Self {
             provider,
-            dsc: FrozenMap::new(),
-            uuidtext: FrozenMap::new(),
+            dsc: FrozenMap::default(),
+            uuidtext: FrozenMap::default(),
             loaded: Cell::new(0),
         }
     }
@@ -123,10 +121,10 @@ impl<P: FileProvider> StringStorage<P> {
 /// live as long as the storage borrow `'a`, not the catalog borrow.
 pub struct StringCatalog<'a, P: FileProvider> {
     storage: &'a StringStorage<P>,
-    dsc: FrozenMap<Uuid, Box<RawSharedCacheStrings<'a>>, RandomState>,
-    uuidtext: FrozenMap<Uuid, Box<RawUUIDText<'a>>, RandomState>,
-    dsc_missing: RefCell<rapidhash::RapidHashSet<Uuid>>,
-    uuidtext_missing: RefCell<rapidhash::RapidHashSet<Uuid>>,
+    dsc: FrozenMap<Uuid, Box<RawSharedCacheStrings<'a>>>,
+    uuidtext: FrozenMap<Uuid, Box<RawUUIDText<'a>>>,
+    dsc_missing: RefCell<HashSet<Uuid>>,
+    uuidtext_missing: RefCell<HashSet<Uuid>>,
 }
 
 impl<'a, P: FileProvider> StringCatalog<'a, P> {
