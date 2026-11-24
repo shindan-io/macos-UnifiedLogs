@@ -11,15 +11,6 @@ use serde::Serialize;
 
 const UUIDTEXT_SIGNATURE: u32 = 0x6677_8899;
 
-fn parse_image_path<'a>(entries: &[RawUUIDTextEntry], footer_data: &'a [u8]) -> Option<&'a str> {
-    let total: u32 = entries.iter().map(|e| e.entry_size).sum();
-    let data = footer_data
-        .get(total as usize..)
-        .filter(|d| !d.is_empty())?;
-    let (_, path) = utf8_str_from_cstring(data).ok()?;
-    Some(path)
-}
-
 #[derive(Debug, Clone, Copy, Serialize)]
 pub struct RawUUIDTextEntry {
     pub range_start_offset: u32,
@@ -110,6 +101,15 @@ impl<'a> RawUUIDText<'a> {
         }
         None
     }
+}
+
+fn parse_image_path<'a>(entries: &[RawUUIDTextEntry], footer_data: &'a [u8]) -> Option<&'a str> {
+    let total: u32 = entries.iter().map(|e| e.entry_size).sum();
+    let data = footer_data
+        .get(total as usize..)
+        .filter(|d| !d.is_empty())?;
+    let (_, path) = utf8_str_from_cstring(data).ok()?;
+    Some(path)
 }
 
 #[cfg(test)]
