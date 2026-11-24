@@ -18,6 +18,7 @@
 //! backward references by reading ahead in the provider's files on a miss,
 //! harvesting their oversize chunks.
 
+use crate::FrozenMap;
 use crate::chunk::ChunkSetReader;
 use crate::chunks::oversize::RawOversize;
 use crate::chunks::{ChunkTag, ChunksetPayload};
@@ -25,7 +26,6 @@ use crate::chunks_reader::RawChunksReader;
 use crate::error::NomExt;
 use crate::header::RawHeaderChunk;
 use crate::traits::{FileProvider, SourceFile};
-use elsa::FrozenMap;
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 use tracing::{debug, warn};
@@ -63,7 +63,7 @@ impl OversizeCache<'_> {
     /// Cache without a harvest source: misses are final.
     pub fn new() -> Self {
         Self {
-            entries: FrozenMap::new(),
+            entries: FrozenMap::default(),
             inserted_bytes: Cell::new(0),
             files: RefCell::new(Box::new(std::iter::empty())),
             pending: RefCell::new(VecDeque::new()),
@@ -87,7 +87,7 @@ impl<'p> OversizeCache<'p> {
             .map(|source| Box::new(source) as QueuedFile<'p>);
 
         Self {
-            entries: FrozenMap::new(),
+            entries: FrozenMap::default(),
             inserted_bytes: Cell::new(0),
             files: RefCell::new(Box::new(files)),
             pending: RefCell::new(VecDeque::new()),
@@ -308,10 +308,10 @@ mod tests {
             test_data_path().join("Bad Data/TraceV3/Bad_header_0000000000000005.tracev3"),
         )
         .unwrap();
-        let cache = OversizeCache::new();
+        let mut cache = OversizeCache::new();
         harvest_oversize(&data, &cache);
         // Count established by chunk::tests::visit over the same file
-        assert_eq!(cache.entries.len(), 28);
+        assert_eq!(cache.entries.as_mut().len(), 28);
     }
 
     /// Append a header chunk announcing `boot_uuid` (all other fields zero).

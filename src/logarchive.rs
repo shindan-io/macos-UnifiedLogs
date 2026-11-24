@@ -18,7 +18,7 @@ use super::log_entry::LogEntry;
 use super::timesync::{RawTimesyncBoot, TimestampResolver, parse_timesync_file};
 use super::tracev3::{OversizeCache, visit_tracev3};
 use super::traits::{FileProvider, SourceFile, VisitOutcome};
-use std::collections::HashMap;
+use crate::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use tracing::{info, warn};
@@ -258,7 +258,7 @@ pub fn visit_logarchive_tracev3_files<P: AsRef<Path>, O: VisitOutcome>(
 pub fn load_timesync_data(
     provider: &impl FileProvider,
 ) -> Result<HashMap<Uuid, RawTimesyncBoot>, std::io::Error> {
-    let mut all_data: HashMap<Uuid, RawTimesyncBoot> = HashMap::new();
+    let mut all_data: HashMap<Uuid, RawTimesyncBoot> = HashMap::default();
 
     for source in provider.timesync_files() {
         let buffer = match source.read() {

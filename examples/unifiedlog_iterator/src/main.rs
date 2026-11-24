@@ -14,7 +14,6 @@ use macos_unifiedlogs::timesync::TimestampResolver;
 use macos_unifiedlogs::tracev3::{OversizeCache, visit_tracev3};
 use macos_unifiedlogs::traits::FileProvider;
 use tracing_subscriber::util::SubscriberInitExt;
-use std::collections::HashMap;
 use std::error::Error;
 use std::fs::{self, File};
 use std::io::Write;
@@ -368,7 +367,7 @@ fn parse_single_file(
     let data = fs::read(path)
         .map_err(|e| format!("Failed to open source file {}: {e}", path.display()))?;
 
-    let resolver = TimestampResolver::new(HashMap::new());
+    let resolver = TimestampResolver::new(Default::default());
     let storage = StringStorage::new(InMemoryProvider::default());
     let strings = StringCatalog::new(&storage);
     let oversize_cache = OversizeCache::new();

@@ -2,7 +2,7 @@ use chrono::SecondsFormat;
 use macos_unifiedlogs::{log_entry::LogEntry, uuidtext::RawUUIDText};
 use macos_unifiedlogs::timesync::RawTimesyncBoot;
 use serde::Serialize;
-use std::{collections::HashMap, error::Error, io::Write};
+use std::{error::Error, io::Write};
 use uuid::Uuid;
 
 use crate::Format;
@@ -99,7 +99,7 @@ impl OutputWriter {
 
     pub fn write_timesync(
         &mut self,
-        time: HashMap<Uuid, RawTimesyncBoot>,
+        time: macos_unifiedlogs::HashMap<Uuid, RawTimesyncBoot>,
     ) -> Result<(), Box<dyn Error>> {
         match &mut self.writer {
             OutputWriterEnum::Json(json_writer) => {

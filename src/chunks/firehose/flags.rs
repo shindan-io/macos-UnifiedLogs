@@ -58,7 +58,7 @@ pub enum FormatterType {
 /// Zero-copy formatter flags — replaces `FirehoseFormatters` without heap allocation.
 ///
 /// `uuid_relative` is stored as raw `[u8; 16]` (big-endian) instead of `Uuid`.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct RawFormatterFlags {
     pub main_exe: bool,
     pub shared_cache: bool,

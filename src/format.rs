@@ -16,6 +16,7 @@ use base64::Engine;
 
 use super::chunks::firehose::item::{RawFirehoseItem, RawItemKind, RawItemValue};
 use super::decoders::darwin::errno_codes;
+use std::borrow::Cow;
 use std::fmt::Write;
 
 // ---------------------------------------------------------------------------
@@ -28,6 +29,10 @@ use std::fmt::Write;
 /// decoder based on the annotation. Returns `None` if the annotation is not
 /// recognized or the decoder fails — the caller falls back to normal formatting.
 fn decode_annotation(annotation: &str, item: &RawFirehoseItem<'_>) -> Option<String> {
+    if !crate::decoders::decoder::should_be_decoded(annotation) {
+        return None;
+    }
+
     let value_str: String = match &item.value {
         RawItemValue::I64(n) => n.to_string(),
         RawItemValue::U64(n) => n.to_string(),
@@ -36,7 +41,7 @@ fn decode_annotation(annotation: &str, item: &RawFirehoseItem<'_>) -> Option<Str
         RawItemValue::Private { .. } => return None,
         // Old pipeline calls decoders with empty string for size-0 items. Most decoders will fail
         // on empty input and we'll return None below, matching the fallthrough behavior.
-        RawItemValue::Empty | RawItemValue::Null => String::new(),
+        RawItemValue::Empty | RawItemValue::Pending | RawItemValue::Null => String::new(),
     };
 
     // Replicate check_objects: mask.hash + BaseRaw (0xf2) → return base64 as-is,
@@ -312,6 +317,11 @@ fn apply_string_format(output: &mut String, s: &str, spec: &FormatSpec) {
 // --- Integer formatting ---
 
 fn apply_int_format(output: &mut String, n: i64, spec: &FormatSpec) {
+    if !spec.has_width && !spec.show_sign {
+        let _ = write!(output, "{n}");
+        return;
+    }
+
     let plus = if spec.show_sign && n >= 0 { "+" } else { "" };
     let formatted = format!("{n}");
     let core = format!("{plus}{formatted}");
@@ -356,6 +366,15 @@ fn apply_int_format(output: &mut String, n: i64, spec: &FormatSpec) {
 
 fn apply_hex_format(output: &mut String, n: i64, spec: &FormatSpec) {
     let plus = if spec.show_sign { "+" } else { "" };
+
+    if !spec.has_width {
+        output.push_str(plus);
+        if spec.alternate {
+            output.push_str("0x");
+        }
+        let _ = write!(output, "{n:X}");
+        return;
+    }
 
     // Legacy quirk: both %x and %X produce uppercase hex
     let hex_str = if spec.alternate {
@@ -594,22 +613,50 @@ fn parse_digits(bytes: &[u8], pos: &mut usize) -> Option<usize> {
 /// Returns an owned `String` — this is where the pipeline transitions from
 /// zero-copy borrowed data to owned formatted output.
 pub fn format_message(format_string: Option<&str>, items: &[RawFirehoseItem<'_>]) -> String {
+    let mut result = String::new();
+    format_message_into(&mut result, format_string, items);
+    result
+}
+
+/// Like [`format_message`], but appends the message to `result`, so a caller
+/// can reuse one buffer across messages.
+pub fn format_message_into(
+    result: &mut String,
+    format_string: Option<&str>,
+    items: &[RawFirehoseItem<'_>],
+) {
     let fmt = match format_string {
-        None => return String::from("<missing format string>"),
+        None => {
+            result.push_str("<missing format string>");
+            return;
+        }
         Some("") => {
             // Empty format string → return first item as string (if any)
-            return items.first().map(item_to_string).unwrap_or_default();
+            if let Some(first) = items.first() {
+                result.push_str(&item_to_string(first));
+            }
+            return;
         }
         Some(s) => s,
     };
 
     let bytes = fmt.as_bytes();
-    let mut result = String::with_capacity(bytes.len());
+    result.reserve(bytes.len());
     let mut pos = 0;
     let mut item_index: usize = 0;
 
     while let Some(&byte) = bytes.get(pos) {
         if byte != b'%' {
+            // Copy the literal run up to the next '%' in one go.
+            let run_end = bytes
+                .get(pos..)
+                .and_then(|rest| rest.iter().position(|&b| b == b'%'))
+                .map_or(bytes.len(), |i| pos + i);
+            if let Some(run) = fmt.get(pos..run_end) {
+                result.push_str(run);
+                pos = run_end;
+                continue;
+            }
             if byte < 0x80 {
                 // ASCII byte — safe to cast directly
                 result.push(byte as char);
@@ -668,7 +715,7 @@ pub fn format_message(format_string: Option<&str>, items: &[RawFirehoseItem<'_>]
                             .unwrap_or('\0'),
                     );
                     spec.has_width = false;
-                    format_annotated_item(&mut result, &annotation, &spec, items, &mut item_index);
+                    format_annotated_item(result, &annotation, &spec, items, &mut item_index);
                 }
                 continue;
             }
@@ -715,7 +762,7 @@ pub fn format_message(format_string: Option<&str>, items: &[RawFirehoseItem<'_>]
                 pos += spec_consumed;
 
                 // We have a conversion after annotation+flags
-                format_annotated_item(&mut result, &annotation, &spec, items, &mut item_index);
+                format_annotated_item(result, &annotation, &spec, items, &mut item_index);
                 continue;
             }
 
@@ -733,7 +780,7 @@ pub fn format_message(format_string: Option<&str>, items: &[RawFirehoseItem<'_>]
                 continue;
             }
 
-            format_annotated_item(&mut result, &annotation, &spec, items, &mut item_index);
+            format_annotated_item(result, &annotation, &spec, items, &mut item_index);
             continue;
         }
 
@@ -774,26 +821,25 @@ pub fn format_message(format_string: Option<&str>, items: &[RawFirehoseItem<'_>]
             continue;
         }
 
-        apply_format(&mut result, item, &spec);
+        apply_format(result, item, &spec);
         item_index += 1;
     }
-
-    result
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn parse_apple_annotation(bytes: &[u8], start: usize) -> (usize, String, bool) {
+fn parse_apple_annotation(bytes: &[u8], start: usize) -> (usize, Cow<'_, str>, bool) {
     // start points at '{', scan to '}'
     let rest = bytes.get(start + 1..).unwrap_or_default(); // skip '{'
     let annotation_len = rest.iter().take_while(|&&b| b != b'}').count();
-    let annotation: String = rest
-        .iter()
-        .take(annotation_len)
-        .map(|&b| b as char)
-        .collect();
+    let raw = rest.get(..annotation_len).unwrap_or_default();
+    // Bytes map to chars one-to-one (Latin-1); ASCII, the common case, is borrowed as-is.
+    let annotation = match std::str::from_utf8(raw) {
+        Ok(s) if raw.is_ascii() => Cow::Borrowed(s),
+        _ => Cow::Owned(raw.iter().map(|&b| b as char).collect()),
+    };
     let closed = annotation_len < rest.len();
     // '{' + annotation + '}' (if closed)
     let consumed = 1 + annotation_len + usize::from(closed);
@@ -889,7 +935,7 @@ fn item_to_string(item: &RawFirehoseItem<'_>) -> String {
         RawItemValue::U64(n) => n.to_string(),
         RawItemValue::Bytes(b) => String::from_utf8_lossy(b).into_owned(),
         RawItemValue::Private { .. } => "<private>".to_string(),
-        RawItemValue::Empty => String::new(),
+        RawItemValue::Empty | RawItemValue::Pending => String::new(),
         RawItemValue::Null => String::from("(null)"),
     }
 }

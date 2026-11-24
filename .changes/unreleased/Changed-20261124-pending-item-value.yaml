@@ -1,0 +1,6 @@
+kind: Changed
+body: |
+  `RawItemValue` has a new `Pending` variant: a string or bytes item whose data has not been read.
+  `parse_items_data` sets it on string-like items before reading the data section, and items keep
+  it when that section is truncated (they were `Empty` before). Formatting treats it like `Empty`.
+time: 2026-11-24T12:00:00.000000000Z

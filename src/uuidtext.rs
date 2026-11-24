@@ -5,10 +5,9 @@
 // is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and limitations under the License.
 
+use super::helpers::utf8_str_from_cstring;
 use nom::number::complete::le_u32;
 use serde::Serialize;
-
-use super::helpers::utf8_str_from_cstring;
 
 const UUIDTEXT_SIGNATURE: u32 = 0x6677_8899;
 
@@ -24,6 +23,9 @@ pub struct RawUUIDText<'a> {
     pub minor_version: u32,
     pub entries: Vec<RawUUIDTextEntry>,
     pub footer_data: &'a [u8],
+    /// Image path, resolved once at parse time.
+    #[serde(skip)]
+    image_path: Option<&'a str>,
 }
 
 impl<'a> RawUUIDText<'a> {
@@ -52,6 +54,7 @@ impl<'a> RawUUIDText<'a> {
         }
 
         let footer_data = input;
+        let image_path = parse_image_path(&entries, footer_data);
 
         Ok((
             &[],
@@ -60,17 +63,14 @@ impl<'a> RawUUIDText<'a> {
                 minor_version,
                 entries,
                 footer_data,
+                image_path,
             },
         ))
     }
 
     /// Image path at the end of `footer_data`, after all format string ranges.
     pub fn image_path(&self) -> Option<&'a str> {
-        let total: u32 = self.entries.iter().map(|e| e.entry_size).sum();
-        let start = total as usize;
-        let data = self.footer_data.get(start..).filter(|d| !d.is_empty())?;
-        let (_, path) = utf8_str_from_cstring(data).ok()?;
-        Some(path)
+        self.image_path
     }
 
     /// Extract format string at a given virtual offset.
@@ -101,6 +101,15 @@ impl<'a> RawUUIDText<'a> {
         }
         None
     }
+}
+
+fn parse_image_path<'a>(entries: &[RawUUIDTextEntry], footer_data: &'a [u8]) -> Option<&'a str> {
+    let total: u32 = entries.iter().map(|e| e.entry_size).sum();
+    let data = footer_data
+        .get(total as usize..)
+        .filter(|d| !d.is_empty())?;
+    let (_, path) = utf8_str_from_cstring(data).ok()?;
+    Some(path)
 }
 
 #[cfg(test)]

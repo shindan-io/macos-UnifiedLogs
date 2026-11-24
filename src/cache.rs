@@ -22,10 +22,8 @@
 //! entries are alive — `logarchive::StringLoading::Budgeted` automates
 //! this between tracev3 files, driven by [`StringStorage::loaded_bytes`].
 
+use crate::{FrozenMap, HashSet};
 use std::cell::{Cell, RefCell};
-use std::collections::HashSet;
-
-use elsa::FrozenMap;
 use tracing::warn;
 use uuid::Uuid;
 
@@ -53,8 +51,8 @@ impl<P: FileProvider> StringStorage<P> {
     pub fn new(provider: P) -> Self {
         Self {
             provider,
-            dsc: FrozenMap::new(),
-            uuidtext: FrozenMap::new(),
+            dsc: FrozenMap::default(),
+            uuidtext: FrozenMap::default(),
             loaded: Cell::new(0),
         }
     }
@@ -134,10 +132,10 @@ impl<'a, P: FileProvider> StringCatalog<'a, P> {
     pub fn new(storage: &'a StringStorage<P>) -> Self {
         Self {
             storage,
-            dsc: FrozenMap::new(),
-            uuidtext: FrozenMap::new(),
-            dsc_missing: RefCell::new(HashSet::new()),
-            uuidtext_missing: RefCell::new(HashSet::new()),
+            dsc: FrozenMap::default(),
+            uuidtext: FrozenMap::default(),
+            dsc_missing: RefCell::default(),
+            uuidtext_missing: RefCell::default(),
         }
     }
 

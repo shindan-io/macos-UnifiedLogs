@@ -1,0 +1,6 @@
+kind: Added
+body: |
+  `LogEntry::write_message(&self, out: &mut String)` appends the formatted message to a caller-owned
+  buffer, so one buffer can be reused across entries (no `Rc<String>` per message), and
+  `format::format_message_into` does the same for `format_message`.
+time: 2026-11-17T12:00:00.000000000Z

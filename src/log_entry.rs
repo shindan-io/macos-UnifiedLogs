@@ -20,12 +20,14 @@ use std::rc::Rc;
 use tracing::error;
 use uuid::Uuid;
 
-use super::decoders::{config, location};
-
 use super::chunks::firehose::flags::FirehoseFlags;
 use super::chunks::firehose::item::fill_private_data;
 use super::chunks::firehose::item::{parse_items_data, parse_trace_items};
-use super::format::format_message;
+use super::decoders::{config, location};
+use super::format::format_message_into;
+use super::tracev3::FormatStringError;
+use std::cell::OnceCell;
+use std::fmt::Write;
 
 /// Event type classification for a log entry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -188,9 +190,11 @@ pub struct LogEntry<'a, 'b> {
 
     pub resolved_message: std::cell::RefCell<Option<Rc<String>>>,
 
-    /// Error message for invalid format string offsets (old pipeline parity).
-    /// When `format_string` is None, this replaces `<missing format string>`.
-    pub format_string_error: Option<String>,
+    /// Why the format string lookup failed (old pipeline parity).
+    /// When `format_string` is None, its text replaces `<missing format string>`.
+    pub format_string_error: Option<FormatStringError>,
+    /// Text of `format_string_error`, rendered on first use.
+    pub(crate) format_string_error_text: OnceCell<String>,
 }
 
 impl<'a, 'b> LogEntry<'a, 'b> {
@@ -204,13 +208,12 @@ impl<'a, 'b> LogEntry<'a, 'b> {
 
     /// Format the log message on demand. This is the only allocation point.
     pub fn message(&self) -> Rc<String> {
-        if let Ok(borrow) = self.resolved_message.try_borrow()
-            && let Some(msg) = borrow.as_ref()
-        {
-            return msg.clone();
+        if let Some(msg) = self.cached_message() {
+            return msg;
         }
 
-        let msg = self.format_message_inner();
+        let mut msg = String::new();
+        self.write_formatted_message(&mut msg);
 
         let msg = Rc::new(msg);
         if let Ok(mut borrow) = self.resolved_message.try_borrow_mut() {
@@ -219,12 +222,31 @@ impl<'a, 'b> LogEntry<'a, 'b> {
         msg
     }
 
+    /// Append the log message to `out`.
+    ///
+    /// Same text as [`Self::message`], but written into a caller-owned buffer that can
+    /// be reused across entries; the result is not cached on the entry.
+    pub fn write_message(&self, out: &mut String) {
+        match self.cached_message() {
+            Some(msg) => out.push_str(&msg),
+            None => self.write_formatted_message(out),
+        }
+    }
+
+    fn cached_message(&self) -> Option<Rc<String>> {
+        self.resolved_message.try_borrow().ok()?.clone()
+    }
+
     /// Effective format string — falls back to error string for parity with old pipeline.
     fn effective_format_string(&self) -> Option<&str> {
         if self.format_string.is_some() {
             return self.format_string;
         }
-        self.format_string_error.as_deref()
+        let error = self.format_string_error.as_ref()?;
+        Some(
+            self.format_string_error_text
+                .get_or_init(|| error.to_string()),
+        )
     }
 
     /// Raw format string or old-pipeline fallback text when lookup failed.
@@ -235,8 +257,8 @@ impl<'a, 'b> LogEntry<'a, 'b> {
         self.effective_format_string().unwrap_or_default()
     }
 
-    /// Build the formatted message string from raw items and format string.
-    fn format_message_inner(&self) -> String {
+    /// Format the message from raw items and format string, appending to `out`.
+    fn write_formatted_message(&self, out: &mut String) {
         let fmt_str = self.effective_format_string();
         match &self.items {
             ItemsData::Regular {
@@ -264,22 +286,17 @@ impl<'a, 'b> LogEntry<'a, 'b> {
                 } else if !remaining_private_data.is_empty() {
                     fill_private_data(&mut items, remaining_private_data, 0, 0);
                 }
-                let msg = format_message(fmt_str, &items);
-                self.apply_parity_prefix(msg, if *is_oversize { None } else { backtrace })
+                // The item bytes bound the size of the substituted values.
+                out.reserve(fmt_str.map_or(0, str::len) + data.len());
+                self.write_parity_prefix(out, if *is_oversize { None } else { backtrace });
+                format_message_into(out, fmt_str, &items);
             }
             ItemsData::Trace { data } => {
                 let items = parse_trace_items(data);
-                format_message(fmt_str, &items)
+                format_message_into(out, fmt_str, &items);
             }
-            ItemsData::Loss {
-                count,
-                start_time,
-                end_time,
-            } => {
-                let _ = (count, start_time, end_time);
-                String::new()
-            }
-            ItemsData::Simpledump { message, .. } => (*message).to_string(),
+            ItemsData::Loss { .. } => {}
+            ItemsData::Simpledump { message, .. } => out.push_str(message),
             ItemsData::Statedump {
                 title_name,
                 decoder_library,
@@ -288,11 +305,12 @@ impl<'a, 'b> LogEntry<'a, 'b> {
                 data_type,
             } => {
                 let data_string = format_statedump_data(*data_type, statedump_data, title_name);
-                format!(
+                let _ = write!(
+                    out,
                     "title: {title_name}\nObject Type: {decoder_library}\nObject Type: {decoder_type}\n{data_string}"
-                )
+                );
             }
-            ItemsData::None => format_message(fmt_str, &[]),
+            ItemsData::None => format_message_into(out, fmt_str, &[]),
         }
     }
 
@@ -301,25 +319,24 @@ impl<'a, 'b> LogEntry<'a, 'b> {
         DateTime::from_timestamp_nanos(self.time as i64)
     }
 
-    /// Apply signpost and backtrace prefixes for parity with the old pipeline.
-    fn apply_parity_prefix(&self, msg: String, backtrace: Option<&[u8]>) -> String {
-        let mut result = msg;
-
-        if self.event_type == EventType::Signpost {
-            result = format!(
-                "Signpost ID: {:X} - Signpost Name: {:X}\n {result}",
-                self.signpost_id, self.signpost_name,
-            );
-        }
-
+    /// Write the backtrace and signpost prefixes (in that order) for parity with the old pipeline.
+    fn write_parity_prefix(&self, out: &mut String, backtrace: Option<&[u8]>) {
         if let Some(bt_data) = backtrace {
             let bt_str = format_backtrace(bt_data);
             if !bt_str.is_empty() {
-                result = format!("Backtrace:\n{bt_str}\n{result}");
+                out.push_str("Backtrace:\n");
+                out.push_str(&bt_str);
+                out.push('\n');
             }
         }
 
-        result
+        if self.event_type == EventType::Signpost {
+            let _ = write!(
+                out,
+                "Signpost ID: {:X} - Signpost Name: {:X}\n ",
+                self.signpost_id, self.signpost_name,
+            );
+        }
     }
 }
 

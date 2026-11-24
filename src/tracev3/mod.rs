@@ -21,10 +21,11 @@ use super::chunks::statedump::RawStatedump;
 use super::error::NomExt;
 use super::header::RawHeaderChunk;
 use super::log_entry::{EventType, ItemsData, LogEntry, LogType, MessageFlags, PrivateDataContext};
-use super::resolve::{main_process, resolve_strings};
+use super::resolve::{ResolvedStrings, main_process, resolve_strings};
 use super::timesync::TimestampResolver;
 use super::traits::{FileProvider, VisitOutcome};
-use std::cell::RefCell;
+use std::cell::{OnceCell, RefCell};
+use std::fmt;
 use std::ops::ControlFlow;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -60,6 +61,8 @@ pub fn visit_tracev3<'d, 's: 'd, O: VisitOutcome>(
     let mut current_header: Option<RawHeaderChunk<'d>> = None;
     let mut current_catalog: Option<RawCatalogChunk<'d>> = None;
     let mut deferred_readers: Vec<ChunkSetReader<'d>> = Vec::new();
+    // Resolution depends on the current catalog: cleared whenever it (or the header) changes.
+    let mut resolve_memo = ResolveMemo::default();
 
     for top_chunk in ChunksReader::new(data) {
         let top_chunk = match top_chunk {
@@ -85,6 +88,7 @@ pub fn visit_tracev3<'d, 's: 'd, O: VisitOutcome>(
                 {
                     return ControlFlow::Break(());
                 }
+                resolve_memo.clear();
                 current_header = Some(h);
             }
             TopChunk::Catalog(c) => {
@@ -103,6 +107,7 @@ pub fn visit_tracev3<'d, 's: 'd, O: VisitOutcome>(
                 {
                     return ControlFlow::Break(());
                 }
+                resolve_memo.clear();
                 current_catalog = Some(c);
             }
             TopChunk::Chunkset(mut reader) => {
@@ -154,6 +159,7 @@ pub fn visit_tracev3<'d, 's: 'd, O: VisitOutcome>(
                                 strings,
                                 oversize_cache,
                                 &evidence,
+                                &mut resolve_memo,
                                 &mut callback,
                             )
                             .is_break()
@@ -288,6 +294,7 @@ fn flush_deferred_entries<'d, 's: 'd>(
                         signpost_name: 0,
                         resolved_message: RefCell::new(None),
                         format_string_error: None,
+                        format_string_error_text: OnceCell::new(),
                     })?;
                 }
                 Err(e) => {
@@ -359,6 +366,7 @@ fn flush_deferred_entries<'d, 's: 'd>(
                         signpost_name: 0,
                         resolved_message: RefCell::new(None),
                         format_string_error: None,
+                        format_string_error_text: OnceCell::new(),
                     })?;
                 }
                 Err(e) => {
@@ -405,6 +413,20 @@ fn private_data_start<'a>(fh: &RawFirehose<'a>) -> Option<&'a [u8]> {
 // Per-entry processing
 // ---------------------------------------------------------------------------
 
+/// Every input of [`resolve_strings`] besides the catalog and the string catalog.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+struct ResolveKey {
+    format_string_location: u32,
+    pc_id: u32,
+    formatter: RawFormatterFlags,
+    first_proc_id: u64,
+    second_proc_id: u32,
+}
+
+/// Memoized [`resolve_strings`] results for the current catalog: entries from the
+/// same call site resolve to the same strings.
+type ResolveMemo<'s> = crate::HashMap<ResolveKey, ResolvedStrings<'s>>;
+
 #[allow(clippy::too_many_arguments)]
 fn visit_firehose_entries<'d: 'b, 'b, 's: 'd>(
     fh: &RawFirehose<'b>,
@@ -414,6 +436,7 @@ fn visit_firehose_entries<'d: 'b, 'b, 's: 'd>(
     strings: &StringCatalog<'s, impl FileProvider>,
     oversize_cache: &'b OversizeCache<'_>,
     evidence: &Rc<PathBuf>,
+    resolve_memo: &mut ResolveMemo<'s>,
     callback: &mut impl FnMut(LogEntry<'d, 'b>) -> ControlFlow<()>,
 ) -> ControlFlow<()> {
     let boot_uuid = header.boot_uuid;
@@ -531,6 +554,7 @@ fn visit_firehose_entries<'d: 'b, 'b, 's: 'd>(
                     signpost_name: 0,
                     resolved_message: RefCell::new(None),
                     format_string_error: None,
+                    format_string_error_text: OnceCell::new(),
                 })?;
                 continue;
             }
@@ -575,6 +599,7 @@ fn visit_firehose_entries<'d: 'b, 'b, 's: 'd>(
                     signpost_name: 0,
                     resolved_message: RefCell::new(Some(Rc::new(String::new()))),
                     format_string_error: None,
+                    format_string_error_text: OnceCell::new(),
                 })?;
                 continue;
             }
@@ -599,29 +624,35 @@ fn visit_firehose_entries<'d: 'b, 'b, 's: 'd>(
         let time = resolver.resolve(&boot_uuid, abs_ct, fh.base_continuous_time);
 
         // Resolve strings (format string, library, process paths)
-        let resolved = resolve_strings(
-            entry.format_string_location,
+        let key = ResolveKey {
+            format_string_location: entry.format_string_location,
             pc_id,
-            &formatter,
-            fh.first_proc_id,
-            fh.second_proc_id,
-            catalog,
-            strings,
-        );
+            formatter,
+            first_proc_id: fh.first_proc_id,
+            second_proc_id: fh.second_proc_id,
+        };
+        let resolved = *resolve_memo.entry(key).or_insert_with(|| {
+            resolve_strings(
+                entry.format_string_location,
+                pc_id,
+                &formatter,
+                fh.first_proc_id,
+                fh.second_proc_id,
+                catalog,
+                strings,
+            )
+        });
 
         // Generate error string for invalid format string offsets (old pipeline parity)
-        let format_string_error = if resolved.format_string.is_none() {
-            let string_offset = u64::from(entry.format_string_location);
-            Some(format_string_error_message(
-                string_offset,
+        let format_string_error = resolved.format_string.is_none().then(|| {
+            FormatStringError::new(
+                u64::from(entry.format_string_location),
                 &formatter,
                 resolved.library_uuid,
                 resolved.process_uuid,
                 resolved.source_found,
-            ))
-        } else {
-            None
-        };
+            )
+        });
         let process = if format_string_error.is_some() && !resolved.source_found {
             None
         } else {
@@ -721,6 +752,7 @@ fn visit_firehose_entries<'d: 'b, 'b, 's: 'd>(
             signpost_name,
             resolved_message: RefCell::new(None),
             format_string_error,
+            format_string_error_text: OnceCell::new(),
         })?;
     }
 
@@ -821,6 +853,7 @@ fn emit_embedded_unknown_markers<'a: 'b, 'b>(
         signpost_name: 0,
         resolved_message: RefCell::new(Some(Rc::new(String::new()))),
         format_string_error: None,
+        format_string_error_text: OnceCell::new(),
     })?;
     ControlFlow::Continue(())
 }
@@ -990,62 +1023,96 @@ fn extract_timezone_name(timezone_path: &str) -> &str {
     timezone_path.rsplit('/').next().unwrap_or(timezone_path)
 }
 
-/// Generate error message matching the old pipeline's format when format string lookup fails.
-///
-/// Two levels of error, distinguished by `uuid_found`:
-/// - **Level 1** (`uuid_found = false`): UUID/DSC file not found → "Failed to get…" / "Unknown…"
-/// - **Level 2** (`uuid_found = true`): File found but offset invalid → "Error: Invalid offset…"
-fn format_string_error_message(
-    string_offset: u64,
-    formatter: &RawFormatterFlags,
-    library_uuid: Uuid,
-    process_uuid: Uuid,
-    uuid_found: bool,
-) -> String {
-    if formatter.shared_cache || formatter.large_shared_cache != 0 {
-        if uuid_found {
-            "Error: Invalid shared string offset".to_string()
+/// Where a format string should have been read from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FormatStringSource {
+    /// The shared cache strings (DSC) file.
+    SharedCache,
+    /// The `UUIDText` file of the library (absolute UUID).
+    Absolute(Uuid),
+    /// The `UUIDText` file named by the entry (alternative UUID).
+    Alternative(Uuid),
+    /// The `UUIDText` file of the main process.
+    Process(Uuid),
+}
+
+/// A failed format string lookup. Its text (old pipeline parity) is rendered on demand.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FormatStringError {
+    /// The DSC or `UUIDText` file was not found.
+    MissingSource(FormatStringSource),
+    /// The file was found, but the string offset is invalid in it.
+    InvalidOffset(FormatStringSource, u64),
+}
+
+impl FormatStringError {
+    fn new(
+        string_offset: u64,
+        formatter: &RawFormatterFlags,
+        library_uuid: Uuid,
+        process_uuid: Uuid,
+        source_found: bool,
+    ) -> Self {
+        let source = if formatter.shared_cache || formatter.large_shared_cache != 0 {
+            FormatStringSource::SharedCache
+        } else if formatter.absolute {
+            FormatStringSource::Absolute(library_uuid)
+        } else if formatter.uuid_relative != [0u8; 16] {
+            FormatStringSource::Alternative(Uuid::from_bytes(formatter.uuid_relative))
         } else {
-            "Unknown shared string message".to_string()
+            FormatStringSource::Process(process_uuid)
+        };
+        if source_found {
+            Self::InvalidOffset(source, string_offset)
+        } else {
+            Self::MissingSource(source)
         }
-    } else if formatter.absolute {
-        if uuid_found {
-            format!(
-                "Error: Invalid offset {} for absolute UUID {:X}",
-                string_offset,
-                library_uuid.simple()
-            )
-        } else {
-            format!(
+    }
+}
+
+impl fmt::Display for FormatStringError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use FormatStringSource::{Absolute, Alternative, Process, SharedCache};
+        match *self {
+            Self::InvalidOffset(SharedCache, _) => {
+                f.write_str("Error: Invalid shared string offset")
+            }
+            Self::MissingSource(SharedCache) => f.write_str("Unknown shared string message"),
+            Self::InvalidOffset(Absolute(uuid), offset) => {
+                write!(
+                    f,
+                    "Error: Invalid offset {offset} for absolute UUID {:X}",
+                    uuid.simple()
+                )
+            }
+            Self::MissingSource(Absolute(uuid)) => write!(
+                f,
                 "Failed to get string message from absolute UUIDText file: {:X}",
-                library_uuid.simple()
-            )
-        }
-    } else if formatter.uuid_relative != [0u8; 16] {
-        let uuid = Uuid::from_bytes(formatter.uuid_relative);
-        if uuid_found {
-            format!(
-                "Error: Invalid offset {} for alternative UUID {:X}",
-                string_offset,
                 uuid.simple()
-            )
-        } else {
-            format!(
+            ),
+            Self::InvalidOffset(Alternative(uuid), offset) => write!(
+                f,
+                "Error: Invalid offset {offset} for alternative UUID {:X}",
+                uuid.simple()
+            ),
+            Self::MissingSource(Alternative(uuid)) => write!(
+                f,
                 "Failed to get string message from alternative UUIDText file: {:X}",
                 uuid.simple()
-            )
+            ),
+            Self::InvalidOffset(Process(uuid), offset) => {
+                write!(
+                    f,
+                    "Error: Invalid offset {offset} for UUID {:X}",
+                    uuid.simple()
+                )
+            }
+            Self::MissingSource(Process(uuid)) => write!(
+                f,
+                "Failed to get string message from UUIDText file: {:X}",
+                uuid.simple()
+            ),
         }
-    } else if uuid_found {
-        format!(
-            "Error: Invalid offset {} for UUID {:X}",
-            string_offset,
-            process_uuid.simple()
-        )
-    } else {
-        format!(
-            "Failed to get string message from UUIDText file: {:X}",
-            process_uuid.simple()
-        )
     }
 }
 
@@ -1246,5 +1313,46 @@ mod tests {
                 MessageFlags::HasSubsystem
             ]
         );
+    }
+
+    #[test]
+    fn test_format_string_error_text() {
+        use FormatStringError::{InvalidOffset, MissingSource};
+        use FormatStringSource::{Absolute, Alternative, Process, SharedCache};
+        let uuid = Uuid::from_u128(0x0011_2233_4455_6677_8899_aabb_ccdd_eeff);
+        let cases = [
+            (
+                InvalidOffset(SharedCache, 7),
+                "Error: Invalid shared string offset",
+            ),
+            (MissingSource(SharedCache), "Unknown shared string message"),
+            (
+                InvalidOffset(Absolute(uuid), 7),
+                "Error: Invalid offset 7 for absolute UUID 00112233445566778899AABBCCDDEEFF",
+            ),
+            (
+                MissingSource(Absolute(uuid)),
+                "Failed to get string message from absolute UUIDText file: 00112233445566778899AABBCCDDEEFF",
+            ),
+            (
+                InvalidOffset(Alternative(uuid), 7),
+                "Error: Invalid offset 7 for alternative UUID 00112233445566778899AABBCCDDEEFF",
+            ),
+            (
+                MissingSource(Alternative(uuid)),
+                "Failed to get string message from alternative UUIDText file: 00112233445566778899AABBCCDDEEFF",
+            ),
+            (
+                InvalidOffset(Process(uuid), 7),
+                "Error: Invalid offset 7 for UUID 00112233445566778899AABBCCDDEEFF",
+            ),
+            (
+                MissingSource(Process(uuid)),
+                "Failed to get string message from UUIDText file: 00112233445566778899AABBCCDDEEFF",
+            ),
+        ];
+        for (error, text) in cases {
+            assert_eq!(error.to_string(), text);
+        }
     }
 }

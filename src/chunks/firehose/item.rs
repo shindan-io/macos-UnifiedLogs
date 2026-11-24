@@ -50,6 +50,9 @@ pub enum RawItemKind {
 pub enum RawItemValue<'a> {
     /// Precision items, unknowns.
     Empty,
+    /// String or bytes item whose data has not been read: set by pass 1 of
+    /// [`parse_items_data`], filled by pass 2. Remains if the data section is truncated.
+    Pending,
     /// 1/2/4/8-byte signed LE numbers (standard items).
     I64(i64),
     /// 8-byte unsigned (trace items only, BE).
@@ -111,8 +114,6 @@ pub fn parse_items_data<'a>(
     let (input, number_items) = le_u8(input)?;
 
     let mut items: Vec<RawFirehoseItem<'_>> = Vec::with_capacity(number_items as usize);
-    // Indices of items that need string data in pass 2.
-    let mut deferred: Vec<usize> = Vec::new();
     let mut input = input;
 
     // --- Pass 1: headers ---
@@ -181,13 +182,11 @@ pub fn parse_items_data<'a>(
                         value: RawItemValue::Null,
                     });
                 } else {
-                    let idx = items.len();
                     items.push(RawFirehoseItem {
                         item_type: kind,
                         item_size: str_size,
-                        value: RawItemValue::Empty, // placeholder
+                        value: RawItemValue::Pending,
                     });
-                    deferred.push(idx);
                 }
                 input = rest;
             }
@@ -195,13 +194,11 @@ pub fn parse_items_data<'a>(
                 // Read offset+str_size metadata, defer byte extraction to pass 2.
                 let (rest, _offset) = le_u16(rest)?;
                 let (rest, str_size) = le_u16(rest)?;
-                let idx = items.len();
                 items.push(RawFirehoseItem {
                     item_type: kind,
                     item_size: str_size,
-                    value: RawItemValue::Empty, // placeholder
+                    value: RawItemValue::Pending,
                 });
-                deferred.push(idx);
                 input = rest;
             }
             RawItemKind::Unknown => {
@@ -243,10 +240,10 @@ pub fn parse_items_data<'a>(
     };
 
     // --- Pass 2: strings/bytes ---
-    for &idx in &deferred {
-        let Some(item) = items.get_mut(idx) else {
-            continue;
-        };
+    for item in items
+        .iter_mut()
+        .filter(|item| item.value == RawItemValue::Pending)
+    {
         let str_size = item.item_size as usize;
         let kind = item.item_type;
 

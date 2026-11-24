@@ -5,9 +5,9 @@
 // is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and limitations under the License.
 
+use crate::HashMap;
 use nom::number::complete::{be_u128, le_i64, le_u16, le_u32, le_u64};
 use serde::Serialize;
-use std::collections::HashMap;
 use tracing::warn;
 use uuid::Uuid;
 
@@ -133,7 +133,7 @@ fn parse_timesync_item(input: &[u8]) -> nom::IResult<&[u8], TimesyncItem> {
 /// A truncated or corrupt tail is logged and everything parsed before it is
 /// kept (partial acquisitions).
 pub fn parse_timesync_file(data: &[u8]) -> nom::IResult<&[u8], HashMap<Uuid, RawTimesyncBoot>> {
-    let mut result: HashMap<Uuid, RawTimesyncBoot> = HashMap::new();
+    let mut result: HashMap<Uuid, RawTimesyncBoot> = HashMap::default();
     let mut input = data;
     let mut current_boot = RawTimesyncBoot {
         boot_uuid: Uuid::nil(),
@@ -333,7 +333,7 @@ mod tests {
     /// Helper: collect timesync data from all .timesync files in a logarchive directory.
     fn collect_timesync_data(logarchive_path: &std::path::Path) -> HashMap<Uuid, RawTimesyncBoot> {
         let timesync_dir = logarchive_path.join("timesync");
-        let mut all_data: HashMap<Uuid, RawTimesyncBoot> = HashMap::new();
+        let mut all_data: HashMap<Uuid, RawTimesyncBoot> = HashMap::default();
 
         for entry in std::fs::read_dir(&timesync_dir).unwrap() {
             let entry = entry.unwrap();
