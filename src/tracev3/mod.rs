@@ -644,16 +644,15 @@ fn visit_firehose_entries<'d: 'b, 'b, 's: 'd>(
         });
 
         // Generate error string for invalid format string offsets (old pipeline parity)
-        let format_string_error = resolved
-            .format_string
-            .is_none()
-            .then_some(FormatStringError {
-                string_offset: u64::from(entry.format_string_location),
-                formatter,
-                library_uuid: resolved.library_uuid,
-                process_uuid: resolved.process_uuid,
-                source_found: resolved.source_found,
-            });
+        let format_string_error = resolved.format_string.is_none().then(|| {
+            FormatStringError::new(
+                u64::from(entry.format_string_location),
+                &formatter,
+                resolved.library_uuid,
+                resolved.process_uuid,
+                resolved.source_found,
+            )
+        });
         let process = if format_string_error.is_some() && !resolved.source_found {
             None
         } else {
@@ -1024,79 +1023,95 @@ fn extract_timezone_name(timezone_path: &str) -> &str {
     timezone_path.rsplit('/').next().unwrap_or(timezone_path)
 }
 
-/// A failed format string lookup, rendered as text on demand.
-///
-/// Two levels of error, distinguished by `source_found`:
-/// - **Level 1** (`source_found = false`): UUID/DSC file not found → "Failed to get…" / "Unknown…"
-/// - **Level 2** (`source_found = true`): File found but offset invalid → "Error: Invalid offset…"
+/// Where a format string should have been read from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct FormatStringError {
-    pub string_offset: u64,
-    pub formatter: RawFormatterFlags,
-    pub library_uuid: Uuid,
-    pub process_uuid: Uuid,
-    pub source_found: bool,
+pub enum FormatStringSource {
+    /// The shared cache strings (DSC) file.
+    SharedCache,
+    /// The `UUIDText` file of the library (absolute UUID).
+    Absolute(Uuid),
+    /// The `UUIDText` file named by the entry (alternative UUID).
+    Alternative(Uuid),
+    /// The `UUIDText` file of the main process.
+    Process(Uuid),
+}
+
+/// A failed format string lookup. Its text (old pipeline parity) is rendered on demand.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FormatStringError {
+    /// The DSC or `UUIDText` file was not found.
+    MissingSource(FormatStringSource),
+    /// The file was found, but the string offset is invalid in it.
+    InvalidOffset(FormatStringSource, u64),
+}
+
+impl FormatStringError {
+    fn new(
+        string_offset: u64,
+        formatter: &RawFormatterFlags,
+        library_uuid: Uuid,
+        process_uuid: Uuid,
+        source_found: bool,
+    ) -> Self {
+        let source = if formatter.shared_cache || formatter.large_shared_cache != 0 {
+            FormatStringSource::SharedCache
+        } else if formatter.absolute {
+            FormatStringSource::Absolute(library_uuid)
+        } else if formatter.uuid_relative != [0u8; 16] {
+            FormatStringSource::Alternative(Uuid::from_bytes(formatter.uuid_relative))
+        } else {
+            FormatStringSource::Process(process_uuid)
+        };
+        if source_found {
+            Self::InvalidOffset(source, string_offset)
+        } else {
+            Self::MissingSource(source)
+        }
+    }
 }
 
 impl fmt::Display for FormatStringError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Self {
-            string_offset,
-            formatter,
-            library_uuid,
-            process_uuid,
-            source_found,
-        } = *self;
-        if formatter.shared_cache || formatter.large_shared_cache != 0 {
-            if source_found {
+        use FormatStringSource::{Absolute, Alternative, Process, SharedCache};
+        match *self {
+            Self::InvalidOffset(SharedCache, _) => {
                 f.write_str("Error: Invalid shared string offset")
-            } else {
-                f.write_str("Unknown shared string message")
             }
-        } else if formatter.absolute {
-            if source_found {
+            Self::MissingSource(SharedCache) => f.write_str("Unknown shared string message"),
+            Self::InvalidOffset(Absolute(uuid), offset) => {
                 write!(
                     f,
-                    "Error: Invalid offset {} for absolute UUID {:X}",
-                    string_offset,
-                    library_uuid.simple()
-                )
-            } else {
-                write!(
-                    f,
-                    "Failed to get string message from absolute UUIDText file: {:X}",
-                    library_uuid.simple()
-                )
-            }
-        } else if formatter.uuid_relative != [0u8; 16] {
-            let uuid = Uuid::from_bytes(formatter.uuid_relative);
-            if source_found {
-                write!(
-                    f,
-                    "Error: Invalid offset {} for alternative UUID {:X}",
-                    string_offset,
-                    uuid.simple()
-                )
-            } else {
-                write!(
-                    f,
-                    "Failed to get string message from alternative UUIDText file: {:X}",
+                    "Error: Invalid offset {offset} for absolute UUID {:X}",
                     uuid.simple()
                 )
             }
-        } else if source_found {
-            write!(
+            Self::MissingSource(Absolute(uuid)) => write!(
                 f,
-                "Error: Invalid offset {} for UUID {:X}",
-                string_offset,
-                process_uuid.simple()
-            )
-        } else {
-            write!(
+                "Failed to get string message from absolute UUIDText file: {:X}",
+                uuid.simple()
+            ),
+            Self::InvalidOffset(Alternative(uuid), offset) => write!(
+                f,
+                "Error: Invalid offset {offset} for alternative UUID {:X}",
+                uuid.simple()
+            ),
+            Self::MissingSource(Alternative(uuid)) => write!(
+                f,
+                "Failed to get string message from alternative UUIDText file: {:X}",
+                uuid.simple()
+            ),
+            Self::InvalidOffset(Process(uuid), offset) => {
+                write!(
+                    f,
+                    "Error: Invalid offset {offset} for UUID {:X}",
+                    uuid.simple()
+                )
+            }
+            Self::MissingSource(Process(uuid)) => write!(
                 f,
                 "Failed to get string message from UUIDText file: {:X}",
-                process_uuid.simple()
-            )
+                uuid.simple()
+            ),
         }
     }
 }
@@ -1298,5 +1313,46 @@ mod tests {
                 MessageFlags::HasSubsystem
             ]
         );
+    }
+
+    #[test]
+    fn test_format_string_error_text() {
+        use FormatStringError::{InvalidOffset, MissingSource};
+        use FormatStringSource::{Absolute, Alternative, Process, SharedCache};
+        let uuid = Uuid::from_u128(0x0011_2233_4455_6677_8899_aabb_ccdd_eeff);
+        let cases = [
+            (
+                InvalidOffset(SharedCache, 7),
+                "Error: Invalid shared string offset",
+            ),
+            (MissingSource(SharedCache), "Unknown shared string message"),
+            (
+                InvalidOffset(Absolute(uuid), 7),
+                "Error: Invalid offset 7 for absolute UUID 00112233445566778899AABBCCDDEEFF",
+            ),
+            (
+                MissingSource(Absolute(uuid)),
+                "Failed to get string message from absolute UUIDText file: 00112233445566778899AABBCCDDEEFF",
+            ),
+            (
+                InvalidOffset(Alternative(uuid), 7),
+                "Error: Invalid offset 7 for alternative UUID 00112233445566778899AABBCCDDEEFF",
+            ),
+            (
+                MissingSource(Alternative(uuid)),
+                "Failed to get string message from alternative UUIDText file: 00112233445566778899AABBCCDDEEFF",
+            ),
+            (
+                InvalidOffset(Process(uuid), 7),
+                "Error: Invalid offset 7 for UUID 00112233445566778899AABBCCDDEEFF",
+            ),
+            (
+                MissingSource(Process(uuid)),
+                "Failed to get string message from UUIDText file: 00112233445566778899AABBCCDDEEFF",
+            ),
+        ];
+        for (error, text) in cases {
+            assert_eq!(error.to_string(), text);
+        }
     }
 }
