@@ -5,10 +5,9 @@
 // is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and limitations under the License.
 
+use super::helpers::utf8_str_from_cstring;
 use nom::number::complete::le_u32;
 use serde::Serialize;
-
-use super::helpers::utf8_str_from_cstring;
 
 const UUIDTEXT_SIGNATURE: u32 = 0x6677_8899;
 

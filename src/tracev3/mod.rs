@@ -26,7 +26,6 @@ use super::log_entry::{
 use super::resolve::{ResolvedStrings, main_process, resolve_strings};
 use super::timesync::TimestampResolver;
 use super::traits::{FileProvider, VisitOutcome};
-
 use std::cell::{OnceCell, RefCell};
 use std::ops::ControlFlow;
 use std::path::PathBuf;
