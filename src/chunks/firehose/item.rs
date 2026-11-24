@@ -50,6 +50,9 @@ pub enum RawItemKind {
 pub enum RawItemValue<'a> {
     /// Precision items, unknowns.
     Empty,
+    /// String or bytes item whose data has not been read: set by pass 1 of
+    /// [`parse_items_data`], filled by pass 2. Remains if the data section is truncated.
+    Pending,
     /// 1/2/4/8-byte signed LE numbers (standard items).
     I64(i64),
     /// 8-byte unsigned (trace items only, BE).
@@ -182,7 +185,7 @@ pub fn parse_items_data<'a>(
                     items.push(RawFirehoseItem {
                         item_type: kind,
                         item_size: str_size,
-                        value: RawItemValue::Empty, // placeholder, filled in pass 2
+                        value: RawItemValue::Pending,
                     });
                 }
                 input = rest;
@@ -194,7 +197,7 @@ pub fn parse_items_data<'a>(
                 items.push(RawFirehoseItem {
                     item_type: kind,
                     item_size: str_size,
-                    value: RawItemValue::Empty, // placeholder, filled in pass 2
+                    value: RawItemValue::Pending,
                 });
                 input = rest;
             }
@@ -237,17 +240,10 @@ pub fn parse_items_data<'a>(
     };
 
     // --- Pass 2: strings/bytes ---
-    // Pass 1 left exactly the string-like items still awaiting their data as `Empty`.
-    let awaiting_data = |item: &RawFirehoseItem<'_>| {
-        matches!(
-            item.item_type,
-            RawItemKind::String
-                | RawItemKind::Object
-                | RawItemKind::Arbitrary
-                | RawItemKind::BaseRaw
-        ) && item.value == RawItemValue::Empty
-    };
-    for item in items.iter_mut().filter(|item| awaiting_data(item)) {
+    for item in items
+        .iter_mut()
+        .filter(|item| item.value == RawItemValue::Pending)
+    {
         let str_size = item.item_size as usize;
         let kind = item.item_type;
 

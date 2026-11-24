@@ -41,7 +41,7 @@ fn decode_annotation(annotation: &str, item: &RawFirehoseItem<'_>) -> Option<Str
         RawItemValue::Private { .. } => return None,
         // Old pipeline calls decoders with empty string for size-0 items. Most decoders will fail
         // on empty input and we'll return None below, matching the fallthrough behavior.
-        RawItemValue::Empty | RawItemValue::Null => String::new(),
+        RawItemValue::Empty | RawItemValue::Pending | RawItemValue::Null => String::new(),
     };
 
     // Replicate check_objects: mask.hash + BaseRaw (0xf2) → return base64 as-is,
@@ -935,7 +935,7 @@ fn item_to_string(item: &RawFirehoseItem<'_>) -> String {
         RawItemValue::U64(n) => n.to_string(),
         RawItemValue::Bytes(b) => String::from_utf8_lossy(b).into_owned(),
         RawItemValue::Private { .. } => "<private>".to_string(),
-        RawItemValue::Empty => String::new(),
+        RawItemValue::Empty | RawItemValue::Pending => String::new(),
         RawItemValue::Null => String::from("(null)"),
     }
 }
